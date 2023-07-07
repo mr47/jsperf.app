@@ -7,7 +7,7 @@ export const getServerSideProps = async ({res, params}) => {
   // so parse the year from the year param e.g. '2021.xml'
 
   // Only add the latest version to the sitemap, which hints to google it as canonical
-  
+
   const year = parseInt(params.year)
 
   const pages = await pagesCollection()
@@ -44,8 +44,8 @@ export const getServerSideProps = async ({res, params}) => {
     },
     {
       '$project': {
-        'slug': 1, 
-        'revision': 1, 
+        'slug': 1,
+        'revision': 1,
         'published': 1,
         'visible': 1,
         'year': {
@@ -63,7 +63,7 @@ export const getServerSideProps = async ({res, params}) => {
     ${result.map(({slug, revision, published}) => {
       return `
         <url>
-          <loc>https://jsperf.app/${slug}${revision === 1 ? '' : `/${revision}`}</loc>
+          <loc>https://jsperf.net/${slug}${revision === 1 ? '' : `/${revision}`}</loc>
           <lastmod>${new Date(published).toISOString()}</lastmod>
         </url>
       `

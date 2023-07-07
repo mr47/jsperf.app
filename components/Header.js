@@ -11,7 +11,7 @@ export default function Header(props) {
 
   const ToggleNavState = id => {
     navState[id] = !navState[id]
-    setNavState({...navState}); 
+    setNavState({...navState});
    };
 
   const { login } = session?.user?.profile || {}
@@ -22,7 +22,7 @@ export default function Header(props) {
         <div className="flex items-center flex-shrink-0 mr-6">
           <a href="/" className="no-underline text-black">
             <span className="sr-only">jsPerf Home Page</span>
-            <span className="font-semibold text-2xl tracking-tight">jsPerf.app</span>
+            <span className="font-semibold text-2xl tracking-tight">jsPerf.net</span>
           </a>
         </div>
         <div className="block lg:hidden">
@@ -63,7 +63,7 @@ export default function Header(props) {
       </nav>
       <section id="about" className={`${navState.about ? 'p-5 visible' : 'h-0 invisible'} border-solid border-2 border-gray-300`}>
         <p>
-          jsPerf.app is an online JavaScript performance benchmark test runner &amp; jsperf.com mirror. It is a complete rewrite in homage to the once excellent jsperf.com now with hopefully a more modern &amp; maintainable <a href="https://github.com/rd13/jsperf.app">codebase</a>.
+          jsPerf.net is an online JavaScript performance benchmark test runner &amp; jsperf.com mirror. It is a complete rewrite in homage to the once excellent jsperf.com now with hopefully a more modern &amp; maintainable <a href="https://github.com/rd13/jsperf.app">codebase</a>.
         </p>
 
         <p className="my-4">
@@ -76,7 +76,7 @@ export default function Header(props) {
 
         <pre className="bg-gray-100 inline-block">
           <Link href="/negative-modulo/2">
-            https://jsperf.app/negative-modulo/2
+            https://jsperf.net/negative-modulo/2
           </Link>
         </pre>
       </section>

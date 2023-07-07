@@ -29,7 +29,7 @@ export const getServerSideProps = async ({res}) => {
     ${result.map(({_id}) => {
       return `
         <sitemap>
-          <loc>https://jsperf.app/sitemap/${_id}.xml</loc>
+          <loc>https://jsperf.net/sitemap/${_id}.xml</loc>
         </sitemap>
       `
     }).join('')}

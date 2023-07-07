@@ -10,10 +10,10 @@ export default function Home(props) {
       <title>jsPerf - Online JavaScript performance benchmark - jsPerf.com mirror</title>
       <meta
         name="description"
-        content="jsPerf.app is an online JavaScript performance benchmark test runner and jsperf.com mirror"
+        content="jsPerf.net is an online JavaScript performance benchmark test runner and jsperf.com mirror"
         key="desc"
       />
-      <link href="https://jsperf.app" rel="canonical" />
+      <link href="https://jsperf.net" rel="canonical" />
     </Head>
     <Layout navState={{ about: true }}>
       <h1 className="font-semibold py-2">Create a test case</h1>
