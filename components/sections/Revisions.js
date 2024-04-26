@@ -1,4 +1,4 @@
-import {datetimeLong} from '../../utils/Date'
+import {DateTimeLong} from '../../utils/Date'
 import Link from 'next/link'
 
 const Revisions = (props) => {
@@ -15,7 +15,7 @@ const Revisions = (props) => {
               <a href={revision === 1 ? `/${slug}` : `/${slug}/${revision}`}>
                 Revision {revision}
               </a>: published {authorName && <span>by {authorName} </span>}on <time dateTime={published}>
-                {datetimeLong(published)}
+                <DateTimeLong date={published} />
               </time>
             </li>
           )

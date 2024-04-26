@@ -2,7 +2,7 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { pagesCollection } from '../lib/mongodb'
 import Layout from '../components/Layout'
-import {datetimeLong} from '../utils/Date'
+import {DateTimeLong} from '../utils/Date'
 
 export default function Latest(props) {
   const {entries} = props
@@ -26,7 +26,7 @@ export default function Latest(props) {
                       {title}
                     </Link>
                     <span> Published on <time dateTime={published}>
-                      {datetimeLong(published)}
+                      <DateTimeLong date={published}/>
                     </time></span>
                     <span> [{testsCount} tests, {revisionCount} revision{`${revisionCount > 1 ? 's' : ''}`}]</span>
                   </li>
@@ -44,7 +44,7 @@ export const getStaticProps = async () => {
   const pages = await pagesCollection()
 
   const entries = await pages.aggregate([
-    { 
+    {
       $match : {
         visible: true,
         published: { $gt: new Date("2016-01-01T00:00:00Z") }
@@ -55,11 +55,11 @@ export const getStaticProps = async () => {
         title: 1, slug: 1, revision: 1, published: 1, testsCount: { $size: "$tests" }
       }
     },
-    { 
-      $group : { 
+    {
+      $group : {
         _id : "$slug",
-        revisionCount: { 
-          $sum: 1 
+        revisionCount: {
+          $sum: 1
         },
         document: {
           "$first": "$$ROOT"
@@ -90,8 +90,8 @@ export const getStaticProps = async () => {
     }
   ).toArray();
 
-  return { 
-    props: { 
+  return {
+    props: {
       entries: JSON.parse(JSON.stringify(entries))
     },
     revalidate: 60 * 60 // 1 hour in seconds
