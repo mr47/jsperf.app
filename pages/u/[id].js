@@ -3,8 +3,8 @@ import Head from 'next/head'
 import Layout from '../../components/Layout'
 import Link from 'next/link'
 import { pagesCollection } from '../../lib/mongodb'
-import {datetimeLong} from '../../utils/Date'
-import {useSession} from "next-auth/react";
+import { DateTimeLong } from '../../utils/Date'
+import { useSession } from "next-auth/react";
 import { useParams } from 'next/navigation'
 export default function User(props) {
   const {published, unpublished} = props
@@ -25,7 +25,7 @@ export default function User(props) {
                     {title}
                   </Link>
                   <span> Published on <time dateTime={published}>
-                    {datetimeLong(published)}
+                    <DateTimeLong date={published}/>
                   </time></span>
                   <span> [{testsCount} tests, {revisionCount} revision{`${revisionCount > 1 ? 's' : ''}`}]</span>
                 </li>
@@ -38,7 +38,7 @@ export default function User(props) {
                     {title}
                   </Link>
                   <span> Created on <time dateTime={published}>
-                    {datetimeLong(published)}
+                    <DateTimeLong date={published}/>
                   </time></span>
                   <span> [{testsCount} tests, {revisionCount} revision{`${revisionCount > 1 ? 's' : ''}`}]</span>
                 </li>
