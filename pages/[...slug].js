@@ -118,3 +118,10 @@ export const getStaticProps = async ({params}) => {
     revalidate: 60 * 60 * 24 // 1 day in seconds
   }
 }
+
+export async function getStaticPaths() {
+  return {
+    paths: [],
+    fallback: 'blocking'
+  };
+}
