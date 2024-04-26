@@ -1,5 +1,4 @@
-import { datetimeLong } from '../../utils/Date'
-import { useState } from 'react'
+import { DateTimeLong } from '../../utils/Date'
 import styles from './Meta.module.css'
 
 const Meta = (props) => {
@@ -13,7 +12,7 @@ const Meta = (props) => {
             : <span>Benchmark created </span>
         }
         { authorName && <span> by {authorName} </span>}
-        on <time dateTime={published} pubdate="true">{datetimeLong(published)}</time>
+        on <time dateTime={published} pubdate="true"><DateTimeLong date={published}/></time>
       </h2>
     </>
   )
