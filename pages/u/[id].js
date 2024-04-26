@@ -20,7 +20,7 @@ export default function User(props) {
         <ul>
           { published?.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {
               return (
-                <li key={index}>
+                <li key={`pub-${index}`}>
                   <Link href={`/${slug}/${revision}`}>
                     {title}
                   </Link>
@@ -33,7 +33,7 @@ export default function User(props) {
           }) }
           { canView && unpublished?.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {
             return (
-                <li key={index}>
+                <li key={`unpub-${index}`}>
                   <Link href={`/${slug}/${revision}`}>
                     {title}
                   </Link>
