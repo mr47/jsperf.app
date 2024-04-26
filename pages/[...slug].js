@@ -13,18 +13,18 @@ import Teardown from '../components/sections/Teardown'
 import PrepCode from '../components/sections/PrepCode'
 
 export default function Slug(props) {
-  const { 
-    _id, 
-    authorName, 
-    info, 
-    initHTML, 
-    published, 
-    revision, 
-    setup, 
-    slug, 
-    teardown, 
+  const {
+    _id,
+    authorName,
+    info,
+    initHTML,
+    published,
+    revision,
+    setup,
+    slug,
+    teardown,
     tests,
-    title, 
+    title,
     mirror,
   } = props.pageData
 
@@ -110,71 +110,11 @@ export const getStaticProps = async ({params}) => {
     }
   }
 
-  return { 
-    props: { 
+  return {
+    props: {
       pageData: JSON.parse(JSON.stringify(pageData)),
       revisions: JSON.parse(JSON.stringify(revisions))
     },
     revalidate: 60 * 60 * 24 // 1 day in seconds
   }
-}
-
-export async function getStaticPaths() {
-  const pages = await pagesCollection()
-
-  // This statically generates at random 50% of all paths due to the
-  // 45 minute build time constraint on Vercel.
-  //
-  // A better solution could be to generate a materialised view that
-  // includes nested revisions which would speed up getStaticProps.
-  // This takes up too much space on Atlas free tier presently:
-  // await db.pages_master.aggregate([
-  //   {
-  //     $graphLookup: {
-  //       from: 'pages_master',
-  //       startWith: "$slug",
-  //       connectFromField: 'slug',
-  //       connectToField: 'slug',
-  //       as: 'revisions'
-  //     }
-  //   }, {
-  //     $merge: {
-  //       into: 'materialised_pages'
-  //     }
-  //   }
-  // ])
-
-  // const docCount = await pages.countDocuments()
-  //
-  // const pagesQuery = await pages.aggregate([
-  //   {
-  //     $project: { 
-  //       slug: 1, revision: 1, _id: 0, 
-  //       size: { 
-  //         $bsonSize: "$$ROOT" 
-  //       } 
-  //     } 
-  //   }, {
-  //     $match: { size: { $lt: 2000000 } }
-  //   }, {
-  //     $sample: { 
-  //       size: Math.abs(Math.floor(docCount / 4)) 
-  //     }
-  //   }
-  // ]).toArray()
-  //
-  // const paths = pagesQuery.map(page => {
-  //   return {
-  //     params: {
-  //       slug: page.revision === 1
-  //         ? [page.slug]
-  //         : [page.slug, `${page.revision}`]
-  //     }
-  //   }
-  // })
-
-  return {
-    paths: [],
-    fallback: 'blocking'
-  };
 }
