@@ -13,12 +13,12 @@ export default function Footer() {
             <Link href="/" className="block mt-4 lg:inline-block lg:mt-0 mr-4 no-underline">
               New Benchmark
             </Link>
-            <Link href="https://github.com/rd13/jsperf.app/issues" className="block mt-4 lg:inline-block lg:mt-0 mr-4 no-underline">
+            <Link href="https://github.com/mr47/jsperf.app/issues" className="block mt-4 lg:inline-block lg:mt-0 mr-4 no-underline">
               Report Issue
             </Link>
           </div>
           <div>
-            { 
+            {
               session &&
                 <a href="#" className="inline-block leading-none mt-4 lg:mt-0" onClick={() => signOut()}>Sign Out</a>
             }

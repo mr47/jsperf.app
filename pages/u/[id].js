@@ -5,10 +5,12 @@ import Link from 'next/link'
 import { pagesCollection } from '../../lib/mongodb'
 import {datetimeLong} from '../../utils/Date'
 import {useSession} from "next-auth/react";
+import { useParams } from 'next/navigation'
 export default function User(props) {
-  const {published, unpublished, id} = props
-  const { data: session, status } = useSession()
-  const canView = (id && session?.user?.id) && (session?.user?.id === id)
+  const {published, unpublished} = props
+  const { data: session } = useSession()
+  const params = useParams();
+  const canView = (params?.id && session?.user?.id) && (session?.user?.id === params?.id)
   return (
     <>
       <Head>
@@ -16,7 +18,7 @@ export default function User(props) {
       </Head>
       <Layout>
         <ul>
-          { published.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {
+          { published?.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {
               return (
                 <li key={index}>
                   <Link href={`/${slug}/${revision}`}>
@@ -29,7 +31,7 @@ export default function User(props) {
                 </li>
               )
           }) }
-          { canView && unpublished.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {
+          { canView && unpublished?.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {
             return (
                 <li key={index}>
                   <Link href={`/${slug}/${revision}`}>
@@ -93,12 +95,10 @@ export const getStaticProps = async ({params}) => {
     ]).toArray()
   } catch (e) {
   }
-  console.log(pageData.filter((r) => !r?.visible));
   return {
     props: {
-      published: JSON.parse(JSON.stringify(pageData.filter(({visible}) => visible))),
-      unpublished: JSON.parse(JSON.stringify(pageData.filter((r) => !r?.visible))),
-      id,
+      published: JSON.parse(JSON.stringify(pageData?.filter(({visible}) => visible))),
+      unpublished: JSON.parse(JSON.stringify(pageData?.filter((r) => !r?.visible))),
     }
   }
 }
