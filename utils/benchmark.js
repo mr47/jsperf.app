@@ -126,14 +126,12 @@ export async function runBenchmark(fn, { time = 5000, isAsync = false, signal, o
     try {
       await task.run()
     } catch (e) {
-      if (totalSamples === 0) return { state: 'errored', error: e }
-      break
+      return { state: 'errored', error: e }
     }
 
     const r = task.result
     if (!r || r.state === 'errored') {
-      if (totalSamples === 0) return { state: 'errored', error: r?.error || new Error('Unknown error') }
-      break
+      return { state: 'errored', error: r?.error || new Error('Unknown error') }
     }
 
     if (r.state === 'completed' || r.state === 'aborted-with-statistics') {

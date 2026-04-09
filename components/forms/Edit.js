@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import UUID from '../UUID'
 import { Trash2 } from 'lucide-react'
 import Editor from '../Editor'
@@ -11,55 +12,45 @@ import Editor from '../Editor'
 const TestCaseFieldset = ({index, remove, test, update}) => {
   return (
     <Card className="mb-6 overflow-hidden border-border/60 shadow-sm bg-card/40 backdrop-blur-sm group">
-      {/* Subtle top border accent instead of full gradient bar */}
-      <div className="h-[2px] w-full bg-primary/20 group-hover:bg-primary/50 transition-colors" />
       
-      <CardContent className="p-0">
-        <div className="flex flex-col">
-          
-          {/* Top Row: Number, Title Input, Remove Button all perfectly inline */}
-          <div className="flex items-center gap-3 p-4 bg-muted/10 border-b border-border/50">
-            <div className="bg-background border border-border/50 text-muted-foreground font-mono font-bold w-8 h-8 rounded flex items-center justify-center text-sm shadow-sm shrink-0">
+      <CardContent className="p-0 flex flex-col">
+        {/* Top Row: IDE-style Tab Title Bar */}
+        <div className="flex items-center justify-between px-4 py-2 bg-muted/10 border-b border-border/50">
+          <div className="flex items-center gap-3 w-full max-w-lg">
+            <div className="bg-background border border-border/50 text-muted-foreground font-mono font-bold w-6 h-6 rounded flex items-center justify-center text-xs shadow-sm shrink-0">
               {index + 1}
             </div>
             
-            <div className="flex-1 flex items-center bg-background border border-border/50 rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 focus-within:border-primary/50 transition-all shadow-sm">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 border-r border-border/50 bg-muted/30 py-2.5">
-                Title
-              </span>
-              <input
-                id={`testTitle-${test.id}`}
-                type="text" 
-                name="testTitle" 
-                placeholder="e.g. Using Array.map()"
-                className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/50"
-                onChange={event => update({"title": event.target.value}, test.id)} 
-                required 
-                defaultValue={test && test.title} 
-              />
-            </div>
-
-            {remove && (
-              <Button variant="ghost" size="sm" type="button" onClick={() => remove(test.id)} className="h-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20 transition-all flex items-center gap-2">
-                <Trash2 className="w-4 h-4" />
-                <span className="hidden sm:inline-block">Remove</span>
-              </Button>
-            )}
-          </div>
-
-          {/* Editor Area (No label, just code) */}
-          <div className="w-full bg-background relative group/editor">
-            {/* Very subtle floating label inside the editor area so it doesn't waste vertical space */}
-            <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">
-              JavaScript
-            </div>
-            <Editor 
-              code={test && test.code} 
-              onUpdate={code => update({code}, test.id)} 
-              className="javascript w-full p-4 pt-5 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
-              style={{minHeight: "200px"}} 
+            <input
+              id={`testTitle-${test.id}`}
+              type="text" 
+              name="testTitle" 
+              placeholder="Test Title (e.g. Using Array.map)"
+              className="flex-1 bg-transparent px-2 py-1 text-sm font-semibold outline-none placeholder:text-muted-foreground/50 border-b border-transparent focus:border-primary/50 transition-colors"
+              onChange={event => update({"title": event.target.value}, test.id)} 
+              required 
+              defaultValue={test && test.title} 
             />
           </div>
+
+          {remove && (
+            <Button variant="ghost" size="icon" type="button" onClick={() => remove(test.id)} className="h-7 w-7 shrink-0 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 border border-transparent transition-all ml-2" aria-label="Remove test case">
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          )}
+        </div>
+
+        {/* Editor Area */}
+        <div className="w-full bg-background relative group/editor">
+          <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">
+            JavaScript
+          </div>
+          <Editor 
+            code={test && test.code} 
+            onUpdate={code => update({code}, test.id)} 
+            className="javascript w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+            style={{minHeight: "200px"}} 
+          />
         </div>
       </CardContent>
     </Card>
@@ -158,13 +149,13 @@ export default function EditForm({pageData}) {
   return (
     <form onSubmit={submitFormHandler} className="w-full max-w-5xl mx-auto space-y-10 pb-20">
       
-      <Card className="border-border/60 shadow-sm bg-card/40 backdrop-blur-sm overflow-hidden">
-        <div className="h-[2px] w-full bg-primary/20" />
-        <CardHeader className="bg-muted/20 border-b border-border/50 pb-6">
-          <CardTitle className="text-2xl font-bold tracking-tight">Benchmark Details</CardTitle>
-          <CardDescription className="text-base">Provide basic information about your performance test so others can understand what you are comparing.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6 pt-6">
+      <div>
+        <div className="mb-6">
+          <h3 className="text-3xl font-extrabold tracking-tight">Benchmark Details</h3>
+          <p className="text-muted-foreground mt-2 text-sm">Provide basic information about your performance test so others can understand what you are comparing.</p>
+        </div>
+        <Card className="border-border/60 shadow-sm bg-card/40 backdrop-blur-sm overflow-hidden">
+          <CardContent className="space-y-6 p-6">
           <div className="grid gap-3">
             <Label htmlFor="title" className="text-sm font-semibold">
               Title <span className="text-destructive">*</span>
@@ -188,47 +179,72 @@ export default function EditForm({pageData}) {
           </div>
         </CardContent>
       </Card>
-
-      <Card className="border-border/60 shadow-sm bg-card/40 backdrop-blur-sm overflow-hidden">
-        <div className="h-[2px] w-full bg-primary/20" />
-        <CardHeader className="bg-muted/20 border-b border-border/50 pb-6">
-          <CardTitle className="text-2xl font-bold tracking-tight">Preparation & Teardown</CardTitle>
-          <CardDescription className="text-base">Code that runs before/after the tests. Useful for setting up the DOM or declaring shared variables.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-8 pt-6">
-          <div className="grid gap-3">
-            <div className="flex justify-between items-baseline">
-              <Label htmlFor="initHTML" className="text-sm font-semibold">Preparation HTML</Label>
-              <span className="text-xs text-muted-foreground hidden sm:inline">Inserted into the document {`<body>`}</span>
-            </div>
-            <div className="rounded-lg overflow-hidden border border-border/50 bg-muted/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 shadow-inner transition-all">
-              <Editor code={codeBlockInitHTML} onUpdate={setCodeBlockInitHTML} className="html w-full p-4 font-mono text-sm outline-none" style={{minHeight: "120px"}} />
-            </div>
-            <p className="text-xs text-muted-foreground sm:hidden">Inserted into the document {`<body>`}</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="grid gap-3">
-              <Label htmlFor="setup" className="text-sm font-semibold">Setup JS <span className="font-normal text-xs text-muted-foreground ml-2">(runs before tests)</span></Label>
-              <div className="rounded-lg overflow-hidden border border-border/50 bg-muted/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 shadow-inner transition-all">
-                <Editor code={codeBlockSetup} onUpdate={setCodeBlockSetup} className="javascript w-full p-4 font-mono text-sm outline-none" style={{minHeight: "150px"}} />
-              </div>
-            </div>
-
-            <div className="grid gap-3">
-              <Label htmlFor="teardown" className="text-sm font-semibold">Teardown JS <span className="font-normal text-xs text-muted-foreground ml-2">(runs after tests)</span></Label>
-              <div className="rounded-lg overflow-hidden border border-border/50 bg-muted/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 shadow-inner transition-all">
-                <Editor code={codeBlockTeardown} onUpdate={setCodeBlockTeardown} className="javascript w-full p-4 font-mono text-sm outline-none" style={{minHeight: "150px"}} />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    </div>
 
       <div className="pt-4">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-3xl font-extrabold tracking-tight">Test Snippets</h3>
-          <Button type="button" variant="outline" onClick={testsAdd} className="font-semibold shadow-sm hover:shadow transition-all bg-background border-border hover:bg-muted">
+        <div className="mb-6">
+          <h3 className="text-3xl font-extrabold tracking-tight">Preparation & Teardown</h3>
+          <p className="text-muted-foreground mt-2 text-sm">Code that runs before/after the tests. Useful for setting up the DOM or declaring shared variables.</p>
+        </div>
+
+        <Card className="overflow-hidden border-border/60 shadow-sm bg-card/40 backdrop-blur-sm">
+          <CardContent className="p-0">
+            <Tabs defaultValue="setup" className="w-full">
+              <div className="flex items-center justify-between px-4 py-2 bg-muted/10 border-b border-border/50">
+                <TabsList className="bg-muted/50 border border-border/50">
+                  <TabsTrigger value="setup" className="text-xs uppercase tracking-wider font-semibold">Setup JS</TabsTrigger>
+                  <TabsTrigger value="teardown" className="text-xs uppercase tracking-wider font-semibold">Teardown JS</TabsTrigger>
+                  <TabsTrigger value="html" className="text-xs uppercase tracking-wider font-semibold">Prep HTML</TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent value="html" className="m-0 border-none outline-none">
+                <div className="w-full bg-background relative group/editor">
+                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">HTML</div>
+                  <Editor 
+                    code={codeBlockInitHTML} 
+                    onUpdate={setCodeBlockInitHTML} 
+                    className="html w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+                    style={{minHeight: "200px"}} 
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="setup" className="m-0 border-none outline-none">
+                <div className="w-full bg-background relative group/editor">
+                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">JavaScript</div>
+                  <Editor 
+                    code={codeBlockSetup} 
+                    onUpdate={setCodeBlockSetup} 
+                    className="javascript w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+                    style={{minHeight: "200px"}} 
+                  />
+                </div>
+              </TabsContent>
+
+              <TabsContent value="teardown" className="m-0 border-none outline-none">
+                <div className="w-full bg-background relative group/editor">
+                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">JavaScript</div>
+                  <Editor 
+                    code={codeBlockTeardown} 
+                    onUpdate={setCodeBlockTeardown} 
+                    className="javascript w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+                    style={{minHeight: "200px"}} 
+                  />
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="pt-4">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
+          <div>
+            <h3 className="text-3xl font-extrabold tracking-tight">Test Snippets</h3>
+            <p className="text-muted-foreground mt-2 text-sm">Write the JavaScript code you want to benchmark. Each snippet runs in isolation.</p>
+          </div>
+          <Button type="button" variant="outline" onClick={testsAdd} className="font-semibold shadow-sm hover:shadow transition-all bg-background border-border hover:bg-muted shrink-0">
             + Add Snippet
           </Button>
         </div>
