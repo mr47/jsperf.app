@@ -1,6 +1,15 @@
 import { pagesCollection } from '../../lib/mongodb'
 import { getSession } from "next-auth/react"
 import { shortcode } from "../../utils/Url"
+import { redis } from '../../lib/redis'
+import { Ratelimit } from '@upstash/ratelimit'
+
+// Create a new ratelimiter, that allows 5 requests per 1 minute for page creation/updates
+const ratelimit = new Ratelimit({
+  redis: redis,
+  limiter: Ratelimit.slidingWindow(5, '1 m'),
+  analytics: true,
+})
 
 /**
  *
@@ -56,6 +65,13 @@ const revalidatePath = async (baseUrl, path) => {
  */
 const addPage = async (req, res) => {
   try {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1'
+    const { success } = await ratelimit.limit(ip)
+
+    if (!success) {
+      return res.status(429).json({ message: 'Too many requests', success: false })
+    }
+
     const session = await getSession({ req })
 
     // if (!session) {
@@ -76,7 +92,7 @@ const addPage = async (req, res) => {
 
     // Get the most recent revision for this slug
     await pages.findOne(
-      { slug },
+      { slug: String(slug) },
       {
         sort: {
           revision: -1
@@ -128,6 +144,13 @@ const addPage = async (req, res) => {
  */
 const updatePage = async (req, res) => {
   try {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1'
+    const { success } = await ratelimit.limit(ip)
+
+    if (!success) {
+      return res.status(429).json({ message: 'Too many requests', success: false })
+    }
+
     const session = await getSession({ req })
 
     const pages = await pagesCollection()
@@ -138,7 +161,7 @@ const updatePage = async (req, res) => {
 
     // Get the page we wish to update
     const page = await pages.findOne(
-      { slug, revision },
+      { slug: String(slug), revision: parseInt(revision, 10) },
       {
         projection: {
           revision: 1,
@@ -165,7 +188,7 @@ const updatePage = async (req, res) => {
       }
     }
 
-    if (page.uuid === uuid) {
+    if (page.uuid && uuid && page.uuid === uuid) {
       allowedToEdit = true
     }
 
@@ -173,22 +196,32 @@ const updatePage = async (req, res) => {
       throw new Error('Does not have the authority to update this page.')
     }
 
-    // Remove these fields from the update
-    delete payload._id
-    delete payload.slug
-    delete payload.revision
-    delete payload.githubID
+    const safePayload = {
+      title: payload.title,
+      info: payload.info,
+      initHTML: payload.initHTML,
+      setup: payload.setup,
+      teardown: payload.teardown,
+      tests: payload.tests,
+      authorName: payload.authorName,
+      visible: payload.visible,
+    }
+
+    // Remove undefined fields
+    Object.keys(safePayload).forEach(key => {
+      if (safePayload[key] === undefined) {
+        delete safePayload[key]
+      }
+    })
 
     if (session?.user?.id) {
-      payload.githubID = session?.user?.id
+      safePayload.githubID = session?.user?.id
     }
 
     await pages.updateOne({
       '_id': page._id
     }, {
-      $set: {
-        ...payload
-      }
+      $set: safePayload
     }).then(async () => {
 
       // Invalidate cache

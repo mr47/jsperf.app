@@ -29,7 +29,7 @@ export default async function handler(req, res) {
 
     // Aggregation pipeline to get stats per testIndex
     const pipeline = [
-      { $match: { slug, revision: rev } },
+      { $match: { slug: String(slug), revision: rev } },
       { $unwind: '$results' },
       { 
         // Exclude runs that errored out or returned null ops

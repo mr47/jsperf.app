@@ -9,7 +9,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    await res.unstable_revalidate(req.query.path)
+    const pathToRevalidate = String(req.query.path)
+    await res.unstable_revalidate(pathToRevalidate)
     return res.json({ revalidated: true })
   } catch (err) {
     // If there was an error, Next.js will continue
