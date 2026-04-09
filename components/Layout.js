@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react'
-import DocHead from './DocHead'
 import Header from './Header'
 import Footer from './Footer'
 import { useTheme } from 'next-themes'
@@ -29,7 +28,6 @@ const Layout = (props) => {
   
   return (
     <>
-      <DocHead {...props} />
       <div className="font-sans antialiased min-h-full flex flex-col text-foreground">
         <div className="flex-auto">
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 min-h-screen relative z-0">

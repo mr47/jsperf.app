@@ -4,7 +4,7 @@ import { pagesCollection } from '../../../lib/mongodb'
 import EditForm from '../../../components/forms/Edit'
 import Layout from '../../../components/Layout'
 
-export default function Edit({pageData}) {
+export default function Fork({pageData}) {
   return (
     <>
       <SEO noindex={true} />
@@ -30,6 +30,17 @@ export async function getServerSideProps({params}) {
       notFound: true
     }
   }
+
+  // To make it a fork, we delete the unique identifiers
+  // so the form submits it as a brand new snippet.
+  delete pageData.slug
+  delete pageData.revision
+  delete pageData.uuid
+  delete pageData.visible
+  delete pageData.githubID
+
+  // Prefix the title
+  pageData.title = `Fork of ${pageData.title}`
 
   return {
     props: { 

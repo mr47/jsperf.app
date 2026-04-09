@@ -1,4 +1,4 @@
-import Head from 'next/head'
+import SEO from '../../../components/SEO'
 
 import { pagesCollection } from '../../../lib/mongodb'
 import Router from 'next/router'
@@ -71,13 +71,7 @@ export default function Preview(props) {
 
   return (
     <>
-      <Head>
-        <meta 
-          key="robots" 
-          name="robots" 
-          content="noindex,follow" 
-        />
-      </Head>
+      <SEO title={`Preview: ${title}`} noindex={true} />
       <Layout>
         <hgroup>
           <h1 className="text-2xl py-6 font-bold">{title}</h1>
@@ -107,7 +101,7 @@ export default function Preview(props) {
           </section>
         }
         <section>
-          <TestRunner id={_id} tests={tests} />
+          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} />
         </section>
         <hr className="my-5" />
         <div className="flex justify-end items-center gap-2 flex-wrap">

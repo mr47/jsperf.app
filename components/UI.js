@@ -19,8 +19,12 @@ function compileFactory(code, setup, teardown, legacyIsAsync) {
 
     const body = `
       ${setup || ''}
-      var __testFn = ${fnPrefix}function() { ${testBody} };
-      var __teardownFn = ${fnPrefix}function() { ${teardown || ''} };
+      var __testFn = ${fnPrefix}function() {
+${testBody}
+      };
+      var __teardownFn = ${fnPrefix}function() {
+${teardown || ''}
+      };
       return { test: __testFn, teardown: __teardownFn };
     `
     const factory = new Function(body)
@@ -79,6 +83,7 @@ export default (props) => {
       const taskCount = tests.filter((_, i) => !factories[i].error).length
 
       const benchResults = []
+      let taskIndex = 0
 
       for (let i = 0; i < tests.length; i++) {
         if (signal.aborted) break
@@ -112,10 +117,6 @@ export default (props) => {
           })
           continue
         }
-
-        const taskIndex = benchResults.filter(
-          (r) => r.result.state !== 'errored'
-        ).length
 
         broker.emit('cycle', {
           id: i,
@@ -169,9 +170,12 @@ export default (props) => {
           name: tests[i].title,
           count: hasStats ? formatNumber(result.latency.samplesCount) : '0',
           size: hasStats ? result.latency.samplesCount : 0,
-          status: 'completed',
+          status: result.state === 'errored' ? 'error' : 'completed',
+          error: result.state === 'errored' ? (result.error?.message || String(result.error)) : undefined,
           running: true,
         })
+        
+        taskIndex++
       }
 
       if (signal.aborted) return
@@ -262,6 +266,7 @@ export default (props) => {
     return () => {
       cancelled = true
       if (abortController) abortController.abort()
+      broker.unregisterAll()
     }
   }, [])
 

@@ -1,4 +1,4 @@
-import Head from 'next/head'
+import SEO from '../../components/SEO'
 
 import Layout from '../../components/Layout'
 import Link from 'next/link'
@@ -13,9 +13,7 @@ export default function User(props) {
   const canView = (params?.id && session?.user?.id) && (session?.user?.id === params?.id)
   return (
     <>
-      <Head>
-        <title>jsPerf.app</title>
-      </Head>
+      <SEO title="jsPerf.app" />
       <Layout>
         <ul>
           { published?.map(({slug, revision, title, published, revisionCount, testsCount}, index) => {

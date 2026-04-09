@@ -1,4 +1,4 @@
-import Head from 'next/head'
+import SEO from '../components/SEO'
 import Layout from '../components/Layout'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -12,15 +12,10 @@ const HeroBackground = dynamic(() => import('../components/HeroBackground'), { s
 export default function Home(props) {
   return (
     <>
-      <Head>
-        <title>jsPerf - Online JavaScript performance benchmark</title>
-        <meta
-          name="description"
-          content="jsPerf.net is an online JavaScript performance benchmark test runner"
-          key="desc"
-        />
-        <link href="https://jsperf.net" rel="canonical" />
-      </Head>
+      <SEO 
+        title="jsPerf - Online JavaScript performance benchmark" 
+        description="jsPerf.net is an online JavaScript performance benchmark test runner" 
+      />
       <Layout>
         {/* Animated 3D ASCII Background */}
         <HeroBackground />
@@ -34,7 +29,7 @@ export default function Home(props) {
         <section className="relative py-24 sm:py-32 flex flex-col items-center justify-center text-center space-y-10">
           <div className="inline-flex items-center rounded-full border border-border px-3 py-1 text-sm font-medium">
             <Sparkles className="mr-2 h-4 w-4 text-amber-500" />
-            <span className="text-muted-foreground">The spiritual successor to jsperf.com</span>
+            <span className="text-muted-foreground">A modern full rewrite of jsPerf</span>
           </div>
           
           <div className="space-y-6 max-w-4xl mx-auto px-4">
@@ -144,7 +139,7 @@ export default function Home(props) {
               </CardHeader>
               <CardContent>
                 <Button asChild variant="outline" className="w-full mt-4">
-                  <a href="https://github.com/rd13/jsperf.app" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2">
+                  <a href="https://github.com/mr47/jsperf.app" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2">
                     <Users className="h-4 w-4" />
                     Contribute on GitHub
                   </a>

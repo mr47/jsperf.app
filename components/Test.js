@@ -76,6 +76,24 @@ export default function Test(props) {
             {error}
           </div>
         )}
+        {props.stats && props.stats.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-border flex flex-col gap-2 text-xs text-muted-foreground">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+              <span className="font-semibold text-foreground flex items-center gap-1.5 shrink-0 pt-1">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                Community Stats:
+              </span>
+              <div className="flex flex-col gap-1.5">
+                {props.stats.slice(0, 3).map((s, idx) => (
+                  <span key={idx} className="bg-muted px-2 py-1 rounded inline-flex items-baseline gap-1 whitespace-nowrap w-fit">
+                    <strong className="text-foreground">{s.browserName}</strong> <span className="opacity-75 text-[10px]">on {s.osName || 'unknown'}</span>
+                    {s.cpuArch && s.cpuArch !== 'unknown' ? ` (${s.cpuArch})` : ''} <span className="mx-1 opacity-40">•</span> ~{formatNumber(Math.round(s.avgOps))} ops/s <span className="opacity-50 text-[10px] ml-1">({s.count} runs)</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </td>
       <td className="py-4 px-4 text-center w-[160px] align-top">
         {result[status] || result.default}

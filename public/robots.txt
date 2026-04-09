@@ -1,4 +1,4 @@
-Sitemap: https://jsperf.net/sitemap.xml
+Sitemap: https://jsperf.app/sitemap.xml
 
 User-agent: *
 Disallow: /*/edit$

@@ -15,8 +15,15 @@ export default class PostMessageBroker {
     }, '*');
   }
   register(message, callback) {
-    window.addEventListener('message', event => {
+    const handler = event => {
       event.data.message && event.data.message === message && callback(event)
-    })
+    }
+    window.addEventListener('message', handler)
+    this.subscriptions.push(handler)
+    return () => window.removeEventListener('message', handler)
+  }
+  unregisterAll() {
+    this.subscriptions.forEach(handler => window.removeEventListener('message', handler))
+    this.subscriptions = []
   }
 }

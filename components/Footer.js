@@ -6,20 +6,24 @@ export default function Footer() {
 
   return (
       <footer className="mt-8 block overflow-hidden border-t border-border">
-        <nav className="container flex px-2 py-4">
-          <div className="w-auto block flex-grow">
-            <Link href="/" className="block mt-4 lg:inline-block lg:mt-0 mr-4 no-underline">
+        <nav className="container flex flex-wrap items-center justify-between px-2 py-4">
+          <div className="flex gap-4 mb-4 sm:mb-0">
+            <Link href="/" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
               New Benchmark
             </Link>
-            <Link href="https://github.com/mr47/jsperf.app/issues" className="block mt-4 lg:inline-block lg:mt-0 mr-4 no-underline">
+            <Link href="https://github.com/mr47/jsperf.app/issues" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
               Report Issue
             </Link>
           </div>
-          <div>
-            {
-              session &&
-                <a href="#" className="inline-block leading-none mt-4 lg:mt-0" onClick={() => signOut()}>Sign Out</a>
-            }
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <span>
+              Built by <a href="https://mr47.in" target="_blank" rel="noopener noreferrer" className="font-medium text-foreground hover:text-primary transition-colors">Dmytro Piddubnyi</a>
+            </span>
+            {session && (
+              <a href="#" className="font-medium hover:text-foreground transition-colors" onClick={(e) => { e.preventDefault(); signOut(); }}>
+                Sign Out
+              </a>
+            )}
           </div>
         </nav>
       </footer>

@@ -1,4 +1,4 @@
-import Head from 'next/head'
+import SEO from '../../components/SEO'
 
 import { pagesCollection } from '../../lib/mongodb'
 import { ObjectId } from 'mongodb'
@@ -12,13 +12,7 @@ export default function Sandbox(props) {
 
   return (
     <>
-      <Head>
-        <meta 
-          key="robots" 
-          name="robots" 
-          content="noindex,follow" 
-        />
-      </Head>
+      <SEO noindex={true} />
       <SandboxBanner pageData={pageData} />
       <UI pageData={pageData} />
     </>

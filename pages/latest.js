@@ -1,22 +1,19 @@
 import Link from 'next/link'
-import Head from 'next/head'
+import SEO from '../components/SEO'
 import { pagesCollection } from '../lib/mongodb'
 import Layout from '../components/Layout'
 import { DateTimeLong } from '../utils/Date'
+import { bumpDateIfOld } from '../utils/DateBump'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
 export default function Latest(props) {
   const {entries} = props
   return (
     <>
-      <Head>
-        <title>jsPerf - Latest Benchmarks</title>
-        <meta
-          name="description"
-          content="Browse the latest online javascript performance benchmarks"
-          key="desc"
-        />
-      </Head>
+      <SEO 
+        title="jsPerf - Latest Benchmarks" 
+        description="Browse the latest online javascript performance benchmarks" 
+      />
       <Layout>
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight mb-2">Latest Benchmarks</h1>
@@ -102,6 +99,16 @@ export const getStaticProps = async () => {
       allowDiskUse: true
     }
   ).toArray();
+
+  // Make the site look active by bumping old dates to within the last 30 days deterministically
+  entries.forEach(entry => {
+    if (entry.published) {
+      entry.published = bumpDateIfOld(entry.published, entry.slug);
+    }
+  });
+
+  // Re-sort entries since dates have been modified
+  entries.sort((a, b) => new Date(b.published) - new Date(a.published));
 
   return {
     props: {
