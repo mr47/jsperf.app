@@ -400,7 +400,6 @@ Why is the fastest snippet performing better in modern JavaScript engines?`
 
       {stats && Object.keys(stats).length > 0 && (
         <div className="mt-12">
-          <h2 className="text-xl font-bold tracking-tight mb-4">Performance Insights</h2>
           <StatsChart stats={stats} tests={tests} />
         </div>
       )}
