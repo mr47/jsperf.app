@@ -33,27 +33,27 @@ export default async function handler(req, res) {
     }
 
     const doc = {
-      slug: payload.slug,
-      revision: payload.revision,
-      browserName: payload.browserName,
-      browserVersion: payload.browserVersion,
-      osName: payload.osName,
-      deviceType: payload.deviceType,
-      cpuArch: payload.cpuArch,
-      renderer: payload.renderer,
-      cpuCores: payload.cpuCores,
-      ramGB: payload.ramGB,
+      slug: String(payload.slug),
+      revision: parseInt(payload.revision, 10),
+      browserName: payload.browserName ? String(payload.browserName) : null,
+      browserVersion: payload.browserVersion ? String(payload.browserVersion) : null,
+      osName: payload.osName ? String(payload.osName) : null,
+      deviceType: payload.deviceType ? String(payload.deviceType) : null,
+      cpuArch: payload.cpuArch ? String(payload.cpuArch) : null,
+      renderer: payload.renderer ? String(payload.renderer) : null,
+      cpuCores: payload.cpuCores ? parseInt(payload.cpuCores, 10) : null,
+      ramGB: payload.ramGB ? parseInt(payload.ramGB, 10) : null,
       createdAt: new Date(),
       results: payload.results.map(r => ({
-        testIndex: r.testIndex,
-        opsPerSec: r.opsPerSec
+        testIndex: parseInt(r.testIndex, 10),
+        opsPerSec: parseFloat(r.opsPerSec)
       }))
     }
 
     await runs.insertOne(doc)
 
     // Invalidate the cache for this slug and revision
-    await redis.del(`stats_v3:${payload.slug}:${payload.revision}`)
+    await redis.del(`stats_v3:${doc.slug}:${doc.revision}`)
 
     res.status(200).json({ success: true })
   } catch (error) {
