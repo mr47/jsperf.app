@@ -1,75 +1,79 @@
-import SandboxIframe from '../components/SandboxIframe'
 import PostMessageBroker from '../utils/postMessageBroker'
+import { SANDBOX_IFRAME_FLAGS } from '../utils/sandboxIframe'
 import { useState, useEffect, useRef } from 'react'
-import styles from './TestRunner.module.css'
 import UserAgent from './UserAgent'
 import Test from './Test'
-import buttonStyles from '../styles/buttons.module.css'
+import { Button } from '@/components/ui/button'
+import { formatNumber } from '../utils/ArrayUtils'
 
 export default function Tests(props) {
   const {id} = props
 
-  // A textual status message
   const [statusMessage, setStatusMessage] = useState('')
-
-  // The sandbox will send a postMessage when Benchmark is ready to run
   const [benchStatus, setBenchStatus] = useState('notready')
-
   const [broker, setBroker] = useState(null)
-
   const [tests, setTests] = useState(props.tests)
 
-  const runButtonText = {
-    'default'  : 'Run',
-    'ready'    : 'Run',
-    'complete' : 'Run',
-    'running'  : 'Stop'
-  }
-
-  // This is a ref to the sandbox iframe window used for communication
   const windowRef = useRef(null)
 
   useEffect(() => {
-    // Setup communication with iframe
     const _broker = new PostMessageBroker(windowRef.current.contentWindow)
 
     setBroker(_broker)
 
     _broker.register('cycle', event => {
-      const {id, name, count, size, status} = event.data
+      const {
+        id: rawId, name, count, size, status,
+        elapsed, total, opsPerSec, taskIndex, taskCount,
+      } = event.data
+      const id = Number(rawId)
 
-      if (!['finished', 'completed'].includes(status)) {
+      if (status === 'running') {
+        const pct = total > 0 ? Math.min(100, Math.round((elapsed / total) * 100)) : 0
+        const hzEstimate =
+          opsPerSec > 0 ? `~${formatNumber(Math.round(opsPerSec))} ops/s` : 'warming up…'
+        const taskProgress =
+          taskCount > 1 ? `[${taskIndex + 1}/${taskCount}] ` : ''
+        setStatusMessage(`${taskProgress}${name} — ${hzEstimate} — ${pct}%`)
+      } else if (!['finished', 'completed'].includes(status)) {
         setStatusMessage(`${name} × ${count} (${size} sample${size === 1 ? '' : 's'})`)
       }
 
-      // Note to self: treat state arrays as immutable, instead provide setState with a function to update
-      // This is probably not optimal. Instead only update test status on status transition.
-      // Or, if there is no mutation is this intelligent enough not to trigger a re-render?
-      // Also to note: this is throttled
-      setTests(tests => {
-        tests[id].status = status
-        return tests
-      })
+      setTests((prevTests) =>
+        prevTests.map((test, idx) => {
+          if (idx !== id) return test
+          if (
+            test.hz != null &&
+            test.status === 'finished' &&
+            status !== 'finished'
+          ) {
+            return test
+          }
+          return {
+            ...test,
+            status,
+            ...(status === 'running' ? { elapsed, total, opsPerSec } : {}),
+          }
+        })
+      )
     })
 
     _broker.register('complete', event => {
       const {results} = event.data
 
-      setTests(prevTests => {
-        for(let result of results) {
-          // Merge each test with result
-          prevTests[result.id] = {
-            ...prevTests[result.id],
-            ...result
-          }
+      setTests((prevTests) => {
+        const next = [...prevTests]
+        for (const result of results) {
+          const i = Number(result.id)
+          if (!Number.isInteger(i) || i < 0 || i >= next.length) continue
+          next[i] = { ...prevTests[i], ...result }
         }
-        return prevTests
+        return next
       })
       setStatusMessage('Done. Ready to run again.')
       setBenchStatus('complete')
     })
 
-    // The sandbox is ready to run a test
     _broker.register('ready', () => {
       setStatusMessage('Ready to run.')
       setBenchStatus('ready')
@@ -81,16 +85,22 @@ export default function Tests(props) {
   const run = (options) => {
     broker.emit('run', {options})
 
-    setTests(tests => {
-      // Transition all tests status to pending
-      for (let test of tests) {
-        test.status = 'pending'
-      }
-      return tests
-    })
+    setTests((prevTests) =>
+      prevTests.map((test) => ({
+        ...test,
+        status: 'pending',
+        elapsed: undefined,
+        total: undefined,
+        opsPerSec: undefined,
+      }))
+    )
 
     setBenchStatus('running')
   }
+
+  const finishedTests = tests.filter((t) => t.status === 'finished')
+  const showUnboundedNote =
+    finishedTests.length > 0 && finishedTests.every((t) => t.tied)
 
   return (
     <>
@@ -99,29 +109,34 @@ export default function Tests(props) {
         <p id="status" className="flex-1">{statusMessage}</p>
         { ['ready', 'complete'].includes(benchStatus) &&
           <>
-            <button 
-              id="run" 
-              type="button" 
+            <Button
+              id="run"
+              type="button"
               disabled={benchStatus === 'notready'}
-              className={`${buttonStyles.default} mx-2`} 
-              onClick={() => run({maxTime: 5})}>{runButtonText[benchStatus]||runButtonText['default']}</button>
-            <button
-              type="button" 
+              variant="outline"
+              className="mx-2 font-bold"
+              onClick={() => run({maxTime: 5})}>Run</Button>
+            <Button
+              type="button"
               disabled={benchStatus === 'notready'}
-              className={buttonStyles.default}
-              onClick={() => run({maxTime: 0.5})}>Quick Run</button>
+              variant="outline"
+              className="font-bold"
+              onClick={() => run({maxTime: 0.5})}>Quick Run</Button>
             </>
         }
         { benchStatus === 'running' &&
-          <button 
+          <Button
             type="button"
-            className={buttonStyles.default}
-            onClick={() => run()}>Stop</button>
+            variant="outline"
+            className="font-bold"
+            onClick={() => run()}>Stop</Button>
         }
-        <iframe 
-          src={sandboxUrl} 
-          ref={windowRef} 
-          sandbox="allow-scripts"
+        <iframe
+          src={sandboxUrl}
+          ref={windowRef}
+          sandbox={SANDBOX_IFRAME_FLAGS}
+          title="Benchmark sandbox"
+          className="hidden"
           style={{height: "1px", width: "1px"}}></iframe>
       </div>
       <table id="test-table" className="w-full border-collapse">
@@ -133,11 +148,22 @@ export default function Tests(props) {
           </tr>
         </thead>
         <tbody>
-          {tests.map((test, i) => 
-            <Test key={i} test={test} />
-          )}
+          {tests.map((test, i) => (
+            <Test
+              key={`${i}-${test.status}-${String(test.hz ?? '')}-${String(test.percent ?? '')}-${String(test.tied ?? '')}`}
+              test={test}
+            />
+          ))}
         </tbody>
       </table>
+      {showUnboundedNote && (
+        <p className="text-sm text-gray-600 mt-3 max-w-prose">
+          Each case finished faster than the benchmark timer could resolve, so ops/sec
+          is shown as ∞ and cases are listed as tied — this is a measurement limit, not
+          missing data from the runner. Add heavier work inside the test (or a loop) if
+          you need a finite ops/sec estimate.
+        </p>
+      )}
     </>
   )
 }

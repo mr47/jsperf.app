@@ -3,18 +3,12 @@ import Head from 'next/head'
 import { pagesCollection } from '../../lib/mongodb'
 import { ObjectId } from 'mongodb'
 import dynamic from 'next/dynamic'
-import Script from 'next/script'
-import { useState, useEffect } from 'react'
-import UI from '../../components/UI'
+import SandboxBanner from '../../components/SandboxBanner'
+
+const UI = dynamic(() => import('../../components/UI'), { ssr: false })
 
 export default function Sandbox(props) {
-  const [ready, setReady] = useState(false);
-
   const {pageData} = props
-
-  useEffect(() => {
-    setReady(true)
-  }, []);
 
   return (
     <>
@@ -25,6 +19,7 @@ export default function Sandbox(props) {
           content="noindex,follow" 
         />
       </Head>
+      <SandboxBanner pageData={pageData} />
       <UI pageData={pageData} />
     </>
   )

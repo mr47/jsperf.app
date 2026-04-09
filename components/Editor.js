@@ -21,7 +21,7 @@ export const Editor = (props) => {
     });
   }, []);
 
-  return <code ref={editorRef} className={className} style={style}></code>
+  return <code ref={editorRef} className={`block ${className}`} style={style}></code>
 }
 
 export default Editor

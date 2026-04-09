@@ -2,8 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Router from 'next/router'
 import { signIn, useSession } from "next-auth/react"
 import GitHubIcon from '../GitHubIcon'
-import buttonStyles from '../../styles/buttons.module.css'
-import formStyles from '../../styles/forms.module.css'
+import { Button } from '@/components/ui/button'
 import UUID from '../UUID'
 import MinusIcon from '../MinusIcon'
 
@@ -13,10 +12,10 @@ const TestCaseFieldset = ({index, remove, test, update}) => {
   return (
     <fieldset name="testCase">
       <div>
-        <h2 className="mx-5 w-full md:w-1/4 text-black font-bold text-right">
+        <h2 className="px-5 w-full md:w-1/4 text-black font-bold text-left md:text-right">
           {
             remove && 
-              <button className="align-middle mr-2" type="button" onClick={() => remove(test.id)}>
+              <button className="inline-flex items-center align-middle mr-2" type="button" onClick={() => remove(test.id)}>
                 <MinusIcon fill="#000000" width={20} height={20} className="fill-inherit" />
               </button>
           }
@@ -137,7 +136,7 @@ export default function EditForm({pageData}) {
   }
 
   return (
-    <form onSubmit={submitFormHandler} className={`${formStyles.editForm} w-full`}>
+    <form onSubmit={submitFormHandler} className="edit-form w-full">
       <fieldset>
         <h3 className="bg-blue-500">Test case details</h3>
         <div>
@@ -184,7 +183,7 @@ export default function EditForm({pageData}) {
         <div className="flex-1">
           <button type="button" className="underline hover:no-underline" onClick={testsAdd}>Add test</button>
         </div>
-        <button type="submit" className={buttonStyles.default}>Save test case</button>
+        <Button type="submit" variant="outline" className="font-bold">Save test case</Button>
       </div>
     </form>
   )

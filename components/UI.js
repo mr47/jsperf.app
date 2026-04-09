@@ -1,128 +1,250 @@
-import { useState, useEffect } from 'react'
-import lodash from 'lodash'
+import { useEffect } from 'react'
 import PostMessageBroker from '../utils/postMessageBroker'
-import {getRanked} from '../utils/ArrayUtils'
+import { getRanked, formatNumber } from '../utils/ArrayUtils'
+import { runBenchmark } from '../utils/benchmark'
 
-import '../lib/benchmark.mjs' // mjs to avoid webpack parser
+function compileFactory(code, setup, teardown, isAsync) {
+  try {
+    const testBody = isAsync
+      ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
+      : code
+
+    const body = `
+      ${setup || ''}
+      var __testFn = function() { ${testBody} };
+      var __teardownFn = function() { ${teardown || ''} };
+      return { test: __testFn, teardown: __teardownFn };
+    `
+    const factory = new Function(body)
+    factory()
+    return { factory, error: null }
+  } catch (e) {
+    return { factory: null, error: e }
+  }
+}
 
 export default (props) => {
-  const {pageData: {tests, initHTML, setup, teardown}} = props
-  const Benchmark = global.Benchmark
+  const {
+    pageData: { tests, initHTML, setup, teardown },
+  } = props
 
   useEffect(() => {
-    const ui = new Benchmark.Suite
+    let cancelled = false
+    let abortController = null
 
-    Benchmark.prototype.setup = setup
-    Benchmark.prototype.teardown = teardown
+    const broker = new PostMessageBroker(
+      typeof window !== 'undefined' && window.parent !== window
+        ? window.parent
+        : window
+    )
 
-    const uiBenchmarks = []
+    const factories = tests.map((test) =>
+      compileFactory(test.code, setup, teardown, test.async)
+    )
 
-    ui.on('add', event => {
-      let status = 'default'
-
-      uiBenchmarks.push(event.target)
-
-      event.target.on('start cycle complete', _.throttle(function(event) {
-        if (this.running) {
-          status = 'running'
-        } else if (this.cycles) {
-          if (ui.running) {
-            status = 'completed'
-          } else {
-            status = 'finished'
-          }
-        } else if (event.target.error) {
-          status = 'error'
-          console.log(event.target.error)
-        }
-
-        broker.emit('cycle', {
-          id: this.id,
-          name: this.name,
-          count: Benchmark.formatNumber(this.count),
-          size: this.stats.sample.length,
-          status,
-          running: ui.running
-        })
-      }, 200))
-    })
-
-    tests.forEach((test, id) => {
-      ui.add(test.title,
-        {
-          defer: test.async,
-          fn: test.code,
-          id
-        }
-      )
-    })
-
-    const broker = new PostMessageBroker()
-
-    // Component has been mounted and Benchmark / associated libs are ready
     broker.emit('ready', {})
 
-    ui.on('complete', () => {
-      const ranked = getRanked(uiBenchmarks)
-      const fastest = ranked[0]
-      const slowest = [...ranked].pop()
+    broker.register('run', async (event) => {
+      if (cancelled) return
 
-      const fastestHz = fastest?.hz
+      if (abortController) {
+        abortController.abort()
+        abortController = null
+      }
 
-      // Select some fields to pass to render
-      const results = uiBenchmarks.map(({id, hz, stats, error}) => {
-        const perc = (1 - (hz / fastestHz)) * 100
-        const percentFormatted = Benchmark.formatNumber(
-          perc < 1 
-          ? perc.toFixed(2) 
-          : Math.round(perc)
-        )
+      const { options } = event.data
+
+      if (!options) {
+        broker.emit('complete', {
+          results: tests.map((_, i) => ({
+            id: i, hz: undefined, hzFinite: false, rme: '—',
+            fastest: false, tied: false, slowest: false,
+            status: 'default', percent: '—',
+          })),
+        })
+        return
+      }
+
+      abortController = new AbortController()
+      const { signal } = abortController
+      const time = options.maxTime ? options.maxTime * 1000 : 5000
+      const taskCount = tests.filter((_, i) => !factories[i].error).length
+
+      const benchResults = []
+
+      for (let i = 0; i < tests.length; i++) {
+        if (signal.aborted) break
+
+        if (factories[i].error) {
+          benchResults.push({ index: i, result: { state: 'errored', error: factories[i].error } })
+          continue
+        }
+
+        let compiled
+        try {
+          compiled = factories[i].factory()
+        } catch (e) {
+          factories[i].error = e
+          benchResults.push({ index: i, result: { state: 'errored', error: e } })
+          continue
+        }
+
+        const taskIndex = benchResults.filter(
+          (r) => r.result.state !== 'errored'
+        ).length
+
+        broker.emit('cycle', {
+          id: i,
+          name: tests[i].title,
+          count: '0',
+          size: 0,
+          status: 'running',
+          running: true,
+          elapsed: 0,
+          total: time,
+          opsPerSec: 0,
+          taskIndex,
+          taskCount,
+        })
+
+        const result = await runBenchmark(compiled.test, {
+          time,
+          isAsync: !!tests[i].async,
+          signal,
+          onProgress(elapsed, sampleCount, runs, currentHz) {
+            if (signal.aborted) return
+            broker.emit('cycle', {
+              id: i,
+              name: tests[i].title,
+              count: formatNumber(runs),
+              size: sampleCount,
+              status: 'running',
+              running: true,
+              elapsed: Math.round(elapsed),
+              total: time,
+              opsPerSec: currentHz,
+              taskIndex,
+              taskCount,
+            })
+          },
+        })
+
+        if (compiled.teardown) {
+          try { compiled.teardown() } catch (_) {}
+        }
+
+        if (signal.aborted) break
+
+        benchResults.push({ index: i, result, name: tests[i].title })
+
+        const hasStats =
+          result.state === 'completed' || result.state === 'aborted-with-statistics'
+
+        broker.emit('cycle', {
+          id: i,
+          name: tests[i].title,
+          count: hasStats ? formatNumber(result.latency.samplesCount) : '0',
+          size: hasStats ? result.latency.samplesCount : 0,
+          status: 'completed',
+          running: true,
+        })
+      }
+
+      if (signal.aborted) return
+
+      const ranked = getRanked(benchResults)
+      const fastestEntry = ranked[0]
+      const slowestEntry = ranked.length > 1 ? ranked[ranked.length - 1] : undefined
+      const fastestHz = fastestEntry?.hz
+      const allInfinityTie =
+        ranked.length > 1 && ranked.every((r) => r.hz === Infinity)
+
+      const results = tests.map((test, i) => {
+        if (factories[i].error) {
+          return {
+            id: i, hz: undefined, hzFinite: false, rme: '—',
+            fastest: false, tied: false, slowest: false,
+            status: 'error', error: factories[i].error.message, percent: '—',
+          }
+        }
+
+        const entry = benchResults.find((r) => r.index === i)
+        const result = entry?.result
+
+        if (!result || result.state === 'errored') {
+          return {
+            id: i, hz: undefined, hzFinite: false, rme: '—',
+            fastest: false, tied: false, slowest: false,
+            status: 'error', error: result?.error?.message || 'Unknown error', percent: '—',
+          }
+        }
+
+        const hasStats =
+          result.state === 'completed' || result.state === 'aborted-with-statistics'
+
+        const hz = hasStats ? result.throughput.mean : 0
+
+        let hzFormatted
+        if (Number.isFinite(hz)) {
+          hzFormatted = formatNumber(hz.toFixed(hz < 100 ? 2 : 0))
+        } else if (hz === Infinity) {
+          hzFormatted = '∞'
+        } else {
+          hzFormatted = '—'
+        }
+
+        const rme = hasStats ? result.latency.rme : 0
+        const rmeFormatted =
+          hz === Infinity
+            ? 'n/a'
+            : Number.isFinite(rme)
+              ? rme.toFixed(2)
+              : '—'
+
+        let percentFormatted = '—'
+        if (ranked.length && !allInfinityTie) {
+          if (hz === Infinity && fastestHz === Infinity) {
+            percentFormatted = formatNumber(0)
+          } else if (Number.isFinite(hz) && fastestHz > 0) {
+            const perc = (1 - hz / fastestHz) * 100
+            if (Number.isFinite(perc)) {
+              percentFormatted = formatNumber(
+                perc < 1 ? perc.toFixed(2) : Math.round(perc)
+              )
+            }
+          }
+        }
 
         return {
-          id, 
-          hz: Benchmark.formatNumber(hz.toFixed(hz < 100 ? 2 : 0)), 
-          rme: stats.rme.toFixed(2),
-          fastest: id === fastest?.id, 
-          slowest: id === slowest?.id, 
-          status: error ? 'error' : 'finished',
-          error,
-          percent: percentFormatted
+          id: i,
+          hz: hzFormatted,
+          hzFinite: Number.isFinite(hz),
+          rme: rmeFormatted,
+          fastest: !allInfinityTie && i === fastestEntry?.index,
+          tied: allInfinityTie,
+          slowest: !allInfinityTie && i === slowestEntry?.index,
+          status: 'finished',
+          percent: percentFormatted,
+          samples: hasStats ? result.latency.samplesCount : 0,
+          meanLatency: hasStats ? result.latency.mean : 0,
+          p99Latency: hasStats ? result.latency.p99 : 0,
+          p50Latency: hasStats ? result.latency.p50 : 0,
         }
       })
 
-      broker.emit('complete', {
-        results
-      })
+      broker.emit('complete', { results })
     })
 
-    broker.register('run', ({data: { options }}) => { 
-      // options can override each benchmark defaults, e.g. maxTime
-      if (options) {
-        for (let benchmark of uiBenchmarks) {
-          Object.assign(benchmark.options, options)
-          benchmark.reset()
-        }
-      }
-
-      const stopped = !ui.running
-
-      ui.abort()
-      ui.length = 0
-
-      if (stopped) {
-        ui.push.apply(ui, uiBenchmarks.filter((bench) => {
-          return !bench.error && bench.reset()
-        }))
-
-        ui.run({
-          'async': true,
-          'queued': true
-        }) 
-      }
-    })
+    return () => {
+      cancelled = true
+      if (abortController) abortController.abort()
+    }
   }, [])
 
   return (
-    <div className="prepHTMLOutput" dangerouslySetInnerHTML={{__html: initHTML}}/>
+    <div
+      className="prepHTMLOutput"
+      dangerouslySetInnerHTML={{ __html: initHTML }}
+    />
   )
 }

@@ -13,8 +13,7 @@ import Info from '../../../components/sections/Info'
 import Setup from '../../../components/sections/Setup'
 import Teardown from '../../../components/sections/Teardown'
 import PrepCode from '../../../components/sections/PrepCode'
-import buttonStyles from '../../../styles/buttons.module.css'
-import styles from '../../../components/sections/Meta.module.css'
+import { Button } from '@/components/ui/button'
 import UUID from '../../../components/UUID'
 
 export default function Preview(props) {
@@ -111,11 +110,14 @@ export default function Preview(props) {
           <TestRunner id={_id} tests={tests} />
         </section>
         <hr className="my-5" />
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center gap-2 flex-wrap">
           { canEdit &&
               <>
-                <a href={`/${slug}/${revision}/edit`} className={buttonStyles.default}>Edit Tests</a><span className="inline-flex items-center px-2"> - or - </span>
-                <a onClick={publish} href="#" className={styles.unpublishedButton}>Publish</a> 
+                <Button variant="outline" className="font-bold" asChild>
+                  <a href={`/${slug}/${revision}/edit`}>Edit Tests</a>
+                </Button>
+                <span className="hidden sm:inline-flex items-center px-2 text-muted-foreground">or</span>
+                <Button type="button" variant="outline" className="border-red-400 bg-red-100 font-bold hover:bg-red-200" onClick={publish}>Publish</Button>
               </>
           }
         </div>
