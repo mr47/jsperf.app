@@ -136,12 +136,12 @@
     display: inline;
     vertical-align: middle;
   }
-  a {
-    @apply underline;
+  a:not([class]) {
     color: #357ab0;
+    text-decoration: none;
   }
-  a:hover {
-    @apply no-underline;
+  a:not([class]):hover {
+    text-decoration: underline;
   }
 }
 

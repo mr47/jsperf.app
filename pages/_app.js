@@ -1,4 +1,3 @@
-import 'highlight.js/styles/github.css'
 import '../styles/globals.css'
 import * as gtag from '../lib/gtag'
 import { useEffect } from 'react'
@@ -6,6 +5,7 @@ import Script from 'next/script'
 import { useRouter } from 'next/router'
 import { SessionProvider } from "next-auth/react"
 import { Analytics } from '@vercel/analytics/react';
+import { ThemeProvider } from "next-themes"
 
 function App({ Component, pageProps: { session, ...pageProps } }) {
   const router = useRouter()
@@ -48,7 +48,9 @@ function App({ Component, pageProps: { session, ...pageProps } }) {
       {/*/>*/}
 
       <SessionProvider session={session}>
-        <Component {...pageProps} />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <Component {...pageProps} />
+        </ThemeProvider>
       </SessionProvider>
       <Analytics />
     </>

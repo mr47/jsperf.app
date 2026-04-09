@@ -2,7 +2,8 @@ import Link from 'next/link'
 import Head from 'next/head'
 import { pagesCollection } from '../lib/mongodb'
 import Layout from '../components/Layout'
-import {DateTimeLong} from '../utils/Date'
+import { DateTimeLong } from '../utils/Date'
+import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
 export default function Latest(props) {
   const {entries} = props
@@ -17,23 +18,35 @@ export default function Latest(props) {
         />
       </Head>
       <Layout>
-        <h2 className="font-bold my-5">Latest</h2>
-          <ul>
-            {entries.map(({title, slug, revision, testsCount, published, revisionCount}, index) => {
-                return (
-                  <li key={index}>
-                    <Link href={revision === 1 ? `/${slug}` : `/${slug}/${revision}`}>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Latest Benchmarks</h1>
+          <p className="text-muted-foreground">Browse the most recently created or updated JavaScript performance tests.</p>
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {entries.map(({title, slug, revision, testsCount, published, revisionCount}, index) => {
+            const url = revision === 1 ? `/${slug}` : `/${slug}/${revision}`
+            return (
+              <Link href={url} key={index} className="block group">
+                <Card className="h-full transition-colors hover:bg-muted/50 border-border">
+                  <CardHeader>
+                    <CardTitle className="text-lg line-clamp-2 group-hover:text-primary transition-colors">
                       {title}
-                    </Link>
-                    <span> Published on <time dateTime={published}>
-                      <DateTimeLong date={published}/>
-                    </time></span>
-                    <span> [{testsCount} tests, {revisionCount} revision{`${revisionCount > 1 ? 's' : ''}`}]</span>
-                  </li>
-                )
-              }
-            )}
-          </ul>
+                    </CardTitle>
+                    <CardDescription className="flex flex-col gap-1 mt-2">
+                      <span className="text-xs">
+                        Published on <time dateTime={published} className="font-medium text-foreground"><DateTimeLong date={published}/></time>
+                      </span>
+                      <span className="text-xs bg-secondary w-fit px-2 py-0.5 rounded-full text-secondary-foreground mt-1">
+                        {testsCount} tests • {revisionCount} revision{revisionCount > 1 ? 's' : ''}
+                      </span>
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              </Link>
+            )
+          })}
+        </div>
       </Layout>
     </>
   )

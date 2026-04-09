@@ -3,12 +3,14 @@ import {highlightSanitizedJS} from '../../utils/hljs'
 const Setup = (props) => {
   const {setup} = props
   return (
-    <>
-      <h2 className="font-bold my-5">Setup</h2>
-      <pre className="max-h-80 overflow-scroll">
-        <code dangerouslySetInnerHTML={{__html: highlightSanitizedJS(setup)}} />
-      </pre>
-    </>
+    <div className="mb-8">
+      <h2 className="font-bold text-xl mb-4 tracking-tight">Setup</h2>
+      <div className="bg-muted border border-border rounded-lg p-4 overflow-auto max-h-80">
+        <pre>
+          <code className="text-sm font-mono text-muted-foreground" dangerouslySetInnerHTML={{__html: highlightSanitizedJS(setup)}} />
+        </pre>
+      </div>
+    </div>
   )
 }
 

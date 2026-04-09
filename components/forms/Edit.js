@@ -1,40 +1,58 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import Router from 'next/router'
-import { signIn, useSession } from "next-auth/react"
-import GitHubIcon from '../GitHubIcon'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import UUID from '../UUID'
 import MinusIcon from '../MinusIcon'
-
 import Editor from '../Editor'
 
 const TestCaseFieldset = ({index, remove, test, update}) => {
   return (
-    <fieldset name="testCase">
-      <div>
-        <h2 className="px-5 w-full md:w-1/4 text-black font-bold text-left md:text-right">
-          {
-            remove && 
-              <button className="inline-flex items-center align-middle mr-2" type="button" onClick={() => remove(test.id)}>
-                <MinusIcon fill="#000000" width={20} height={20} className="fill-inherit" />
-              </button>
-          }
-          Test #{index + 1}
-        </h2>
-      </div>
-      <div>
-        <label htmlFor="testTitle">Title <span className="text-red-600">*</span></label>
-        <input type="text" name="testTitle" onChange={event => update({"title": event.target.value}, test.id)} required defaultValue={test && test.title} />
-      </div>
-      <div>
-        <label htmlFor="async">Async</label>
-        <input type="checkbox" name="async" onChange={event => update({"async": event.target.checked}, test.id)} defaultChecked={test && test.async} />
-      </div>
-      <div>
-        <label htmlFor="code" className="self-start">Code <span className="text-red-600">*</span></label>
-        <Editor code={test && test.code} onUpdate={code => update({code}, test.id)} className="javascript w-full md:w-1/2 p-2 border" style={{minHeight: "150px"}} />
-      </div>
-    </fieldset>
+    <Card className="mb-4">
+      <CardHeader className="py-4 flex flex-row items-center justify-between">
+        <CardTitle className="text-lg">Test #{index + 1}</CardTitle>
+        {remove && (
+          <Button variant="ghost" size="icon" type="button" onClick={() => remove(test.id)} className="text-destructive">
+            <MinusIcon fill="currentColor" width={20} height={20} />
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2">
+          <Label htmlFor={`testTitle-${test.id}`}>Title <span className="text-red-500">*</span></Label>
+          <Input 
+            id={`testTitle-${test.id}`}
+            type="text" 
+            name="testTitle" 
+            onChange={event => update({"title": event.target.value}, test.id)} 
+            required 
+            defaultValue={test && test.title} 
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input 
+            type="checkbox" 
+            id={`async-${test.id}`}
+            name="async" 
+            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
+            onChange={event => update({"async": event.target.checked}, test.id)} 
+            defaultChecked={test && test.async} 
+          />
+          <Label htmlFor={`async-${test.id}`} className="font-normal cursor-pointer">Async</Label>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor={`code-${test.id}`}>Code <span className="text-red-500">*</span></Label>
+          <Editor 
+            code={test && test.code} 
+            onUpdate={code => update({code}, test.id)} 
+            className="javascript w-full p-2 border rounded-md font-mono text-sm" 
+            style={{minHeight: "150px"}} 
+          />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -47,9 +65,6 @@ export default function EditForm({pageData}) {
   const [codeBlockTeardown, setCodeBlockTeardown] = useState(pageData?.teardown || '')
 
   // Test states
-  // We need to give each test in the array of tests a stable key.
-  // Otherwise if we use the array index and change order or remove an item react will not update due to the key not changing
-  // https://stackoverflow.com/questions/39549424/how-to-create-unique-keys-for-react-elements
   let defaultTestsState = [
     {id: 0, title: '', code: '', 'async': false},
     {id: 1, title: '', code: '', 'async': false},
@@ -63,20 +78,27 @@ export default function EditForm({pageData}) {
 
   const testsRemove = (id) => {
     const testIndex = testsState.findIndex(test => test.id === id)
-    setTestsState(tests => tests.splice(testIndex, 1) && [...tests])
+    setTestsState(tests => {
+      const newTests = [...tests]
+      newTests.splice(testIndex, 1)
+      return newTests
+    })
   }
 
   const testsAdd = () => {
     const lastId = testsState[testsState.length - 1].id
-    setTestsState(tests => tests.push({id: lastId+1, title: '', code: '', 'async': false}) && [...tests])
+    setTestsState(tests => [...tests, {id: lastId+1, title: '', code: '', 'async': false}])
   }
 
   const testsUpdate = (test, id) => {
     const testIndex = testsState.findIndex(test => test.id === id)
-    setTestsState(tests => (tests[testIndex] = {...tests[testIndex], ...test}) && [...tests])
+    setTestsState(tests => {
+      const newTests = [...tests]
+      newTests[testIndex] = {...newTests[testIndex], ...test}
+      return newTests
+    })
   }
 
-  // Default form values if none are provided via props.pageData
   const formDefaults = Object.assign({}, {
     title: '',
     info: '',
@@ -87,38 +109,28 @@ export default function EditForm({pageData}) {
   const submitFormHandler = async event => {
     event.preventDefault()
 
-    // Pick fields referenced by their ID from the form to include in request payload
-    // Uses IIFE to destructure event.target. event.target is the form.
-    const formData = (({
-      title, 
-      info
-    }) => ({
-      title: title.value, 
-      info: info.value
-    }))( event.target )
+    const formData = {
+      title: event.target.title.value,
+      info: event.target.info.value
+    }
 
     formData.slug = formDefaults.slug
-
     formData.initHTML = codeBlockInitHTML
     formData.setup = codeBlockSetup
     formData.teardown = codeBlockTeardown
 
-    // Sanitise tests
-    formData.tests = testsState.map(test => ({...test})) // Clone state array
-      .map(test => delete test.id && test) // Remove ids
-      .filter(test => !!test.code) // Filter those without code
+    formData.tests = testsState.map(test => ({...test}))
+      .map(test => { delete test.id; return test })
+      .filter(test => !!test.code)
 
     const isPublished = !!pageData?.visible
 
-    // Editing an existing document
     if (pageData?.revision) {
       formData.revision = pageData.revision
     }
 
-    // Include UUID in payload
     formData.uuid = uuid
 
-    // Send form data to tests API
     const response = await fetch('/api/page', {
       method: (isPublished || !pageData) ? 'POST' : 'PUT',
       body: JSON.stringify(formData),
@@ -127,64 +139,93 @@ export default function EditForm({pageData}) {
     const {success, message, data} = await response.json()
 
     if (success) {
-      // redirect to SSR preview page
       Router.push(`/${data.slug}/${data.revision}/preview`)
     } else {
-      // Should do something a bit more informative here
       console.log(success, message, data)
     }
   }
 
   return (
-    <form onSubmit={submitFormHandler} className="edit-form w-full">
-      <fieldset>
-        <h3 className="bg-blue-500">Test case details</h3>
-        <div>
-          <label htmlFor="title">
-            Title <span className="text-red-600">*</span>
-          </label>
-          <input type="text" id="title" name="title" defaultValue={formDefaults.title} required />
-        </div>
-        <div>
-          <label htmlFor="info" className="self-start">Description <br /><span className="text-gray-300 font-normal">(Markdown syntax is allowed)</span> </label>
-          <textarea name="info" id="info" rows="5" maxLength="16777215" defaultValue={formDefaults.info}></textarea>
-        </div>
-      </fieldset>
-      <fieldset>
-        <h3 className="bg-blue-500">Preparation Code</h3>
+    <form onSubmit={submitFormHandler} className="w-full space-y-8">
+      
+      <Card>
+        <CardHeader>
+          <CardTitle>Test Case Details</CardTitle>
+          <CardDescription>Basic information about your performance benchmark.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="title">
+              Title <span className="text-red-500">*</span>
+            </Label>
+            <Input type="text" id="title" name="title" defaultValue={formDefaults.title} required />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="info">
+              Description <span className="text-muted-foreground font-normal ml-2">(Markdown syntax is allowed)</span>
+            </Label>
+            <textarea 
+              name="info" 
+              id="info" 
+              rows="5" 
+              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              maxLength="16777215" 
+              defaultValue={formDefaults.info} 
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-        <div>
-          <label htmlFor="initHTML" className="self-start">Preparation HTML <br /><span className="text-gray-300 font-normal">(this will be inserted in the <code>{`<body>`}</code> of a valid HTML5 document in standards mode)<br />(useful when testing DOM operations or including libraries)</span></label>
-          <Editor code={codeBlockInitHTML} onUpdate={setCodeBlockInitHTML} className="html w-full md:w-1/2 p-2 border" style={{minHeight: "150px"}} />
-        </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Preparation Code</CardTitle>
+          <CardDescription>Code that runs before any tests are executed.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-2">
+            <Label htmlFor="initHTML">
+              Preparation HTML
+              <span className="block text-muted-foreground font-normal text-xs mt-1">
+                (this will be inserted in the {`<body>`} of a valid HTML5 document in standards mode)
+                <br />(useful when testing DOM operations or including libraries)
+              </span>
+            </Label>
+            <Editor code={codeBlockInitHTML} onUpdate={setCodeBlockInitHTML} className="html w-full p-2 border rounded-md font-mono text-sm" style={{minHeight: "150px"}} />
+          </div>
 
-        <div>
-          <label htmlFor="setup" className="self-start">Setup JS</label>
-          <Editor code={codeBlockSetup} onUpdate={setCodeBlockSetup} className="javascript w-full md:w-1/2 p-2 border" style={{minHeight: "150px"}} />
-        </div>
+          <div className="grid gap-2">
+            <Label htmlFor="setup">Setup JS</Label>
+            <Editor code={codeBlockSetup} onUpdate={setCodeBlockSetup} className="javascript w-full p-2 border rounded-md font-mono text-sm" style={{minHeight: "150px"}} />
+          </div>
 
-        <div>
-          <label htmlFor="teardown" className="self-start">Teardown JS</label>
-          <Editor code={codeBlockTeardown} onUpdate={setCodeBlockTeardown} className="javascript w-full md:w-1/2 p-2 border" style={{minHeight: "150px"}} />
-        </div>
+          <div className="grid gap-2">
+            <Label htmlFor="teardown">Teardown JS</Label>
+            <Editor code={codeBlockTeardown} onUpdate={setCodeBlockTeardown} className="javascript w-full p-2 border rounded-md font-mono text-sm" style={{minHeight: "150px"}} />
+          </div>
+        </CardContent>
+      </Card>
 
-      </fieldset>
-      <fieldset>
-        <h3 className="bg-blue-500">Test cases</h3>
-        { 
-          testsState.map((test,index) => {
+      <div>
+        <h3 className="text-2xl font-bold tracking-tight mb-4">Test Cases</h3>
+        <div className="space-y-4">
+          {testsState.map((test, index) => {
             const optionalProps = {}
             index > 1 && (optionalProps.remove = testsRemove)
-            return <TestCaseFieldset {...optionalProps} key={test.id} index={index} test={test} update={e => {testsUpdate(e, test.id)}} />
-          })
-        }
-      </fieldset>
-      <div className="flex my-5 items-center">
-        <div className="flex-1">
-          <button type="button" className="underline hover:no-underline" onClick={testsAdd}>Add test</button>
+            return <TestCaseFieldset {...optionalProps} key={test.id} index={index} test={test} update={(e, id) => testsUpdate(e, id)} />
+          })}
         </div>
-        <Button type="submit" variant="outline" className="font-bold">Save test case</Button>
       </div>
+
+      <div className="flex flex-col sm:flex-row items-center gap-4 pt-4 border-t border-border">
+        <Button type="button" variant="outline" onClick={testsAdd} className="w-full sm:w-auto">
+          Add Test Case
+        </Button>
+        <div className="flex-1"></div>
+        <Button type="submit" size="lg" className="w-full sm:w-auto font-bold">
+          Save Test Case
+        </Button>
+      </div>
+      
     </form>
   )
 }

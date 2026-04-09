@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import UserAgent from './UserAgent'
 import Test from './Test'
 import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber } from '../utils/ArrayUtils'
 
 export default function Tests(props) {
@@ -104,58 +105,75 @@ export default function Tests(props) {
 
   return (
     <>
-      <h2 className="font-bold my-5">Test runner</h2>
-      <div id="controls" className="flex my-5 items-center">
-        <p id="status" className="flex-1">{statusMessage}</p>
-        { ['ready', 'complete'].includes(benchStatus) &&
-          <>
-            <Button
-              id="run"
-              type="button"
-              disabled={benchStatus === 'notready'}
-              variant="outline"
-              className="mx-2 font-bold"
-              onClick={() => run({maxTime: 5})}>Run</Button>
-            <Button
-              type="button"
-              disabled={benchStatus === 'notready'}
-              variant="outline"
-              className="font-bold"
-              onClick={() => run({maxTime: 0.5})}>Quick Run</Button>
-            </>
-        }
-        { benchStatus === 'running' &&
-          <Button
-            type="button"
-            variant="outline"
-            className="font-bold"
-            onClick={() => run()}>Stop</Button>
-        }
-        <iframe
-          src={sandboxUrl}
-          ref={windowRef}
-          sandbox={SANDBOX_IFRAME_FLAGS}
-          title="Benchmark sandbox"
-          className="hidden"
-          style={{height: "1px", width: "1px"}}></iframe>
+      <Card className="my-8">
+        <CardContent className="p-6">
+          <div className="flex flex-col md:flex-row md:items-center gap-4">
+            <div className="flex-1">
+              <h2 className="text-xl font-bold tracking-tight mb-1">Test Runner</h2>
+              <p className="text-sm text-muted-foreground">{statusMessage}</p>
+            </div>
+            
+            <div className="flex items-center gap-3">
+              { ['ready', 'complete'].includes(benchStatus) &&
+                <>
+                  <Button
+                    id="run"
+                    type="button"
+                    disabled={benchStatus === 'notready'}
+                    size="lg"
+                    className="font-bold"
+                    onClick={() => run({maxTime: 5})}>Run Tests</Button>
+                  <Button
+                    type="button"
+                    disabled={benchStatus === 'notready'}
+                    variant="outline"
+                    size="lg"
+                    className="font-bold"
+                    onClick={() => run({maxTime: 0.5})}>Quick Run</Button>
+                </>
+              }
+              { benchStatus === 'running' &&
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="lg"
+                  className="font-bold"
+                  onClick={() => run()}>Stop</Button>
+              }
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      
+      <iframe
+        src={sandboxUrl}
+        ref={windowRef}
+        sandbox={SANDBOX_IFRAME_FLAGS}
+        title="Benchmark sandbox"
+        className="hidden"
+        style={{height: "1px", width: "1px"}}></iframe>
+
+      <div className="border border-border rounded-lg overflow-hidden bg-card">
+        <table className="w-full text-left text-sm">
+          <caption className="bg-muted p-3 text-sm font-medium border-b border-border text-left">
+            Testing in <UserAgent />
+          </caption>
+          <thead className="bg-primary text-primary-foreground">
+            <tr>
+              <th colSpan="2" className="py-3 px-4 font-semibold border-r border-primary-foreground/20">Test Case</th>
+              <th title="Operations per second (higher is better)" className="py-3 px-4 font-semibold text-center">Ops/sec</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {tests.map((test, i) => (
+              <Test
+                key={`${i}-${test.status}-${String(test.hz ?? '')}-${String(test.percent ?? '')}-${String(test.tied ?? '')}`}
+                test={test}
+              />
+            ))}
+          </tbody>
+        </table>
       </div>
-      <table id="test-table" className="w-full border-collapse">
-        <caption className="bg-gray-200 font-bold text-md text-gray-800">Testing in <UserAgent /></caption>
-        <thead className="bg-blue-500 text-white">
-          <tr>
-            <th colSpan="2" className="py-1">Test</th>
-            <th title="Operations per second (higher is better)" className="px-2">Ops/sec</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tests.map((test, i) => (
-            <Test
-              key={`${i}-${test.status}-${String(test.hz ?? '')}-${String(test.percent ?? '')}-${String(test.tied ?? '')}`}
-              test={test}
-            />
-          ))}
-        </tbody>
-      </table>
       {showUnboundedNote && (
         <p className="text-sm text-gray-600 mt-3 max-w-prose">
           Each case finished faster than the benchmark timer could resolve, so ops/sec

@@ -12,61 +12,69 @@ export default function Test(props) {
   const progressPct = total > 0 ? Math.min(100, Math.round((elapsed / total) * 100)) : 0
 
   const result = {
-    default: (<div className="text-gray-500 text-sm">ready</div>),
-    pending: (<div className="text-gray-400 text-sm">pending…</div>),
+    default: (<div className="text-muted-foreground text-sm">ready</div>),
+    pending: (<div className="text-muted-foreground text-sm">pending…</div>),
     running: (
       <div>
-        <div className="w-full bg-gray-200 rounded-full h-1.5 my-1.5">
+        <div className="w-full bg-secondary rounded-full h-1.5 my-1.5 overflow-hidden">
           <div
-            className="bg-blue-500 h-1.5 rounded-full transition-all duration-200"
+            className="bg-primary h-1.5 rounded-full transition-all duration-200"
             style={{width: `${progressPct}%`}}
           />
         </div>
-        <p className="text-xs text-gray-600 leading-tight">
+        <p className="text-xs text-muted-foreground leading-tight">
           {opsPerSec > 0
             ? `~${formatNumber(Math.round(opsPerSec))} ops/s`
             : 'warming up…'}
         </p>
-        <p className="text-[10px] text-gray-400">{progressPct}%</p>
+        <p className="text-[10px] text-muted-foreground">{progressPct}%</p>
       </div>
     ),
-    completed: (<div className="text-gray-500 text-sm">completed</div>),
-    error: (<div>ERROR</div>),
+    completed: (<div className="text-muted-foreground text-sm">completed</div>),
+    error: (<div className="font-bold text-destructive">ERROR</div>),
     finished: (
       <>
-        <p className="font-semibold">{hz != null && hz !== '' ? hz : '—'}</p>
-        <small className="block text-gray-600">
+        <p className="font-semibold text-foreground">{hz != null && hz !== '' ? hz : '—'}</p>
+        <small className="block text-muted-foreground">
           {rme === '—' || rme === 'n/a' ? rme : `±${rme}%`}
         </small>
-        <p className="text-sm">
+        <p className="text-sm font-medium">
           {tied
             ? 'tied'
             : fastest
-              ? 'fastest'
+              ? <span className="text-green-600 dark:text-green-500">fastest</span>
               : percent === '—'
                 ? '—'
                 : `${percent}% slower`}
         </p>
         {samples > 0 && (
-          <p className="text-[10px] text-gray-400 mt-1 leading-tight" title={`p50: ${formatLatency(p50Latency)} · p99: ${formatLatency(p99Latency)}`}>
+          <p className="text-[10px] text-muted-foreground mt-1 leading-tight" title={`p50: ${formatLatency(p50Latency)} · p99: ${formatLatency(p99Latency)}`}>
             {samples} samples · {formatLatency(meanLatency)}
           </p>
         )}
       </>
     )
   }
+
+  let rowBg = "bg-card"
+  if (status === 'finished' && fastest && !tied) rowBg = "bg-green-500/10"
+  if (status === 'finished' && slowest && !tied) rowBg = "bg-red-500/10"
+  if (status === 'error') rowBg = "bg-destructive/10"
+
   return (
-    <tr>
-      <td className="py-5 px-2 bg-gray-200 w-1/6 border border-slate-300">
+    <tr className={`border-b border-border ${rowBg} transition-colors`}>
+      <td className="py-4 px-4 bg-muted/50 w-1/5 border-r border-border font-medium align-top">
         {title}
       </td>
-      <td className="code px-2 border border-slate-300">
+      <td className="py-4 px-4 border-r border-border align-top">
         <pre className="w-full whitespace-pre-wrap break-words">
-          <code dangerouslySetInnerHTML={
+          <code className="text-sm font-mono text-muted-foreground" dangerouslySetInnerHTML={
             {__html: highlightSanitizedJS(code)}} />
         </pre>
       </td>
-      <td className={`${(status === 'finished' && fastest) ? 'bg-jsp-green' : ''} ${(status === 'finished' && slowest) ? 'bg-jsp-pink' : ''} ${(status === 'error') ? 'font-bold bg-jsp-pink text-red-600' : ''} text-center w-[120px] p-2 border border-slate-300`}>{result[status] || result.default}</td>
+      <td className="py-4 px-4 text-center w-[160px] align-top">
+        {result[status] || result.default}
+      </td>
     </tr>
   )
 }

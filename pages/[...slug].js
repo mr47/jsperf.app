@@ -11,6 +11,7 @@ import Info from '../components/sections/Info'
 import Setup from '../components/sections/Setup'
 import Teardown from '../components/sections/Teardown'
 import PrepCode from '../components/sections/PrepCode'
+import { Separator } from '@/components/ui/separator'
 
 export default function Slug(props) {
   const {
@@ -42,12 +43,12 @@ export default function Slug(props) {
       </Head>
       <Layout>
         <hgroup>
-          <h1 className="text-2xl py-6 font-bold">{title}<span className="text-gray-400 text-base">{`${revision > 1 ? ` (v${revision})` : ''}`}</span></h1>
+          <h1 className="text-3xl py-6 font-bold tracking-tight">{title} <span className="text-muted-foreground text-xl font-normal ml-2">{`${revision > 1 ? `(v${revision})` : ''}`}</span></h1>
         </hgroup>
         <section>
           <Meta pageData={props.pageData} />
         </section>
-        <hr className="my-5" />
+        <Separator className="my-6" />
         {info &&
           <section>
             <Info info={info} />
@@ -71,7 +72,7 @@ export default function Slug(props) {
         <section>
           <TestRunner id={_id} tests={tests} />
         </section>
-        <hr className="my-5" />
+        <Separator className="my-6" />
         <section>
           <Revisions revisions={revisions} slug={slug} revision={revision} />
         </section>
