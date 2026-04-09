@@ -41,10 +41,10 @@ export default function Header(props) {
         </div>
         <div className={`${navState.mobileMenu ? 'block' : 'hidden'} w-full flex-grow lg:flex lg:items-center lg:w-auto`}>
           <div className="text-sm lg:flex-grow flex gap-4 mt-4 lg:mt-0">
-            <Link href="/latest" className="text-sm font-medium hover:underline text-muted-foreground hover:text-foreground">
+            <Link href="/latest" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
               Latest
             </Link>
-            <Link href="/create" className="text-sm font-medium hover:underline text-muted-foreground hover:text-foreground">
+            <Link href="/create" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
               Create
             </Link>
           </div>
@@ -69,7 +69,7 @@ export default function Header(props) {
             }
             {
             session &&
-              <Link href={`/u/${session?.user?.id}`} className="no-underline text-foreground hover:underline font-medium text-sm">
+              <Link href={`/u/${session?.user?.id}`} className="font-medium text-sm hover:text-primary transition-colors">
                 { login }
               </Link>
             }

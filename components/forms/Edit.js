@@ -5,51 +5,61 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import UUID from '../UUID'
-import MinusIcon from '../MinusIcon'
+import { Trash2 } from 'lucide-react'
 import Editor from '../Editor'
 
 const TestCaseFieldset = ({index, remove, test, update}) => {
   return (
-    <Card className="mb-4">
-      <CardHeader className="py-4 flex flex-row items-center justify-between">
-        <CardTitle className="text-lg">Test #{index + 1}</CardTitle>
-        {remove && (
-          <Button variant="ghost" size="icon" type="button" onClick={() => remove(test.id)} className="text-destructive">
-            <MinusIcon fill="currentColor" width={20} height={20} />
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-2">
-          <Label htmlFor={`testTitle-${test.id}`}>Title <span className="text-red-500">*</span></Label>
-          <Input 
-            id={`testTitle-${test.id}`}
-            type="text" 
-            name="testTitle" 
-            onChange={event => update({"title": event.target.value}, test.id)} 
-            required 
-            defaultValue={test && test.title} 
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <input 
-            type="checkbox" 
-            id={`async-${test.id}`}
-            name="async" 
-            className="w-4 h-4 rounded border-gray-300 text-primary focus:ring-primary"
-            onChange={event => update({"async": event.target.checked}, test.id)} 
-            defaultChecked={test && test.async} 
-          />
-          <Label htmlFor={`async-${test.id}`} className="font-normal cursor-pointer">Async</Label>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor={`code-${test.id}`}>Code <span className="text-red-500">*</span></Label>
-          <Editor 
-            code={test && test.code} 
-            onUpdate={code => update({code}, test.id)} 
-            className="javascript w-full p-2 border rounded-md font-mono text-sm" 
-            style={{minHeight: "150px"}} 
-          />
+    <Card className="mb-6 overflow-hidden border-border/60 shadow-sm bg-card/40 backdrop-blur-sm group">
+      {/* Subtle top border accent instead of full gradient bar */}
+      <div className="h-[2px] w-full bg-primary/20 group-hover:bg-primary/50 transition-colors" />
+      
+      <CardContent className="p-0">
+        <div className="flex flex-col">
+          
+          {/* Top Row: Number, Title Input, Remove Button all perfectly inline */}
+          <div className="flex items-center gap-3 p-4 bg-muted/10 border-b border-border/50">
+            <div className="bg-background border border-border/50 text-muted-foreground font-mono font-bold w-8 h-8 rounded flex items-center justify-center text-sm shadow-sm shrink-0">
+              {index + 1}
+            </div>
+            
+            <div className="flex-1 flex items-center bg-background border border-border/50 rounded-md overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 focus-within:border-primary/50 transition-all shadow-sm">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 border-r border-border/50 bg-muted/30 py-2.5">
+                Title
+              </span>
+              <input
+                id={`testTitle-${test.id}`}
+                type="text" 
+                name="testTitle" 
+                placeholder="e.g. Using Array.map()"
+                className="flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/50"
+                onChange={event => update({"title": event.target.value}, test.id)} 
+                required 
+                defaultValue={test && test.title} 
+              />
+            </div>
+
+            {remove && (
+              <Button variant="ghost" size="sm" type="button" onClick={() => remove(test.id)} className="h-10 text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent hover:border-destructive/20 transition-all flex items-center gap-2">
+                <Trash2 className="w-4 h-4" />
+                <span className="hidden sm:inline-block">Remove</span>
+              </Button>
+            )}
+          </div>
+
+          {/* Editor Area (No label, just code) */}
+          <div className="w-full bg-background relative group/editor">
+            {/* Very subtle floating label inside the editor area so it doesn't waste vertical space */}
+            <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">
+              JavaScript
+            </div>
+            <Editor 
+              code={test && test.code} 
+              onUpdate={code => update({code}, test.id)} 
+              className="javascript w-full p-4 pt-5 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+              style={{minHeight: "200px"}} 
+            />
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -66,8 +76,8 @@ export default function EditForm({pageData}) {
 
   // Test states
   let defaultTestsState = [
-    {id: 0, title: '', code: '', 'async': false},
-    {id: 1, title: '', code: '', 'async': false},
+    {id: 0, title: '', code: ''},
+    {id: 1, title: '', code: ''},
   ]
 
   if (pageData?.tests) {
@@ -86,8 +96,8 @@ export default function EditForm({pageData}) {
   }
 
   const testsAdd = () => {
-    const lastId = testsState[testsState.length - 1].id
-    setTestsState(tests => [...tests, {id: lastId+1, title: '', code: '', 'async': false}])
+    const lastId = testsState.length > 0 ? testsState[testsState.length - 1].id : 0
+    setTestsState(tests => [...tests, {id: lastId+1, title: '', code: ''}])
   }
 
   const testsUpdate = (test, id) => {
@@ -146,29 +156,32 @@ export default function EditForm({pageData}) {
   }
 
   return (
-    <form onSubmit={submitFormHandler} className="w-full space-y-8">
+    <form onSubmit={submitFormHandler} className="w-full max-w-5xl mx-auto space-y-10 pb-20">
       
-      <Card>
-        <CardHeader>
-          <CardTitle>Test Case Details</CardTitle>
-          <CardDescription>Basic information about your performance benchmark.</CardDescription>
+      <Card className="border-border/60 shadow-sm bg-card/40 backdrop-blur-sm overflow-hidden">
+        <div className="h-[2px] w-full bg-primary/20" />
+        <CardHeader className="bg-muted/20 border-b border-border/50 pb-6">
+          <CardTitle className="text-2xl font-bold tracking-tight">Benchmark Details</CardTitle>
+          <CardDescription className="text-base">Provide basic information about your performance test so others can understand what you are comparing.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-2">
-            <Label htmlFor="title">
-              Title <span className="text-red-500">*</span>
+        <CardContent className="space-y-6 pt-6">
+          <div className="grid gap-3">
+            <Label htmlFor="title" className="text-sm font-semibold">
+              Title <span className="text-destructive">*</span>
             </Label>
-            <Input type="text" id="title" name="title" defaultValue={formDefaults.title} required />
+            <Input type="text" id="title" name="title" defaultValue={formDefaults.title} placeholder="e.g. Array iteration methods comparison" className="text-lg py-6 bg-background/50 transition-colors" required />
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor="info">
-              Description <span className="text-muted-foreground font-normal ml-2">(Markdown syntax is allowed)</span>
-            </Label>
+          <div className="grid gap-3">
+            <div className="flex justify-between items-baseline">
+              <Label htmlFor="info" className="text-sm font-semibold">Description</Label>
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md font-mono">Markdown supported</span>
+            </div>
             <textarea 
               name="info" 
               id="info" 
-              rows="5" 
-              className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              rows="4" 
+              placeholder="Explain what you are benchmarking and why..."
+              className="flex min-h-[120px] w-full rounded-md border border-input bg-background/50 px-4 py-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 transition-all shadow-inner"
               maxLength="16777215" 
               defaultValue={formDefaults.info} 
             />
@@ -176,53 +189,69 @@ export default function EditForm({pageData}) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Preparation Code</CardTitle>
-          <CardDescription>Code that runs before any tests are executed.</CardDescription>
+      <Card className="border-border/60 shadow-sm bg-card/40 backdrop-blur-sm overflow-hidden">
+        <div className="h-[2px] w-full bg-primary/20" />
+        <CardHeader className="bg-muted/20 border-b border-border/50 pb-6">
+          <CardTitle className="text-2xl font-bold tracking-tight">Preparation & Teardown</CardTitle>
+          <CardDescription className="text-base">Code that runs before/after the tests. Useful for setting up the DOM or declaring shared variables.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-2">
-            <Label htmlFor="initHTML">
-              Preparation HTML
-              <span className="block text-muted-foreground font-normal text-xs mt-1">
-                (this will be inserted in the {`<body>`} of a valid HTML5 document in standards mode)
-                <br />(useful when testing DOM operations or including libraries)
-              </span>
-            </Label>
-            <Editor code={codeBlockInitHTML} onUpdate={setCodeBlockInitHTML} className="html w-full p-2 border rounded-md font-mono text-sm" style={{minHeight: "150px"}} />
+        <CardContent className="space-y-8 pt-6">
+          <div className="grid gap-3">
+            <div className="flex justify-between items-baseline">
+              <Label htmlFor="initHTML" className="text-sm font-semibold">Preparation HTML</Label>
+              <span className="text-xs text-muted-foreground hidden sm:inline">Inserted into the document {`<body>`}</span>
+            </div>
+            <div className="rounded-lg overflow-hidden border border-border/50 bg-muted/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 shadow-inner transition-all">
+              <Editor code={codeBlockInitHTML} onUpdate={setCodeBlockInitHTML} className="html w-full p-4 font-mono text-sm outline-none" style={{minHeight: "120px"}} />
+            </div>
+            <p className="text-xs text-muted-foreground sm:hidden">Inserted into the document {`<body>`}</p>
           </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="setup">Setup JS</Label>
-            <Editor code={codeBlockSetup} onUpdate={setCodeBlockSetup} className="javascript w-full p-2 border rounded-md font-mono text-sm" style={{minHeight: "150px"}} />
-          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="grid gap-3">
+              <Label htmlFor="setup" className="text-sm font-semibold">Setup JS <span className="font-normal text-xs text-muted-foreground ml-2">(runs before tests)</span></Label>
+              <div className="rounded-lg overflow-hidden border border-border/50 bg-muted/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 shadow-inner transition-all">
+                <Editor code={codeBlockSetup} onUpdate={setCodeBlockSetup} className="javascript w-full p-4 font-mono text-sm outline-none" style={{minHeight: "150px"}} />
+              </div>
+            </div>
 
-          <div className="grid gap-2">
-            <Label htmlFor="teardown">Teardown JS</Label>
-            <Editor code={codeBlockTeardown} onUpdate={setCodeBlockTeardown} className="javascript w-full p-2 border rounded-md font-mono text-sm" style={{minHeight: "150px"}} />
+            <div className="grid gap-3">
+              <Label htmlFor="teardown" className="text-sm font-semibold">Teardown JS <span className="font-normal text-xs text-muted-foreground ml-2">(runs after tests)</span></Label>
+              <div className="rounded-lg overflow-hidden border border-border/50 bg-muted/10 focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/50 shadow-inner transition-all">
+                <Editor code={codeBlockTeardown} onUpdate={setCodeBlockTeardown} className="javascript w-full p-4 font-mono text-sm outline-none" style={{minHeight: "150px"}} />
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      <div>
-        <h3 className="text-2xl font-bold tracking-tight mb-4">Test Cases</h3>
-        <div className="space-y-4">
+      <div className="pt-4">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-3xl font-extrabold tracking-tight">Test Snippets</h3>
+          <Button type="button" variant="outline" onClick={testsAdd} className="font-semibold shadow-sm hover:shadow transition-all bg-background border-border hover:bg-muted">
+            + Add Snippet
+          </Button>
+        </div>
+        <div className="space-y-6">
           {testsState.map((test, index) => {
             const optionalProps = {}
-            index > 1 && (optionalProps.remove = testsRemove)
+            if (testsState.length > 2) {
+              optionalProps.remove = testsRemove
+            }
             return <TestCaseFieldset {...optionalProps} key={test.id} index={index} test={test} update={(e, id) => testsUpdate(e, id)} />
           })}
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row items-center gap-4 pt-4 border-t border-border">
-        <Button type="button" variant="outline" onClick={testsAdd} className="w-full sm:w-auto">
-          Add Test Case
+      <div className="sticky bottom-6 z-10 flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl mt-16 ring-1 ring-white/10 dark:ring-white/5">
+        <div className="flex-1 text-sm font-medium text-muted-foreground ml-2 text-center sm:text-left">
+          Ready to run? Make sure all your snippets are correct.
+        </div>
+        <Button type="button" variant="secondary" onClick={testsAdd} className="hidden sm:inline-flex w-full sm:w-auto shadow-sm">
+          Add Another Test
         </Button>
-        <div className="flex-1"></div>
-        <Button type="submit" size="lg" className="w-full sm:w-auto font-bold">
-          Save Test Case
+        <Button type="submit" size="lg" className="w-full sm:w-auto font-bold px-8 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all">
+          Save & Run Benchmark
         </Button>
       </div>
       

@@ -71,6 +71,11 @@ export default function Test(props) {
           <code className="text-sm font-mono text-muted-foreground" dangerouslySetInnerHTML={
             {__html: highlightSanitizedJS(code)}} />
         </pre>
+        {status === 'error' && error && (
+          <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded text-xs font-mono text-destructive whitespace-pre-wrap break-words">
+            {error}
+          </div>
+        )}
       </td>
       <td className="py-4 px-4 text-center w-[160px] align-top">
         {result[status] || result.default}

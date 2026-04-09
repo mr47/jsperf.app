@@ -3,23 +3,31 @@ import PostMessageBroker from '../utils/postMessageBroker'
 import { getRanked, formatNumber } from '../utils/ArrayUtils'
 import { runBenchmark } from '../utils/benchmark'
 
-function compileFactory(code, setup, teardown, isAsync) {
+function compileFactory(code, setup, teardown, legacyIsAsync) {
   try {
-    const testBody = isAsync
+    // Auto-detect modern async/await or legacy deferred.resolve usage
+    const isLegacyAsync = code.includes('deferred.resolve')
+    const isModernAsync = code.includes('await ') || code.includes('return new Promise')
+    const actuallyAsync = !!legacyIsAsync || isLegacyAsync || isModernAsync
+
+    // If it's the legacy format (or forced via old DB flag), inject the Promise wrapper
+    const testBody = (isLegacyAsync || (legacyIsAsync && !isModernAsync))
       ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
       : code
 
+    const fnPrefix = isModernAsync ? 'async ' : ''
+
     const body = `
       ${setup || ''}
-      var __testFn = function() { ${testBody} };
-      var __teardownFn = function() { ${teardown || ''} };
+      var __testFn = ${fnPrefix}function() { ${testBody} };
+      var __teardownFn = ${fnPrefix}function() { ${teardown || ''} };
       return { test: __testFn, teardown: __teardownFn };
     `
     const factory = new Function(body)
     factory()
-    return { factory, error: null }
+    return { factory, error: null, actuallyAsync }
   } catch (e) {
-    return { factory: null, error: e }
+    return { factory: null, error: e, actuallyAsync: false }
   }
 }
 
@@ -77,6 +85,14 @@ export default (props) => {
 
         if (factories[i].error) {
           benchResults.push({ index: i, result: { state: 'errored', error: factories[i].error } })
+          broker.emit('cycle', {
+            id: i,
+            name: tests[i].title,
+            count: '0',
+            size: 0,
+            status: 'error',
+            error: factories[i].error.message || String(factories[i].error),
+          })
           continue
         }
 
@@ -86,6 +102,14 @@ export default (props) => {
         } catch (e) {
           factories[i].error = e
           benchResults.push({ index: i, result: { state: 'errored', error: e } })
+          broker.emit('cycle', {
+            id: i,
+            name: tests[i].title,
+            count: '0',
+            size: 0,
+            status: 'error',
+            error: e.message || String(e),
+          })
           continue
         }
 
@@ -109,7 +133,7 @@ export default (props) => {
 
         const result = await runBenchmark(compiled.test, {
           time,
-          isAsync: !!tests[i].async,
+          isAsync: factories[i].actuallyAsync,
           signal,
           onProgress(elapsed, sampleCount, runs, currentHz) {
             if (signal.aborted) return
@@ -164,7 +188,7 @@ export default (props) => {
           return {
             id: i, hz: undefined, hzFinite: false, rme: '—',
             fastest: false, tied: false, slowest: false,
-            status: 'error', error: factories[i].error.message, percent: '—',
+            status: 'error', error: factories[i].error.message || String(factories[i].error), percent: '—',
           }
         }
 

@@ -25,7 +25,7 @@ export default function Tests(props) {
     _broker.register('cycle', event => {
       const {
         id: rawId, name, count, size, status,
-        elapsed, total, opsPerSec, taskIndex, taskCount,
+        elapsed, total, opsPerSec, taskIndex, taskCount, error
       } = event.data
       const id = Number(rawId)
 
@@ -36,7 +36,7 @@ export default function Tests(props) {
         const taskProgress =
           taskCount > 1 ? `[${taskIndex + 1}/${taskCount}] ` : ''
         setStatusMessage(`${taskProgress}${name} — ${hzEstimate} — ${pct}%`)
-      } else if (!['finished', 'completed'].includes(status)) {
+      } else if (!['finished', 'completed', 'error'].includes(status)) {
         setStatusMessage(`${name} × ${count} (${size} sample${size === 1 ? '' : 's'})`)
       }
 
@@ -54,6 +54,7 @@ export default function Tests(props) {
             ...test,
             status,
             ...(status === 'running' ? { elapsed, total, opsPerSec } : {}),
+            ...(status === 'error' ? { error } : {}),
           }
         })
       )
