@@ -322,7 +322,7 @@ export default function Tests(props) {
   const showUnboundedNote =
     finishedTests.length > 0 && finishedTests.every((t) => t.tied)
 
-  const generateAIPrompt = () => {
+  const generateAIPrompt = (includeAnalysis = false) => {
     const resultsText = tests
       .map((t, idx) => `Test ${idx + 1} (${t.title}): ${t.opsPerSec ? formatNumber(Math.round(t.opsPerSec)) : 'Error or Infinity'} ops/sec`)
       .join('\n')
@@ -331,15 +331,50 @@ export default function Tests(props) {
       .map((t, idx) => `--- Test ${idx + 1} (${t.title}) ---\n${t.code}`)
       .join('\n\n')
 
+    let analysisSection = ''
+    if (includeAnalysis && analysis?.results) {
+      const serverResults = analysis.results.map((r) => {
+        const chars = r.prediction?.characteristics || {}
+        const activeChars = Object.entries(chars)
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .join(', ')
+
+        return [
+          `--- Test ${r.testIndex + 1} (${r.title}) ---`,
+          `  QuickJS (interpreter): ${formatNumber(Math.round(r.quickjs.opsPerSec))} ops/sec`,
+          `  V8 (JIT):              ${formatNumber(Math.round(r.v8.opsPerSec))} ops/sec`,
+          `  JIT Amplification:     ${r.prediction?.jitBenefit ?? 'N/A'}x`,
+          `  Scaling Type:          ${r.prediction?.scalingType ?? 'N/A'} (confidence: ${r.prediction?.scalingConfidence != null ? (r.prediction.scalingConfidence * 100).toFixed(0) + '%' : 'N/A'})`,
+          `  Memory Sensitivity:    ${r.prediction?.memSensitivity ?? 'N/A'}`,
+          activeChars ? `  Characteristics:       ${activeChars}` : null,
+        ].filter(Boolean).join('\n')
+      }).join('\n\n')
+
+      const comp = analysis.comparison
+      const divergenceNote = comp?.divergence
+        ? `Note: The algorithmically fastest snippet (by interpreter) differs from the runtime fastest (by V8 JIT). The winner is determined by JIT optimization, not algorithm.`
+        : `The algorithmic ranking (interpreter) and runtime ranking (V8 JIT) agree.`
+
+      analysisSection = `
+
+### Deep Analysis (Server-Side Controlled Environment):
+These results come from isolated, reproducible server runs — QuickJS-WASM as a deterministic interpreter baseline and V8 in a Firecracker microVM for realistic JIT profiling.
+
+${serverResults}
+
+${divergenceNote}`
+    }
+
     const prompt = `I ran a JavaScript performance benchmark. Please analyze the results and explain why the fastest snippet is faster, focusing on V8/browser engine optimizations.
 
-### Benchmark Results:
+### Browser Benchmark Results:
 ${resultsText}
 
 ### Code Snippets:
-${codeText}
+${codeText}${analysisSection}
 
-Why is the fastest snippet performing better in modern JavaScript engines?`
+Why is the fastest snippet performing better in modern JavaScript engines?${includeAnalysis ? ' Use the deep analysis data (JIT amplification, scaling type, characteristics) to give a more precise explanation.' : ''}`
 
     return encodeURIComponent(prompt)
   }
@@ -376,17 +411,42 @@ Why is the fastest snippet performing better in modern JavaScript engines?`
                   </Button>
                   
                   {showAIDropdown && (
-                    <div className="absolute top-[calc(100%+4px)] right-0 w-full bg-card border border-border rounded-md shadow-lg z-50 overflow-hidden">
+                    <div className="absolute top-[calc(100%+4px)] right-0 min-w-max bg-card border border-border rounded-md shadow-lg z-50 overflow-hidden">
                       <a 
                         href={`https://chatgpt.com/?model=gpt-4o&q=${generateAIPrompt()}`} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 px-2 py-2 text-sm font-bold hover:bg-muted/50 transition-colors text-foreground"
+                        className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-muted/50 transition-colors text-foreground"
                         onClick={() => setShowAIDropdown(false)}
                       >
                         <ChatGPTLogo className="w-4 h-4 object-contain rounded-sm" />
                         Ask ChatGPT
                       </a>
+                      {analysisStatus === 'done' && analysis && (
+                        <>
+                          <div className="border-t border-border/60 mx-2" />
+                          <a
+                            href={`https://claude.ai/new?q=${generateAIPrompt(true)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-muted/50 transition-colors text-violet-700 dark:text-violet-400"
+                            onClick={() => setShowAIDropdown(false)}
+                          >
+                            <ClaudeLogo className="w-4 h-4 object-contain rounded-sm" />
+                            Ask Claude + Analysis
+                          </a>
+                          <a
+                            href={`https://chatgpt.com/?model=gpt-4o&q=${generateAIPrompt(true)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 px-3 py-2 text-sm font-bold hover:bg-muted/50 transition-colors text-violet-700 dark:text-violet-400"
+                            onClick={() => setShowAIDropdown(false)}
+                          >
+                            <ChatGPTLogo className="w-4 h-4 object-contain rounded-sm" />
+                            Ask ChatGPT + Analysis
+                          </a>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
