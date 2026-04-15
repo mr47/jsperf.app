@@ -5,6 +5,7 @@ import UserAgent from './UserAgent'
 import UAParser from 'ua-parser-js'
 import Test from './Test'
 import StatsChart from './StatsChart'
+import DeepAnalysis from './DeepAnalysis'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber } from '../utils/ArrayUtils'
@@ -20,7 +21,7 @@ const ChatGPTLogo = ({ className }) => (
 )
 
 export default function Tests(props) {
-  const {id, slug, revision} = props
+  const {id, slug, revision, setup, teardown} = props
 
   const [statusMessage, setStatusMessage] = useState('')
   const [benchStatus, setBenchStatus] = useState('notready')
@@ -396,6 +397,16 @@ Why is the fastest snippet performing better in modern JavaScript engines?`
           missing data from the runner. Add heavier work inside the test (or a loop) if
           you need a finite ops/sec estimate.
         </p>
+      )}
+
+      {benchStatus === 'complete' && (
+        <DeepAnalysis
+          tests={tests}
+          setup={setup}
+          teardown={teardown}
+          slug={slug}
+          revision={revision}
+        />
       )}
 
       {stats && Object.keys(stats).length > 0 && (

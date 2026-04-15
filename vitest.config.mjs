@@ -10,7 +10,12 @@ export default defineConfig({
     include: ['tests/**/*.test.{js,mjs}'],
     coverage: {
       provider: 'v8',
-      include: ['components/**/*.{js,jsx}', 'utils/**/*.js'],
+      include: [
+        'components/**/*.{js,jsx}',
+        'utils/**/*.js',
+        'lib/engines/**/*.js',
+        'lib/prediction/**/*.js',
+      ],
     },
   },
   resolve: {

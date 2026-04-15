@@ -79,7 +79,7 @@ export default function Slug(props) {
           </section>
         }
         <section>
-          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} />
+          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} setup={setup} teardown={teardown} />
         </section>
         <Separator className="my-6" />
         <section>

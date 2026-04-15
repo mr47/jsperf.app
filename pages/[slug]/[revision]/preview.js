@@ -121,7 +121,7 @@ export default function Preview(props) {
           </section>
         }
         <section>
-          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} />
+          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} setup={setup} teardown={teardown} />
         </section>
         <hr className="my-5" />
         {publishError && (
