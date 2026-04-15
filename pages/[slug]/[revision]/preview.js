@@ -39,6 +39,7 @@ export default function Preview(props) {
 
   const userID = UUID()
   const [isPublishing, setIsPublishing] = useState(false)
+  const [publishError, setPublishError] = useState(null)
 
   let canEdit = false
 
@@ -56,6 +57,7 @@ export default function Preview(props) {
   const publish = async (event) => {
     event.preventDefault();
     setIsPublishing(true)
+    setPublishError(null)
 
     try {
       const response = await fetch('/api/bench', {
@@ -66,15 +68,23 @@ export default function Preview(props) {
         }),
       })
 
-      const {success} = await response.json()
+      if (response.status === 429) {
+        setPublishError('Too many requests. Please wait a moment and try again.')
+        setIsPublishing(false)
+        return
+      }
+
+      const {success, message} = await response.json()
 
       if (success) {
         Router.push(`/${slug}/${revision}`)
       } else {
+        setPublishError(message || 'Failed to publish benchmark.')
         setIsPublishing(false)
       }
     } catch (error) {
       console.error(error)
+      setPublishError('Network error. Please check your connection and try again.')
       setIsPublishing(false)
     }
   }
@@ -114,6 +124,12 @@ export default function Preview(props) {
           <TestRunner id={_id} slug={slug} revision={revision} tests={tests} />
         </section>
         <hr className="my-5" />
+        {publishError && (
+          <div className="flex items-center gap-2 mb-4 px-4 py-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium">
+            <span className="flex-1">{publishError}</span>
+            <button type="button" onClick={() => setPublishError(null)} className="shrink-0 hover:opacity-70 text-xs font-bold px-1">✕</button>
+          </div>
+        )}
         <div className="flex justify-end items-center gap-2 flex-wrap">
           { canEdit &&
               <>

@@ -109,6 +109,7 @@ export default function EditForm({pageData}) {
 
   const [testsState, setTestsState] = useState(defaultTestsState)
   const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
 
   const persistDraft = useCallback(() => {
@@ -185,6 +186,7 @@ export default function EditForm({pageData}) {
   const submitFormHandler = async event => {
     event.preventDefault()
     setIsSaving(true)
+    setSaveError(null)
 
     const formData = {
       title: event.target.title.value,
@@ -214,17 +216,24 @@ export default function EditForm({pageData}) {
         body: JSON.stringify(formData),
       })
 
+      if (response.status === 429) {
+        setSaveError('Too many requests. Please wait a moment and try again.')
+        setIsSaving(false)
+        return
+      }
+
       const {success, message, data} = await response.json()
 
       if (success) {
         clearDraft()
         Router.push(`/${data.slug}/${data.revision}/preview`)
       } else {
-        console.log(success, message, data)
+        setSaveError(message || 'Failed to save benchmark.')
         setIsSaving(false)
       }
     } catch (error) {
       console.error(error)
+      setSaveError('Network error. Please check your connection and try again.')
       setIsSaving(false)
     }
   }
@@ -361,7 +370,14 @@ export default function EditForm({pageData}) {
         </div>
       )}
 
-      <div className="sticky bottom-6 z-10 flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl mt-16 ring-1 ring-white/10 dark:ring-white/5">
+      <div className="sticky bottom-6 z-10 flex flex-col gap-3 p-4 rounded-2xl border border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl mt-16 ring-1 ring-white/10 dark:ring-white/5">
+        {saveError && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium">
+            <span className="flex-1">{saveError}</span>
+            <button type="button" onClick={() => setSaveError(null)} className="shrink-0 hover:opacity-70 text-xs font-bold px-1">✕</button>
+          </div>
+        )}
+        <div className="flex flex-col sm:flex-row items-center gap-4">
         <div className="flex-1 text-sm font-medium text-muted-foreground ml-2 text-center sm:text-left">
           Ready to run? Make sure all your snippets are correct.
         </div>
@@ -382,6 +398,7 @@ export default function EditForm({pageData}) {
             'Save & Run Benchmark'
           )}
         </Button>
+        </div>
       </div>
       
     </form>
