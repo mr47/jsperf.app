@@ -4,11 +4,11 @@ import { shortcode } from "../../utils/Url"
 import { redis } from '../../lib/redis'
 import { Ratelimit } from '@upstash/ratelimit'
 
-// Create a new ratelimiter, that allows 5 requests per 1 minute for page creation/updates
 const ratelimit = new Ratelimit({
   redis: redis,
   limiter: Ratelimit.slidingWindow(30, '1 m'),
   analytics: true,
+  prefix: 'rl:bench',
 })
 
 /**

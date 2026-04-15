@@ -20,8 +20,8 @@ export default async function handler(req, res) {
     const cachedStats = await redis.get(cacheKey)
 
     if (cachedStats) {
-      // Add a header to indicate this was a cache hit
       res.setHeader('X-Cache', 'HIT')
+      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
       return res.status(200).json(cachedStats)
     }
 
@@ -76,6 +76,7 @@ export default async function handler(req, res) {
     await redis.setex(cacheKey, 300, JSON.stringify(statsByTest))
 
     res.setHeader('X-Cache', 'MISS')
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
     res.status(200).json(statsByTest)
   } catch (error) {
     console.error('Failed to get stats', error)

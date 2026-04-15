@@ -2,11 +2,11 @@ import { runsCollection } from '../../lib/mongodb'
 import { redis } from '../../lib/redis'
 import { Ratelimit } from '@upstash/ratelimit'
 
-// Create a new ratelimiter, that allows 5 requests per 1 minute
 const ratelimit = new Ratelimit({
   redis: redis,
-  limiter: Ratelimit.slidingWindow(5, '1 m'),
+  limiter: Ratelimit.slidingWindow(30, '1 m'),
   analytics: true,
+  prefix: 'rl:runs',
 })
 
 export default async function handler(req, res) {
