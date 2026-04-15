@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Router from 'next/router'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -6,8 +6,31 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import UUID from '../UUID'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Loader2, RotateCcw } from 'lucide-react'
 import Editor from '../Editor'
+
+const STORAGE_KEY = 'jsperf-draft'
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function saveDraft(data) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
+  } catch {}
+}
+
+function clearDraft() {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+  } catch {}
+}
 
 const TestCaseFieldset = ({index, remove, test, update}) => {
   return (
@@ -59,13 +82,20 @@ const TestCaseFieldset = ({index, remove, test, update}) => {
 
 export default function EditForm({pageData}) {
   const uuid = UUID()
+  const isEditing = !!pageData
+  const formRef = useRef(null)
 
-  // Code block states
-  const [codeBlockInitHTML, setCodeBlockInitHTML] = useState(pageData?.initHTML || '')
-  const [codeBlockSetup, setCodeBlockSetup] = useState(pageData?.setup || '')
-  const [codeBlockTeardown, setCodeBlockTeardown] = useState(pageData?.teardown || '')
+  function getInitialState() {
+    if (isEditing) return null
+    return loadDraft()
+  }
 
-  // Test states
+  const draft = useRef(getInitialState()).current
+
+  const [codeBlockInitHTML, setCodeBlockInitHTML] = useState(pageData?.initHTML ?? draft?.initHTML ?? '')
+  const [codeBlockSetup, setCodeBlockSetup] = useState(pageData?.setup ?? draft?.setup ?? '')
+  const [codeBlockTeardown, setCodeBlockTeardown] = useState(pageData?.teardown ?? draft?.teardown ?? '')
+
   let defaultTestsState = [
     {id: 0, title: '', code: ''},
     {id: 1, title: '', code: ''},
@@ -73,9 +103,33 @@ export default function EditForm({pageData}) {
 
   if (pageData?.tests) {
     defaultTestsState = pageData.tests.map((test, index) => ({id: index, ...test}))
+  } else if (draft?.tests?.length) {
+    defaultTestsState = draft.tests
   }
 
   const [testsState, setTestsState] = useState(defaultTestsState)
+  const [isSaving, setIsSaving] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  const persistDraft = useCallback(() => {
+    if (isEditing) return
+    const title = formRef.current?.title?.value ?? ''
+    const info = formRef.current?.info?.value ?? ''
+    saveDraft({
+      title,
+      info,
+      initHTML: codeBlockInitHTML,
+      setup: codeBlockSetup,
+      teardown: codeBlockTeardown,
+      tests: testsState,
+    })
+  }, [isEditing, codeBlockInitHTML, codeBlockSetup, codeBlockTeardown, testsState])
+
+  useEffect(() => {
+    if (isEditing) return
+    const timer = setTimeout(persistDraft, 500)
+    return () => clearTimeout(timer)
+  }, [persistDraft, isEditing])
 
   const testsRemove = (id) => {
     const testIndex = testsState.findIndex(test => test.id === id)
@@ -100,6 +154,22 @@ export default function EditForm({pageData}) {
     })
   }
 
+  const handleReset = () => {
+    setCodeBlockInitHTML('')
+    setCodeBlockSetup('')
+    setCodeBlockTeardown('')
+    setTestsState([
+      {id: 0, title: '', code: ''},
+      {id: 1, title: '', code: ''},
+    ])
+    if (formRef.current) {
+      formRef.current.title.value = ''
+      formRef.current.info.value = ''
+    }
+    clearDraft()
+    setShowResetConfirm(false)
+  }
+
   const formDefaults = Object.assign({}, {
     title: '',
     info: '',
@@ -107,8 +177,14 @@ export default function EditForm({pageData}) {
     visible: false
   }, pageData)
 
+  if (!isEditing && draft) {
+    formDefaults.title = draft.title ?? formDefaults.title
+    formDefaults.info = draft.info ?? formDefaults.info
+  }
+
   const submitFormHandler = async event => {
     event.preventDefault()
+    setIsSaving(true)
 
     const formData = {
       title: event.target.title.value,
@@ -132,22 +208,29 @@ export default function EditForm({pageData}) {
 
     formData.uuid = uuid
 
-    const response = await fetch('/api/bench', {
-      method: (isPublished || !pageData) ? 'POST' : 'PUT',
-      body: JSON.stringify(formData),
-    })
+    try {
+      const response = await fetch('/api/bench', {
+        method: (isPublished || !pageData) ? 'POST' : 'PUT',
+        body: JSON.stringify(formData),
+      })
 
-    const {success, message, data} = await response.json()
+      const {success, message, data} = await response.json()
 
-    if (success) {
-      Router.push(`/${data.slug}/${data.revision}/preview`)
-    } else {
-      console.log(success, message, data)
+      if (success) {
+        clearDraft()
+        Router.push(`/${data.slug}/${data.revision}/preview`)
+      } else {
+        console.log(success, message, data)
+        setIsSaving(false)
+      }
+    } catch (error) {
+      console.error(error)
+      setIsSaving(false)
     }
   }
 
   return (
-    <form onSubmit={submitFormHandler} className="w-full max-w-5xl mx-auto space-y-10 pb-20">
+    <form ref={formRef} onSubmit={submitFormHandler} className="w-full max-w-5xl mx-auto space-y-10 pb-20">
       
       <div>
         <div className="mb-6">
@@ -259,15 +342,45 @@ export default function EditForm({pageData}) {
         </div>
       </div>
 
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md mx-4 shadow-2xl border-border">
+            <CardContent className="p-6 space-y-4">
+              <h4 className="text-lg font-bold">Reset all test cases?</h4>
+              <p className="text-sm text-muted-foreground">This will clear all titles, code snippets, setup/teardown, and the saved draft. This action cannot be undone.</p>
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="outline" onClick={() => setShowResetConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button type="button" variant="destructive" onClick={handleReset}>
+                  Reset Everything
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="sticky bottom-6 z-10 flex flex-col sm:flex-row items-center gap-4 p-4 rounded-2xl border border-border/50 bg-card/80 backdrop-blur-xl shadow-2xl mt-16 ring-1 ring-white/10 dark:ring-white/5">
         <div className="flex-1 text-sm font-medium text-muted-foreground ml-2 text-center sm:text-left">
           Ready to run? Make sure all your snippets are correct.
         </div>
+        <Button type="button" variant="ghost" onClick={() => setShowResetConfirm(true)} className="hidden sm:inline-flex w-full sm:w-auto text-muted-foreground hover:text-destructive">
+          <RotateCcw className="w-4 h-4" />
+          Reset
+        </Button>
         <Button type="button" variant="secondary" onClick={testsAdd} className="hidden sm:inline-flex w-full sm:w-auto shadow-sm">
           Add Another Test
         </Button>
-        <Button type="submit" size="lg" className="w-full sm:w-auto font-bold px-8 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all">
-          Save & Run Benchmark
+        <Button type="submit" size="lg" disabled={isSaving} className="w-full sm:w-auto font-bold px-8 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all">
+          {isSaving ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            'Save & Run Benchmark'
+          )}
         </Button>
       </div>
       

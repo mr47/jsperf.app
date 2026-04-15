@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import SEO from '../../../components/SEO'
 
 import { pagesCollection } from '../../../lib/mongodb'
@@ -14,6 +15,7 @@ import Setup from '../../../components/sections/Setup'
 import Teardown from '../../../components/sections/Teardown'
 import PrepCode from '../../../components/sections/PrepCode'
 import { Button } from '@/components/ui/button'
+import { Loader2 } from 'lucide-react'
 import UUID from '../../../components/UUID'
 
 export default function Preview(props) {
@@ -35,10 +37,9 @@ export default function Preview(props) {
     githubID,
   } = props.pageData
 
-  // TODO: 403 if no access
   const userID = UUID()
+  const [isPublishing, setIsPublishing] = useState(false)
 
-  // Can publish 
   let canEdit = false
 
   if (!visible) {
@@ -54,18 +55,27 @@ export default function Preview(props) {
 
   const publish = async (event) => {
     event.preventDefault();
-    const response = await fetch('/api/bench', {
-      method: 'PUT',
-      body: JSON.stringify({
-        slug, revision, uuid,
-        visible: true
-      }),
-    })
+    setIsPublishing(true)
 
-    const {success} = await response.json()
+    try {
+      const response = await fetch('/api/bench', {
+        method: 'PUT',
+        body: JSON.stringify({
+          slug, revision, uuid,
+          visible: true
+        }),
+      })
 
-    if (success) {
-      Router.push(`/${slug}/${revision}`)
+      const {success} = await response.json()
+
+      if (success) {
+        Router.push(`/${slug}/${revision}`)
+      } else {
+        setIsPublishing(false)
+      }
+    } catch (error) {
+      console.error(error)
+      setIsPublishing(false)
     }
   }
 
@@ -107,11 +117,20 @@ export default function Preview(props) {
         <div className="flex justify-end items-center gap-2 flex-wrap">
           { canEdit &&
               <>
-                <Button variant="outline" className="font-bold" asChild>
+                <Button variant="outline" className="font-bold" disabled={isPublishing} asChild>
                   <a href={`/${slug}/${revision}/edit`}>Edit Tests</a>
                 </Button>
                 <span className="hidden sm:inline-flex items-center px-2 text-muted-foreground">or</span>
-                <Button type="button" variant="outline" className="border-red-400 bg-red-100 font-bold hover:bg-red-200" onClick={publish}>Publish</Button>
+                <Button type="button" variant="outline" className="border-red-400 bg-red-100 font-bold hover:bg-red-200" onClick={publish} disabled={isPublishing}>
+                  {isPublishing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Publishing…
+                    </>
+                  ) : (
+                    'Publish'
+                  )}
+                </Button>
               </>
           }
         </div>
