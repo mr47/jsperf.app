@@ -54,7 +54,7 @@ export default function Preview(props) {
 
   const publish = async (event) => {
     event.preventDefault();
-    const response = await fetch('/api/page', {
+    const response = await fetch('/api/bench', {
       method: 'PUT',
       body: JSON.stringify({
         slug, revision, uuid,

@@ -132,7 +132,7 @@ export default function EditForm({pageData}) {
 
     formData.uuid = uuid
 
-    const response = await fetch('/api/page', {
+    const response = await fetch('/api/bench', {
       method: (isPublished || !pageData) ? 'POST' : 'PUT',
       body: JSON.stringify(formData),
     })
