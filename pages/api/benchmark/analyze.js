@@ -53,11 +53,22 @@ export default async function handler(req, res) {
       return res.status(200).json(typeof cached === 'string' ? JSON.parse(cached) : cached)
     }
 
-    // Run the analysis
+    // Stream NDJSON progress + final result
+    res.setHeader('Content-Type', 'application/x-ndjson')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('X-Analysis-Cache', 'MISS')
+    res.status(200)
+
+    const sendLine = (obj) => {
+      res.write(JSON.stringify(obj) + '\n')
+    }
+
+    // Run the analysis with progress streaming
     const analysis = await runAnalysis(tests, {
       setup: setup || undefined,
       teardown: teardown || undefined,
       timeMs: 2000,
+      onProgress: (step) => sendLine({ type: 'progress', ...step }),
     })
 
     // Persist to MongoDB
@@ -78,10 +89,16 @@ export default async function handler(req, res) {
       await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
     }
 
-    res.setHeader('X-Analysis-Cache', 'MISS')
-    return res.status(200).json(analysis)
+    sendLine({ type: 'result', data: analysis })
+    return res.end()
   } catch (error) {
     console.error('Analysis error:', error)
+
+    if (res.headersSent) {
+      const errMsg = error.name === 'AbortError' ? 'Analysis timed out' : 'Internal Server Error'
+      res.write(JSON.stringify({ type: 'error', error: errMsg }) + '\n')
+      return res.end()
+    }
 
     if (error.name === 'AbortError') {
       return res.status(504).json({ error: 'Analysis timed out' })

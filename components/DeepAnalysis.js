@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
@@ -11,18 +10,18 @@ const ANALYSIS_STEPS = [
   { key: 'prediction', label: 'Building prediction model', desc: 'Scaling analysis & regression' },
 ]
 
-function AnalysisProgress({ testCount }) {
-  const [stepIndex, setStepIndex] = useState(0)
+const STEP_INDEX = { quickjs: 0, v8: 1, prediction: 2 }
 
-  useEffect(() => {
-    setStepIndex(0)
-    const interval = setInterval(() => {
-      setStepIndex(prev => Math.min(prev + 1, ANALYSIS_STEPS.length - 1))
-    }, 3500 * Math.max(1, testCount))
-    return () => clearInterval(interval)
-  }, [testCount])
+function AnalysisProgress({ progress, testCount }) {
+  const currentEngine = progress?.engine || 'quickjs'
+  const currentStatus = progress?.status || 'running'
+  const testIndex = progress?.testIndex ?? 0
 
-  const progress = ((stepIndex + 1) / ANALYSIS_STEPS.length) * 100
+  const baseIndex = STEP_INDEX[currentEngine] ?? 0
+  const stepIndex = currentStatus === 'done' ? baseIndex + 1 : baseIndex
+
+  const totalSteps = ANALYSIS_STEPS.length
+  const progressPct = (stepIndex / totalSteps) * 100
 
   return (
     <div className="mt-8">
@@ -30,7 +29,10 @@ function AnalysisProgress({ testCount }) {
         <div className="h-px flex-1 bg-border/60" />
         <div className="flex items-center gap-1.5 px-2">
           <Microscope className="h-3.5 w-3.5 text-violet-500" />
-          <span className="text-xs font-medium text-muted-foreground">Server Analysis</span>
+          <span className="text-xs font-medium text-muted-foreground">
+            Server Analysis
+            {testCount > 1 && ` — Test ${testIndex + 1}/${testCount}`}
+          </span>
         </div>
         <div className="h-px flex-1 bg-border/60" />
       </div>
@@ -38,8 +40,8 @@ function AnalysisProgress({ testCount }) {
       <div className="rounded-xl border border-violet-200/60 dark:border-violet-800/40 bg-violet-50/30 dark:bg-violet-950/10 p-5">
         <div className="w-full bg-muted rounded-full h-1.5 mb-5 overflow-hidden">
           <div
-            className="bg-violet-500 h-1.5 rounded-full transition-all duration-1000 ease-out"
-            style={{ width: `${Math.max(8, progress)}%` }}
+            className="bg-violet-500 h-1.5 rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${Math.max(8, progressPct)}%` }}
           />
         </div>
 
@@ -47,11 +49,11 @@ function AnalysisProgress({ testCount }) {
           {ANALYSIS_STEPS.map((step, i) => {
             let state = 'pending'
             if (i < stepIndex) state = 'done'
-            else if (i === stepIndex) state = 'running'
+            else if (i === stepIndex && currentStatus !== 'done') state = 'running'
 
             return (
-              <div key={step.key} className="flex items-start gap-3">
-                <div className="mt-0.5 flex-shrink-0">
+              <div key={step.key} className="flex items-center gap-3">
+                <div className="flex-shrink-0">
                   {state === 'done' && (
                     <div className="h-5 w-5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
                       <svg className="h-3 w-3 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -66,11 +68,11 @@ function AnalysisProgress({ testCount }) {
                     <div className="h-5 w-5 rounded-full border-2 border-border/60" />
                   )}
                 </div>
-                <div>
-                  <span className={`text-sm font-medium ${state === 'pending' ? 'text-muted-foreground/60' : 'text-foreground'}`}>
+                <div className="min-w-0">
+                  <span className={`text-sm font-medium leading-5 ${state === 'pending' ? 'text-muted-foreground/60' : 'text-foreground'}`}>
                     {step.label}
                   </span>
-                  <p className={`text-xs ${state === 'pending' ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}>
+                  <p className={`text-xs leading-4 ${state === 'pending' ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}>
                     {step.desc}
                   </p>
                 </div>
@@ -83,9 +85,9 @@ function AnalysisProgress({ testCount }) {
   )
 }
 
-export default function DeepAnalysis({ status, analysis, error, onRetry, testCount }) {
+export default function DeepAnalysis({ status, analysis, error, onRetry, progress, testCount }) {
   if (status === 'loading') {
-    return <AnalysisProgress testCount={testCount || 1} />
+    return <AnalysisProgress progress={progress} testCount={testCount || 1} />
   }
 
   if (status === 'error') {

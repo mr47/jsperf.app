@@ -36,6 +36,7 @@ export default function Tests(props) {
   const [analysisStatus, setAnalysisStatus] = useState('idle')
   const [analysis, setAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState(null)
+  const [analysisProgress, setAnalysisProgress] = useState(null)
 
   const windowRef = useRef(null)
   const isQuickRunRef = useRef(false)
@@ -54,6 +55,7 @@ export default function Tests(props) {
   const runDeepAnalysis = useCallback(async () => {
     setAnalysisStatus('loading')
     setAnalysisError(null)
+    setAnalysisProgress(null)
 
     try {
       const res = await fetch('/api/benchmark/analyze', {
@@ -81,9 +83,56 @@ export default function Tests(props) {
         return
       }
 
-      const data = await res.json()
-      setAnalysis(data)
-      setAnalysisStatus('done')
+      const contentType = res.headers.get('Content-Type') || ''
+
+      // Cache hits return standard JSON
+      if (contentType.includes('application/json')) {
+        const data = await res.json()
+        setAnalysis(data)
+        setAnalysisStatus('done')
+        return
+      }
+
+      // NDJSON streaming response
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+
+        for (const line of lines) {
+          if (!line.trim()) continue
+          const msg = JSON.parse(line)
+
+          if (msg.type === 'progress') {
+            setAnalysisProgress({ engine: msg.engine, testIndex: msg.testIndex, status: msg.status })
+          } else if (msg.type === 'result') {
+            setAnalysis(msg.data)
+            setAnalysisStatus('done')
+          } else if (msg.type === 'error') {
+            setAnalysisError(msg.error)
+            setAnalysisStatus('error')
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        const msg = JSON.parse(buffer)
+        if (msg.type === 'result') {
+          setAnalysis(msg.data)
+          setAnalysisStatus('done')
+        } else if (msg.type === 'error') {
+          setAnalysisError(msg.error)
+          setAnalysisStatus('error')
+        }
+      }
     } catch (e) {
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
@@ -464,6 +513,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?`
           analysis={analysis}
           error={analysisError}
           onRetry={runDeepAnalysis}
+          progress={analysisProgress}
           testCount={tests.length}
         />
       )}

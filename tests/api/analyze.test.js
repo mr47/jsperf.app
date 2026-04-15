@@ -25,26 +25,35 @@ vi.mock('@upstash/ratelimit', () => {
 })
 
 vi.mock('../../lib/engines/runner', () => ({
-  runAnalysis: vi.fn(async () => ({
-    results: [
-      {
-        testIndex: 0,
-        title: 'test',
-        quickjs: { opsPerSec: 1000, profiles: [{ state: 'completed', opsPerSec: 1000 }] },
-        v8: { opsPerSec: 50000, profiles: [{ state: 'completed', opsPerSec: 50000 }] },
-        prediction: {
-          scalingType: 'linear',
-          scalingConfidence: 0.95,
-          jitBenefit: 50,
-          memSensitivity: 0,
-          predictedAt: { '1x': 50000, '2x': 100000 },
-          characteristics: { cpuBound: true, memoryBound: false, allocationHeavy: false, jitFriendly: true },
+  runAnalysis: vi.fn(async (_tests, opts) => {
+    opts?.onProgress?.({ engine: 'quickjs', testIndex: 0, status: 'running' })
+    opts?.onProgress?.({ engine: 'quickjs', testIndex: 0, status: 'done' })
+    opts?.onProgress?.({ engine: 'v8', testIndex: 0, status: 'running' })
+    opts?.onProgress?.({ engine: 'v8', testIndex: 0, status: 'done' })
+    opts?.onProgress?.({ engine: 'prediction', testIndex: 0, status: 'running' })
+    opts?.onProgress?.({ engine: 'prediction', testIndex: 0, status: 'done' })
+
+    return {
+      results: [
+        {
+          testIndex: 0,
+          title: 'test',
+          quickjs: { opsPerSec: 1000, profiles: [{ state: 'completed', opsPerSec: 1000 }] },
+          v8: { opsPerSec: 50000, profiles: [{ state: 'completed', opsPerSec: 50000 }] },
+          prediction: {
+            scalingType: 'linear',
+            scalingConfidence: 0.95,
+            jitBenefit: 50,
+            memSensitivity: 0,
+            predictedAt: { '1x': 50000, '2x': 100000 },
+            characteristics: { cpuBound: true, memoryBound: false, allocationHeavy: false, jitFriendly: true },
+          },
         },
-      },
-    ],
-    comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
-    hasErrors: false,
-  })),
+      ],
+      comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
+      hasErrors: false,
+    }
+  }),
 }))
 
 import handler from '../../pages/api/benchmark/analyze'
@@ -62,10 +71,13 @@ function createMockRes() {
   const res = {
     status: vi.fn(() => res),
     json: vi.fn(() => res),
+    write: vi.fn(() => true),
     end: vi.fn(() => res),
     setHeader: vi.fn(() => res),
+    headersSent: false,
     _status: null,
     _json: null,
+    _lines: [],
   }
   res.status.mockImplementation((code) => {
     res._status = code
@@ -75,7 +87,20 @@ function createMockRes() {
     res._json = data
     return res
   })
+  res.write.mockImplementation((chunk) => {
+    res._lines.push(chunk)
+    res.headersSent = true
+    return true
+  })
   return res
+}
+
+function parseNdjsonLines(res) {
+  return res._lines
+    .join('')
+    .split('\n')
+    .filter(l => l.trim())
+    .map(l => JSON.parse(l))
 }
 
 describe('POST /api/benchmark/analyze', () => {
@@ -134,16 +159,34 @@ describe('POST /api/benchmark/analyze', () => {
     expect(res._json.error).toContain('Maximum 20')
   })
 
-  it('returns valid shape (rate limit mock always succeeds)', async () => {
+  it('streams NDJSON with progress and result on cache miss', async () => {
     const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
     const res = createMockRes()
 
     await handler(req, res)
 
     expect(res._status).toBe(200)
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/x-ndjson')
+    expect(res.setHeader).toHaveBeenCalledWith('X-Analysis-Cache', 'MISS')
+    expect(res.end).toHaveBeenCalled()
+
+    const messages = parseNdjsonLines(res)
+    const progressMsgs = messages.filter(m => m.type === 'progress')
+    const resultMsgs = messages.filter(m => m.type === 'result')
+
+    expect(progressMsgs.length).toBeGreaterThan(0)
+    expect(progressMsgs.some(m => m.engine === 'quickjs')).toBe(true)
+    expect(progressMsgs.some(m => m.engine === 'v8')).toBe(true)
+
+    expect(resultMsgs).toHaveLength(1)
+    expect(resultMsgs[0].data.results).toBeDefined()
+    expect(resultMsgs[0].data.comparison).toBeDefined()
+    expect(resultMsgs[0].data.results[0].quickjs).toBeDefined()
+    expect(resultMsgs[0].data.results[0].v8).toBeDefined()
+    expect(resultMsgs[0].data.results[0].prediction).toBeDefined()
   })
 
-  it('returns cached result for same code hash', async () => {
+  it('returns cached result as standard JSON', async () => {
     const { redis } = await import('../../lib/redis')
     const cachedData = { results: [], comparison: {} }
     redis.get.mockResolvedValueOnce(JSON.stringify(cachedData))
@@ -155,21 +198,8 @@ describe('POST /api/benchmark/analyze', () => {
 
     expect(res._status).toBe(200)
     expect(res.setHeader).toHaveBeenCalledWith('X-Analysis-Cache', 'HIT')
-  })
-
-  it('returns valid analysis shape on cache miss', async () => {
-    const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
-    const res = createMockRes()
-
-    await handler(req, res)
-
-    expect(res._status).toBe(200)
-    expect(res.setHeader).toHaveBeenCalledWith('X-Analysis-Cache', 'MISS')
-    expect(res._json.results).toBeDefined()
-    expect(res._json.comparison).toBeDefined()
-    expect(res._json.results[0].quickjs).toBeDefined()
-    expect(res._json.results[0].v8).toBeDefined()
-    expect(res._json.results[0].prediction).toBeDefined()
+    expect(res.json).toHaveBeenCalled()
+    expect(res.write).not.toHaveBeenCalled()
   })
 
   it('does not cache results with errors', async () => {
@@ -195,5 +225,9 @@ describe('POST /api/benchmark/analyze', () => {
 
     expect(res._status).toBe(200)
     expect(redis.setex).not.toHaveBeenCalled()
+
+    const messages = parseNdjsonLines(res)
+    const resultMsg = messages.find(m => m.type === 'result')
+    expect(resultMsg.data.hasErrors).toBe(true)
   })
 })

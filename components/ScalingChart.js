@@ -17,12 +17,33 @@ const compactNumber = (num) =>
   Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(num)
 
 const SCALING_LABELS = {
-  'linear': 'scales linearly with resources',
+  'linear': 'scales linearly with memory',
   'sublinear': 'scales with diminishing returns',
-  'plateau': 'plateaus — adding resources won\'t help much',
+  'plateau': 'plateaus — adding memory won\'t help',
   'degrading': 'degrades under pressure',
   'noisy': 'results are noisy (low confidence)',
   'insufficient-data': 'not enough data points',
+}
+
+function CustomTooltip({ active, payload, label, memoryMap }) {
+  if (!active || !payload?.length) return null
+
+  const memLabel = memoryMap?.[label]
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 shadow-md">
+      <p className="text-xs text-muted-foreground mb-1.5 font-medium">
+        {memLabel || label}
+      </p>
+      {payload.map((entry) => (
+        <div key={entry.dataKey} className="flex items-center gap-2 text-sm">
+          <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: entry.color }} />
+          <span className="text-foreground font-medium">{entry.name}</span>
+          <span className="text-muted-foreground ml-auto pl-3 tabular-nums">{formatNumber(entry.value)} ops/s</span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export default function ScalingPredictionChart({ results }) {
@@ -42,9 +63,17 @@ export default function ScalingPredictionChart({ results }) {
   if (validResults.length === 0) return null
 
   const sourceProfiles = getProfiles(validResults[0])
-  const resourceLevels = sourceProfiles.map(p => p.label)
-  const chartData = resourceLevels.map((label, i) => {
-    const point = { resource: label }
+
+  // Build a mapping from label to memory description for tooltips
+  const memoryMap = {}
+  sourceProfiles.forEach(p => {
+    const mb = p.memoryMB || 0
+    memoryMap[p.label] = mb > 0 ? `${mb} MB memory limit` : p.label
+  })
+
+  const chartData = sourceProfiles.map((p, i) => {
+    const xLabel = p.memoryMB ? `${p.memoryMB} MB` : p.label
+    const point = { resource: xLabel, _label: p.label }
     validResults.forEach((r) => {
       const profile = getProfiles(r)?.[i]
       if (profile) point[r.title] = profile.opsPerSec
@@ -52,7 +81,12 @@ export default function ScalingPredictionChart({ results }) {
     return point
   })
 
-  // Build prediction data if available
+  // Build a map from label to memoryMB for prediction text
+  const labelToMB = {}
+  sourceProfiles.forEach(p => {
+    if (p.memoryMB) labelToMB[p.label] = p.memoryMB
+  })
+
   const predictions = validResults
     .filter(r => r.prediction?.predictedAt && Object.keys(r.prediction.predictedAt).length > 0)
 
@@ -63,7 +97,7 @@ export default function ScalingPredictionChart({ results }) {
           Scaling Prediction
         </h3>
         <p className="text-xs text-muted-foreground mb-4">
-          How each snippet performs as resources increase. Steeper = better scaling.
+          How each snippet performs as the memory limit increases. Steeper = better scaling.
           {!v8Available && ' (Using QuickJS interpreter — V8 sandbox unavailable)'}
         </p>
 
@@ -73,8 +107,8 @@ export default function ScalingPredictionChart({ results }) {
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
               <XAxis
                 dataKey="resource"
-                tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                label={{ value: 'Resources', position: 'insideBottom', offset: -2, fill: 'var(--muted-foreground)', fontSize: 11 }}
+                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                label={{ value: 'Memory limit', position: 'insideBottom', offset: -2, fill: 'var(--muted-foreground)', fontSize: 11 }}
               />
               <YAxis
                 tickFormatter={compactNumber}
@@ -82,16 +116,9 @@ export default function ScalingPredictionChart({ results }) {
                 label={{ value: 'ops/sec', angle: -90, position: 'insideLeft', fill: 'var(--muted-foreground)', fontSize: 11 }}
               />
               <Tooltip
-                formatter={(value) => [formatNumber(value), 'ops/sec']}
-                contentStyle={{
-                  backgroundColor: 'var(--card)',
-                  borderColor: 'var(--border)',
-                  borderRadius: '8px',
-                  color: 'var(--foreground)',
-                  boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                }}
-                itemStyle={{ color: 'var(--foreground)', fontWeight: '500' }}
-                labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px' }}
+                content={<CustomTooltip memoryMap={
+                  Object.fromEntries(chartData.map(d => [d.resource, memoryMap[d._label] || d.resource]))
+                } />}
               />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
               {validResults.map((r, i) => (
@@ -116,17 +143,18 @@ export default function ScalingPredictionChart({ results }) {
               const pred2x = r.prediction.predictedAt?.['2x']
               const actual1x = r.prediction.predictedAt?.['1x']
               const ratio = actual1x > 0 && pred2x > 0 ? (pred2x / actual1x).toFixed(2) : null
+              const mem2x = labelToMB['2x']
 
               return (
-                <div key={r.testIndex} className="flex items-start gap-2">
+                <div key={r.testIndex} className="flex items-center gap-2">
                   <span
-                    className="mt-1.5 h-2 w-2 rounded-full flex-shrink-0"
+                    className="h-2 w-2 rounded-full flex-shrink-0"
                     style={{ backgroundColor: COLORS[i % COLORS.length] }}
                   />
                   <p className="text-xs text-muted-foreground">
                     <span className="font-medium text-foreground">{r.title}</span>
                     {' '}{label}
-                    {ratio && ` — at 2x resources, expect ~${ratio}x throughput`}
+                    {ratio && ` — at ${mem2x ? `${mem2x} MB` : '2x'}, expect ~${ratio}x throughput`}
                     {r.prediction.scalingConfidence < 0.7 && ' (low confidence)'}
                   </p>
                 </div>

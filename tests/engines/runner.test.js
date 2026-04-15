@@ -51,7 +51,7 @@ describe('runAnalysis', () => {
     runInQuickJS.mockImplementation(async () => {
       callCount++
       // First test: higher QuickJS ops (algorithmically faster)
-      const isFirstTest = callCount <= 3
+      const isFirstTest = callCount <= 4
       return {
         state: 'completed',
         opsPerSec: isFirstTest ? 500 : 1000,
@@ -64,7 +64,7 @@ describe('runAnalysis', () => {
     runInV8Sandbox.mockImplementation(async () => {
       v8CallCount++
       // First test: higher V8 ops (runtime faster due to JIT)
-      const isFirstTest = v8CallCount <= 3
+      const isFirstTest = v8CallCount <= 4
       return {
         state: 'completed',
         opsPerSec: isFirstTest ? 100000 : 20000,
@@ -99,6 +99,9 @@ describe('runAnalysis', () => {
 
   it('handles partial failure (one engine errors)', async () => {
     const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
+    runInV8Sandbox.mockResolvedValueOnce({
+      state: 'errored', error: 'Sandbox unavailable', opsPerSec: 0, latency: null, heapUsed: 0,
+    })
     runInV8Sandbox.mockResolvedValueOnce({
       state: 'errored', error: 'Sandbox unavailable', opsPerSec: 0, latency: null, heapUsed: 0,
     })
