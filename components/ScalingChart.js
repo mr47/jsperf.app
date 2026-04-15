@@ -28,22 +28,32 @@ const SCALING_LABELS = {
 export default function ScalingPredictionChart({ results }) {
   if (!results || results.length === 0) return null
 
-  const hasV8Profiles = results.some(r => r.v8?.profiles?.length > 1)
-  if (!hasV8Profiles) return null
+  const v8Available = results.some(r =>
+    r.v8?.profiles?.length > 1 &&
+    r.v8.profiles.some(p => p.opsPerSec > 0)
+  )
 
-  // Build chart data: one entry per resource level
-  const resourceLevels = results[0].v8.profiles.map(p => p.label)
+  const getProfiles = (r) => v8Available ? r.v8?.profiles : r.quickjs?.profiles
+
+  const validResults = results.filter(r => {
+    const profiles = getProfiles(r)
+    return profiles?.length > 1 && profiles.some(p => p.opsPerSec > 0)
+  })
+  if (validResults.length === 0) return null
+
+  const sourceProfiles = getProfiles(validResults[0])
+  const resourceLevels = sourceProfiles.map(p => p.label)
   const chartData = resourceLevels.map((label, i) => {
     const point = { resource: label }
-    results.forEach((r) => {
-      const profile = r.v8.profiles[i]
+    validResults.forEach((r) => {
+      const profile = getProfiles(r)?.[i]
       if (profile) point[r.title] = profile.opsPerSec
     })
     return point
   })
 
   // Build prediction data if available
-  const predictions = results
+  const predictions = validResults
     .filter(r => r.prediction?.predictedAt && Object.keys(r.prediction.predictedAt).length > 0)
 
   return (
@@ -54,6 +64,7 @@ export default function ScalingPredictionChart({ results }) {
         </h3>
         <p className="text-xs text-muted-foreground mb-4">
           How each snippet performs as resources increase. Steeper = better scaling.
+          {!v8Available && ' (Using QuickJS interpreter — V8 sandbox unavailable)'}
         </p>
 
         <div className="h-[260px] w-full" style={{ minWidth: 0 }}>
@@ -83,7 +94,7 @@ export default function ScalingPredictionChart({ results }) {
                 labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px' }}
               />
               <Legend wrapperStyle={{ fontSize: '12px' }} />
-              {results.map((r, i) => (
+              {validResults.map((r, i) => (
                 <Line
                   key={r.testIndex}
                   type="monotone"

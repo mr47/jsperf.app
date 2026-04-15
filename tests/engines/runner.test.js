@@ -32,6 +32,7 @@ describe('runAnalysis', () => {
     expect(result.results[0].quickjs.opsPerSec).toBeGreaterThan(0)
     expect(result.results[0].v8.opsPerSec).toBeGreaterThan(0)
     expect(result.results[0].prediction).toBeDefined()
+    expect(result.hasErrors).toBe(false)
   })
 
   it('calculates JIT amplification ratio', async () => {
@@ -114,6 +115,7 @@ describe('runAnalysis', () => {
 
     expect(result.results[0].quickjs.opsPerSec).toBeGreaterThan(0)
     expect(result.results[0].v8.opsPerSec).toBe(0)
+    expect(result.hasErrors).toBe(true)
   })
 
   it('respects abort signal', async () => {

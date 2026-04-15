@@ -1,117 +1,143 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import AnalysisProgress from './AnalysisProgress'
 import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
 import ScalingPredictionChart from './ScalingChart'
+import { Microscope } from 'lucide-react'
 
-export default function DeepAnalysis({ tests, setup, teardown, slug, revision }) {
-  const [status, setStatus] = useState('idle') // idle | loading | done | error
-  const [progress, setProgress] = useState({ step: '', testIndex: 0 })
-  const [analysis, setAnalysis] = useState(null)
-  const [error, setError] = useState(null)
+const ANALYSIS_STEPS = [
+  { key: 'quickjs', label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
+  { key: 'v8', label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
+  { key: 'prediction', label: 'Building prediction model', desc: 'Scaling analysis & regression' },
+]
 
-  const runAnalysis = useCallback(async () => {
-    setStatus('loading')
-    setError(null)
-    setProgress({ step: 'quickjs', testIndex: 0 })
+function AnalysisProgress({ testCount }) {
+  const [stepIndex, setStepIndex] = useState(0)
 
-    try {
-      const res = await fetch('/api/benchmark/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tests: tests.map(t => ({ code: t.code, title: t.title })),
-          setup,
-          teardown,
-          slug,
-          revision,
-        }),
-      })
+  useEffect(() => {
+    setStepIndex(0)
+    const interval = setInterval(() => {
+      setStepIndex(prev => Math.min(prev + 1, ANALYSIS_STEPS.length - 1))
+    }, 3500 * Math.max(1, testCount))
+    return () => clearInterval(interval)
+  }, [testCount])
 
-      if (res.status === 429) {
-        setError('Rate limited — please wait a minute before trying again.')
-        setStatus('error')
-        return
-      }
+  const progress = ((stepIndex + 1) / ANALYSIS_STEPS.length) * 100
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error || `Server error (${res.status})`)
-        setStatus('error')
-        return
-      }
+  return (
+    <div className="mt-8">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="h-px flex-1 bg-border/60" />
+        <div className="flex items-center gap-1.5 px-2">
+          <Microscope className="h-3.5 w-3.5 text-violet-500" />
+          <span className="text-xs font-medium text-muted-foreground">Server Analysis</span>
+        </div>
+        <div className="h-px flex-1 bg-border/60" />
+      </div>
 
-      const data = await res.json()
+      <div className="rounded-xl border border-violet-200/60 dark:border-violet-800/40 bg-violet-50/30 dark:bg-violet-950/10 p-5">
+        <div className="w-full bg-muted rounded-full h-1.5 mb-5 overflow-hidden">
+          <div
+            className="bg-violet-500 h-1.5 rounded-full transition-all duration-1000 ease-out"
+            style={{ width: `${Math.max(8, progress)}%` }}
+          />
+        </div>
 
-      if (res.headers.get('X-Analysis-Cache') === 'HIT') {
-        setProgress({ step: 'prediction', testIndex: tests.length - 1 })
-      }
+        <div className="space-y-3">
+          {ANALYSIS_STEPS.map((step, i) => {
+            let state = 'pending'
+            if (i < stepIndex) state = 'done'
+            else if (i === stepIndex) state = 'running'
 
-      setAnalysis(data)
-      setStatus('done')
-    } catch (e) {
-      setError(e.message || 'Failed to connect to analysis server')
-      setStatus('error')
-    }
-  }, [tests, setup, teardown, slug, revision])
+            return (
+              <div key={step.key} className="flex items-start gap-3">
+                <div className="mt-0.5 flex-shrink-0">
+                  {state === 'done' && (
+                    <div className="h-5 w-5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+                      <svg className="h-3 w-3 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  )}
+                  {state === 'running' && (
+                    <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+                  )}
+                  {state === 'pending' && (
+                    <div className="h-5 w-5 rounded-full border-2 border-border/60" />
+                  )}
+                </div>
+                <div>
+                  <span className={`text-sm font-medium ${state === 'pending' ? 'text-muted-foreground/60' : 'text-foreground'}`}>
+                    {step.label}
+                  </span>
+                  <p className={`text-xs ${state === 'pending' ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}>
+                    {step.desc}
+                  </p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
 
-  if (status === 'idle') {
-    return (
-      <button
-        onClick={runAnalysis}
-        className="mt-4 w-full text-left text-sm text-muted-foreground hover:text-foreground transition-colors p-3 rounded-lg border border-dashed border-border/60 hover:border-border hover:bg-muted/30"
-      >
-        <span className="font-medium">Get reproducible results with Deep Analysis</span>
-        <span className="block text-xs mt-0.5">
-          Run in a controlled server environment with JIT insight and scaling prediction
-        </span>
-      </button>
-    )
-  }
-
+export default function DeepAnalysis({ status, analysis, error, onRetry, testCount }) {
   if (status === 'loading') {
-    return (
-      <AnalysisProgress
-        currentStep={progress.step}
-        testIndex={progress.testIndex}
-        testCount={tests.length}
-      />
-    )
+    return <AnalysisProgress testCount={testCount || 1} />
   }
 
   if (status === 'error') {
     return (
-      <div className="mt-4 p-4 rounded-lg border border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
-        <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-2"
-          onClick={runAnalysis}
-        >
-          Try again
-        </Button>
+      <div className="mt-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="h-px flex-1 bg-border/60" />
+          <span className="text-xs font-medium text-muted-foreground px-2">Server Analysis</span>
+          <div className="h-px flex-1 bg-border/60" />
+        </div>
+        <div className="p-4 rounded-lg border border-red-200 bg-red-50/50 dark:border-red-800 dark:bg-red-950/20">
+          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={onRetry}
+          >
+            Try again
+          </Button>
+        </div>
       </div>
     )
   }
 
-  // status === 'done'
+  if (status !== 'done' || !analysis) return null
+
+  const hasErrors = analysis.hasErrors ||
+    analysis.results?.some(r =>
+      r.v8?.profiles?.some(p => p.state === 'errored') ||
+      r.quickjs?.profiles?.some(p => p.state === 'errored')
+    )
+
   return (
-    <div className="mt-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold tracking-tight text-foreground">
-          Deep Analysis
-        </h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-xs text-muted-foreground"
-          onClick={runAnalysis}
-        >
-          Re-run
-        </Button>
+    <div className="mt-8 space-y-4 animate-in fade-in duration-500">
+      <div className="flex items-center gap-2">
+        <div className="h-px flex-1 bg-border/60" />
+        <div className="flex items-center gap-1.5 px-2">
+          <Microscope className="h-3.5 w-3.5 text-violet-500" />
+          <span className="text-xs font-medium text-muted-foreground">Server Analysis</span>
+        </div>
+        <div className="h-px flex-1 bg-border/60" />
       </div>
+
+      {hasErrors && (
+        <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
+          <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+            Some engines encountered errors during analysis. Results may be incomplete.
+            Try re-running from the toolbar.
+          </p>
+        </div>
+      )}
 
       <CanonicalResult
         results={analysis.results}

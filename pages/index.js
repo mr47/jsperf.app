@@ -3,7 +3,7 @@ import Layout from '../components/Layout'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { Zap, Share2, Code2, Sparkles, TrendingUp, Users } from 'lucide-react'
+import { Zap, Share2, Code2, Sparkles, TrendingUp, Users, Microscope, Cpu, BarChart3, ArrowRight } from 'lucide-react'
 import GitHubIcon from '../components/GitHubIcon'
 import dynamic from 'next/dynamic'
 
@@ -127,6 +127,30 @@ export default function Home(props) {
               </CardHeader>
             </Card>
 
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm">
+              <CardHeader>
+                <div className="h-12 w-12 rounded-lg bg-violet-500/10 flex items-center justify-center mb-4">
+                  <Microscope className="h-6 w-6 text-violet-600 dark:text-violet-500" />
+                </div>
+                <CardTitle className="text-xl">Deep Analysis Engine</CardTitle>
+                <CardDescription className="text-base mt-2 leading-relaxed">
+                  Go beyond browser results with server-side analysis using dual engines &mdash; QuickJS-WASM for deterministic baselines and V8 Firecracker microVMs for realistic JIT profiling.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm">
+              <CardHeader>
+                <div className="h-12 w-12 rounded-lg bg-rose-500/10 flex items-center justify-center mb-4">
+                  <BarChart3 className="h-6 w-6 text-rose-600 dark:text-rose-500" />
+                </div>
+                <CardTitle className="text-xl">Predictive Scaling</CardTitle>
+                <CardDescription className="text-base mt-2 leading-relaxed">
+                  See how your code scales under different resource levels. Regression-based prediction models reveal whether performance is CPU-bound, memory-bound, or JIT-friendly.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
             <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm flex flex-col justify-between">
               <CardHeader>
                 <div className="h-12 w-12 rounded-lg bg-foreground/5 flex items-center justify-center mb-4">
@@ -146,6 +170,77 @@ export default function Home(props) {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+        </section>
+
+        {/* Deep Analysis Spotlight */}
+        <section className="py-24 border-t border-border/50">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-16 space-y-4">
+              <div className="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/5 px-3 py-1 text-sm font-medium">
+                <Sparkles className="mr-2 h-4 w-4 text-violet-500" />
+                <span className="text-violet-700 dark:text-violet-400">New Feature</span>
+              </div>
+              <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+                Deep Performance Analysis
+              </h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                Browser benchmarks vary with every run. Deep Analysis runs your code in controlled server-side environments to deliver reproducible, canonical results with predictive insights.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="relative rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-6 space-y-4">
+                <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                  <Cpu className="h-5 w-5 text-amber-600 dark:text-amber-500" />
+                </div>
+                <h3 className="font-semibold text-lg">QuickJS-WASM</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  A deterministic JavaScript interpreter compiled to WebAssembly. No JIT, no GC pauses, no variance &mdash; pure algorithmic cost measurement for reproducible baselines.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <span className="text-xs rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 font-medium">Deterministic</span>
+                  <span className="text-xs rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 px-2.5 py-0.5 font-medium">Reproducible</span>
+                </div>
+              </div>
+
+              <div className="relative rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-6 space-y-4">
+                <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <Zap className="h-5 w-5 text-blue-600 dark:text-blue-500" />
+                </div>
+                <h3 className="font-semibold text-lg">V8 Firecracker MicroVM</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Full V8 engine inside an isolated Firecracker microVM. Captures real JIT compilation behavior, inline caching, and garbage collection effects.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <span className="text-xs rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-0.5 font-medium">JIT Profiling</span>
+                  <span className="text-xs rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-0.5 font-medium">Isolated</span>
+                </div>
+              </div>
+
+              <div className="relative rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-6 space-y-4">
+                <div className="h-10 w-10 rounded-lg bg-rose-500/10 flex items-center justify-center">
+                  <BarChart3 className="h-5 w-5 text-rose-600 dark:text-rose-500" />
+                </div>
+                <h3 className="font-semibold text-lg">Prediction Model</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Compares interpreter vs. JIT results across resource profiles to compute JIT amplification, scaling type, and performance predictions at 1x&ndash;8x resources.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <span className="text-xs rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2.5 py-0.5 font-medium">Scaling</span>
+                  <span className="text-xs rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2.5 py-0.5 font-medium">Prediction</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-10 text-center">
+              <Button asChild variant="outline" size="lg" className="rounded-full px-8">
+                <Link href="/create" className="flex items-center gap-2">
+                  Try Deep Analysis
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
         </section>
 

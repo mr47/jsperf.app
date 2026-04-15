@@ -30,8 +30,8 @@ vi.mock('../../lib/engines/runner', () => ({
       {
         testIndex: 0,
         title: 'test',
-        quickjs: { opsPerSec: 1000, profiles: [] },
-        v8: { opsPerSec: 50000, profiles: [] },
+        quickjs: { opsPerSec: 1000, profiles: [{ state: 'completed', opsPerSec: 1000 }] },
+        v8: { opsPerSec: 50000, profiles: [{ state: 'completed', opsPerSec: 50000 }] },
         prediction: {
           scalingType: 'linear',
           scalingConfidence: 0.95,
@@ -43,6 +43,7 @@ vi.mock('../../lib/engines/runner', () => ({
       },
     ],
     comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
+    hasErrors: false,
   })),
 }))
 
@@ -169,5 +170,30 @@ describe('POST /api/benchmark/analyze', () => {
     expect(res._json.results[0].quickjs).toBeDefined()
     expect(res._json.results[0].v8).toBeDefined()
     expect(res._json.results[0].prediction).toBeDefined()
+  })
+
+  it('does not cache results with errors', async () => {
+    const { runAnalysis } = await import('../../lib/engines/runner')
+    const { redis } = await import('../../lib/redis')
+
+    runAnalysis.mockResolvedValueOnce({
+      results: [{
+        testIndex: 0,
+        title: 'test',
+        quickjs: { opsPerSec: 1000, profiles: [{ state: 'completed', opsPerSec: 1000 }] },
+        v8: { opsPerSec: 0, profiles: [{ state: 'errored', opsPerSec: 0, error: 'Sandbox failed' }] },
+        prediction: { scalingType: 'noisy', scalingConfidence: 0, jitBenefit: 0, memSensitivity: 0, predictedAt: {}, characteristics: {} },
+      }],
+      comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
+      hasErrors: true,
+    })
+
+    const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(res._status).toBe(200)
+    expect(redis.setex).not.toHaveBeenCalled()
   })
 })

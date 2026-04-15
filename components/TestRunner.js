@@ -9,7 +9,7 @@ import DeepAnalysis from './DeepAnalysis'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber } from '../utils/ArrayUtils'
-import { ChevronDown, Bot, Sparkles } from 'lucide-react'
+import { ChevronDown, Microscope, Loader2 } from 'lucide-react'
 
 // Simple SVG logos
 const ClaudeLogo = ({ className }) => (
@@ -33,6 +33,10 @@ export default function Tests(props) {
   const [tests, setTests] = useState(props.tests)
   const [stats, setStats] = useState(null)
 
+  const [analysisStatus, setAnalysisStatus] = useState('idle')
+  const [analysis, setAnalysis] = useState(null)
+  const [analysisError, setAnalysisError] = useState(null)
+
   const windowRef = useRef(null)
   const isQuickRunRef = useRef(false)
   const lastHeartbeatRef = useRef(0)
@@ -46,6 +50,45 @@ export default function Tests(props) {
         .catch(err => console.error('Failed to fetch stats', err))
     }
   }, [slug, revision])
+
+  const runDeepAnalysis = useCallback(async () => {
+    setAnalysisStatus('loading')
+    setAnalysisError(null)
+
+    try {
+      const res = await fetch('/api/benchmark/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tests: tests.map(t => ({ code: t.code, title: t.title })),
+          setup,
+          teardown,
+          slug,
+          revision,
+        }),
+      })
+
+      if (res.status === 429) {
+        setAnalysisError('Rate limited — please wait a minute before trying again.')
+        setAnalysisStatus('error')
+        return
+      }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setAnalysisError(data.error || `Server error (${res.status})`)
+        setAnalysisStatus('error')
+        return
+      }
+
+      const data = await res.json()
+      setAnalysis(data)
+      setAnalysisStatus('done')
+    } catch (e) {
+      setAnalysisError(e.message || 'Failed to connect to analysis server')
+      setAnalysisStatus('error')
+    }
+  }, [tests, setup, teardown, slug, revision])
 
   useEffect(() => {
     fetchStats()
@@ -299,6 +342,22 @@ Why is the fastest snippet performing better in modern JavaScript engines?`
                   )}
                 </div>
               }
+              { benchStatus === 'complete' &&
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={analysisStatus === 'loading'}
+                  className="h-9 font-bold shadow-sm border-violet-500/30 bg-violet-50/50 hover:bg-violet-100/50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:hover:bg-violet-500/20 dark:text-violet-400"
+                  onClick={runDeepAnalysis}
+                >
+                  {analysisStatus === 'loading' ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Microscope className="w-4 h-4" />
+                  )}
+                  {analysisStatus === 'loading' ? 'Analyzing...' : analysisStatus === 'done' ? 'Re-analyze' : 'Deep Analysis'}
+                </Button>
+              }
               { ['ready', 'complete'].includes(benchStatus) &&
                 <div className="relative inline-flex items-center h-9">
                   <Button
@@ -399,13 +458,13 @@ Why is the fastest snippet performing better in modern JavaScript engines?`
         </p>
       )}
 
-      {benchStatus === 'complete' && (
+      {analysisStatus !== 'idle' && (
         <DeepAnalysis
-          tests={tests}
-          setup={setup}
-          teardown={teardown}
-          slug={slug}
-          revision={revision}
+          status={analysisStatus}
+          analysis={analysis}
+          error={analysisError}
+          onRetry={runDeepAnalysis}
+          testCount={tests.length}
         />
       )}
 

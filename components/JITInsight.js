@@ -5,13 +5,19 @@ const CHARACTERISTIC_LABELS = {
   memoryBound: { label: 'Memory-bound', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
   allocationHeavy: { label: 'Allocation-heavy', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300' },
   jitFriendly: { label: 'JIT-friendly', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' },
+  v8Unavailable: { label: 'V8 unavailable', color: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
 }
 
 export default function JITInsight({ results, comparison }) {
   if (!results || results.length === 0) return null
 
-  const maxJitBenefit = Math.max(...results.map(r => r.prediction.jitBenefit))
-  const hasDivergence = comparison?.divergence
+  const v8Unavailable = results.every(r => r.prediction?.characteristics?.v8Unavailable)
+  const validResults = results.filter(r => r.prediction.jitBenefit > 0)
+
+  if (validResults.length === 0 && !v8Unavailable) return null
+
+  const maxJitBenefit = Math.max(...results.map(r => r.prediction.jitBenefit), 1)
+  const hasDivergence = comparison?.divergence && validResults.length > 1
 
   return (
     <Card className="border-border/60 shadow-sm">
@@ -23,6 +29,15 @@ export default function JITInsight({ results, comparison }) {
           JIT amplification shows how much V8's optimizer helps each snippet.
           Higher means the code benefits more from JIT compilation.
         </p>
+
+        {v8Unavailable && (
+          <div className="mb-4 p-3 rounded-lg border border-slate-200 bg-slate-50/50 dark:border-slate-700 dark:bg-slate-900/30">
+            <p className="text-xs text-muted-foreground">
+              JIT amplification data is unavailable — the V8 sandbox could not be reached.
+              Results below are based on QuickJS interpreter performance only.
+            </p>
+          </div>
+        )}
 
         {hasDivergence && (
           <div className="mb-4 p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">

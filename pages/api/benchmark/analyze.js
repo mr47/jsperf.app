@@ -45,7 +45,7 @@ export default async function handler(req, res) {
 
     // Check cache by content hash
     const codeHash = computeCodeHash(tests, setup, teardown)
-    const cacheKey = `analysis_v1:${codeHash}`
+    const cacheKey = `analysis_v2:${codeHash}`
 
     const cached = await redis.get(cacheKey)
     if (cached) {
@@ -68,12 +68,15 @@ export default async function handler(req, res) {
       revision: revision ? parseInt(revision, 10) : null,
       results: analysis.results,
       comparison: analysis.comparison,
+      hasErrors: analysis.hasErrors || false,
       createdAt: new Date(),
     }
     await analyses.insertOne(doc)
 
-    // Cache for 1 hour
-    await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
+    // Only cache successful (error-free) results
+    if (!analysis.hasErrors) {
+      await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
+    }
 
     res.setHeader('X-Analysis-Cache', 'MISS')
     return res.status(200).json(analysis)
