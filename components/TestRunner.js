@@ -42,6 +42,7 @@ export default function Tests(props) {
   const isQuickRunRef = useRef(false)
   const lastHeartbeatRef = useRef(0)
   const watchdogTimerRef = useRef(null)
+  const stoppedForVisibilityRef = useRef(false)
 
   const fetchStats = useCallback(() => {
     if (slug && revision) {
@@ -143,6 +144,24 @@ export default function Tests(props) {
     fetchStats()
   }, [fetchStats])
 
+  // Page Visibility API: pause benchmark when tab is not active.
+  // Background tabs throttle timers/rAF which both breaks measurements
+  // and trips the iframe heartbeat watchdog (falsely failing tests).
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'hidden') return
+      if (benchStatus !== 'running' || !broker) return
+
+      clearInterval(watchdogTimerRef.current)
+      watchdogTimerRef.current = null
+      stoppedForVisibilityRef.current = true
+      broker.emit('run', { options: undefined })
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [benchStatus, broker])
+
   useEffect(() => {
     if (!windowRef.current) return
     const _broker = new PostMessageBroker(windowRef.current.contentWindow)
@@ -200,8 +219,8 @@ export default function Tests(props) {
           next[i] = { ...prevTests[i], ...result }
         }
         
-        // Background task to send stats, but only for full runs (not quick runs)
-        if (slug && revision && !isQuickRunRef.current) {
+        // Background task to send stats, but only for full runs (not quick runs or aborts)
+        if (slug && revision && !isQuickRunRef.current && !stoppedForVisibilityRef.current) {
           try {
             const parser = new UAParser()
             const browser = parser.getBrowser()
@@ -252,8 +271,14 @@ export default function Tests(props) {
 
         return next
       })
-      setStatusMessage('Done. Ready to run again.')
-      setBenchStatus('complete')
+      if (stoppedForVisibilityRef.current) {
+        stoppedForVisibilityRef.current = false
+        setStatusMessage('Stopped — tab became inactive. Run again when ready.')
+        setBenchStatus('ready')
+      } else {
+        setStatusMessage('Done. Ready to run again.')
+        setBenchStatus('complete')
+      }
     })
 
     _broker.register('ready', () => {
@@ -384,12 +409,12 @@ Why is the fastest snippet performing better in modern JavaScript engines?${incl
       <Card className="my-6 shadow-sm border-border/60">
         <CardContent className="p-4">
           <div className="flex flex-col md:flex-row md:items-center gap-3">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <h2 className="text-lg font-bold tracking-tight">Test Runner</h2>
               <p className="text-xs text-muted-foreground mt-0.5">{statusMessage || 'Initializing...'}</p>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 md:justify-end">
               { benchStatus === 'complete' &&
                 <div className="relative inline-flex items-center h-9">
                   <Button
@@ -537,7 +562,8 @@ Why is the fastest snippet performing better in modern JavaScript engines?${incl
         style={{height: "1px", width: "1px"}}></iframe>
 
       <div className="border border-border rounded-lg overflow-hidden bg-card">
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[600px] text-left text-sm">
           <caption className="bg-muted p-3 text-sm font-medium border-b border-border text-left">
             Testing in <UserAgent />
           </caption>
@@ -557,6 +583,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${incl
             ))}
           </tbody>
         </table>
+        </div>
       </div>
       {showUnboundedNote && (
         <p className="text-sm text-gray-600 mt-3 max-w-prose">
