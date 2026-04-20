@@ -1,0 +1,17 @@
+# Bun benchmark runtime image.
+#
+# Bun ships its own Debian-based image with the runtime pre-installed.
+# As with the Node/Deno images, we just add the perf tooling on top.
+FROM oven/bun:1.3-debian
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        linux-perf \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && (ln -sf /usr/bin/perf_* /usr/local/bin/perf 2>/dev/null || true)
+
+WORKDIR /work
+
+CMD ["bun", "--version"]

@@ -112,7 +112,13 @@ export default function Tests(props) {
           const msg = JSON.parse(line)
 
           if (msg.type === 'progress') {
-            setAnalysisProgress({ engine: msg.engine, testIndex: msg.testIndex, status: msg.status })
+            setAnalysisProgress({
+              engine: msg.engine,
+              testIndex: msg.testIndex,
+              status: msg.status,
+              runtime: msg.runtime,
+              profile: msg.profile,
+            })
           } else if (msg.type === 'result') {
             setAnalysis(msg.data)
             setAnalysisStatus('done')

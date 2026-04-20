@@ -1,0 +1,23 @@
+{
+  "name": "jsperf-worker",
+  "version": "0.1.0",
+  "description": "Multi-runtime benchmark worker for jsperf.app. Runs Node/Deno/Bun benchmarks in resource-isolated Docker containers.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "build-images": "./scripts/build-images.sh",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "hono": "^4.10.0",
+    "@hono/node-server": "^1.16.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

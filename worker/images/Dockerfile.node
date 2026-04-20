@@ -1,0 +1,20 @@
+# Node.js benchmark runtime image.
+#
+# Minimal: contains the runtime + linux-tools (perf) for hardware counters.
+# The benchmark script is mounted in at /bench.js by the worker; nothing
+# needs to be baked into the image other than the runtime itself.
+#
+# We pin the major version so result comparisons across runs stay meaningful.
+FROM node:24-bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        linux-perf \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && (ln -sf /usr/bin/perf_* /usr/local/bin/perf 2>/dev/null || true)
+
+WORKDIR /work
+
+# Sanity-check the runtime is callable on container startup.
+CMD ["node", "--version"]

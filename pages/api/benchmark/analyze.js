@@ -11,7 +11,9 @@ const ratelimit = new Ratelimit({
 })
 
 export const config = {
-  maxDuration: 60,
+  // Multi-runtime adds 3 runtimes x 4 profiles per test on a remote worker,
+  // so we need a longer ceiling than the QuickJS+V8-only path.
+  maxDuration: process.env.BENCHMARK_WORKER_URL ? 300 : 60,
 }
 
 export default async function handler(req, res) {
@@ -43,9 +45,12 @@ export default async function handler(req, res) {
       }
     }
 
-    // Check cache by content hash
+    // Check cache by content hash. We bump the version suffix when the
+    // multi-runtime worker is enabled so cached results from a worker-less
+    // run don't shadow the richer ones (and vice versa).
     const codeHash = computeCodeHash(tests, setup, teardown)
-    const cacheKey = `analysis_v2:${codeHash}`
+    const cacheVersion = process.env.BENCHMARK_WORKER_URL ? 'v3-mr' : 'v2'
+    const cacheKey = `analysis_${cacheVersion}:${codeHash}`
 
     const cached = await redis.get(cacheKey)
     if (cached) {

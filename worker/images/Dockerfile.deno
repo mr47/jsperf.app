@@ -1,0 +1,18 @@
+# Deno benchmark runtime image.
+#
+# Uses the official denoland/deno image which already has the runtime.
+# We layer Debian's perf tooling on top so we can capture hardware counters
+# the same way as the Node/Bun images.
+FROM denoland/deno:debian-2.5.0
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        linux-perf \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && (ln -sf /usr/bin/perf_* /usr/local/bin/perf 2>/dev/null || true)
+
+WORKDIR /work
+
+CMD ["deno", "--version"]

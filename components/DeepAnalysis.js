@@ -2,25 +2,50 @@ import { Button } from '@/components/ui/button'
 import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
 import ScalingPredictionChart from './ScalingChart'
+import RuntimeComparison from './RuntimeComparison'
 import { Microscope } from 'lucide-react'
 
-const ANALYSIS_STEPS = [
+const ANALYSIS_STEPS_BASE = [
   { key: 'quickjs', label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
   { key: 'v8', label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
   { key: 'prediction', label: 'Building prediction model', desc: 'Scaling analysis & regression' },
 ]
 
-const STEP_INDEX = { quickjs: 0, v8: 1, prediction: 2 }
+const ANALYSIS_STEP_MULTIRUNTIME = {
+  key: 'multi-runtime',
+  label: 'Comparing Node / Deno / Bun',
+  desc: 'Cross-runtime + hardware perf counters',
+}
 
-function AnalysisProgress({ progress, testCount }) {
+// Build the step list dynamically: only show the multi-runtime step once
+// the server has emitted at least one progress event for it. This keeps
+// the UI clean when the worker is not configured.
+function buildSteps(seenMultiRuntime) {
+  if (!seenMultiRuntime) return ANALYSIS_STEPS_BASE
+  return [
+    ANALYSIS_STEPS_BASE[0],
+    ANALYSIS_STEPS_BASE[1],
+    ANALYSIS_STEP_MULTIRUNTIME,
+    ANALYSIS_STEPS_BASE[2],
+  ]
+}
+
+function indexFor(engine, seenMultiRuntime) {
+  const steps = buildSteps(seenMultiRuntime)
+  const idx = steps.findIndex(s => s.key === engine)
+  return idx >= 0 ? idx : 0
+}
+
+function AnalysisProgress({ progress, testCount, seenMultiRuntime }) {
   const currentEngine = progress?.engine || 'quickjs'
   const currentStatus = progress?.status || 'running'
   const testIndex = progress?.testIndex ?? 0
 
-  const baseIndex = STEP_INDEX[currentEngine] ?? 0
+  const steps = buildSteps(seenMultiRuntime)
+  const baseIndex = indexFor(currentEngine, seenMultiRuntime)
   const stepIndex = currentStatus === 'done' ? baseIndex + 1 : baseIndex
 
-  const totalSteps = ANALYSIS_STEPS.length
+  const totalSteps = steps.length
   const progressPct = (stepIndex / totalSteps) * 100
 
   return (
@@ -45,8 +70,15 @@ function AnalysisProgress({ progress, testCount }) {
           />
         </div>
 
+        {progress?.runtime && (
+          <p className="text-[11px] text-muted-foreground mb-3 -mt-2">
+            {progress.runtime}
+            {progress.profile ? ` · ${progress.profile}` : ''}
+          </p>
+        )}
+
         <div className="space-y-3">
-          {ANALYSIS_STEPS.map((step, i) => {
+          {steps.map((step, i) => {
             let state = 'pending'
             if (i < stepIndex) state = 'done'
             else if (i === stepIndex && currentStatus !== 'done') state = 'running'
@@ -86,8 +118,11 @@ function AnalysisProgress({ progress, testCount }) {
 }
 
 export default function DeepAnalysis({ status, analysis, error, onRetry, progress, testCount }) {
+  const seenMultiRuntime = progress?.engine === 'multi-runtime'
+    || (analysis?.results || []).some(r => r.multiRuntime || r.multiRuntimeError)
+
   if (status === 'loading') {
-    return <AnalysisProgress progress={progress} testCount={testCount || 1} />
+    return <AnalysisProgress progress={progress} testCount={testCount || 1} seenMultiRuntime={seenMultiRuntime} />
   }
 
   if (status === 'error') {
@@ -154,6 +189,8 @@ export default function DeepAnalysis({ status, analysis, error, onRetry, progres
       <ScalingPredictionChart
         results={analysis.results}
       />
+
+      <RuntimeComparison results={analysis.results} />
     </div>
   )
 }

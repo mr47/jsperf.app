@@ -1,0 +1,39 @@
+# Dokploy-friendly compose file for the jsperf.app benchmark worker.
+#
+# Point Dokploy at this file (Compose application). Dokploy handles the
+# reverse proxy + SSL via Traefik labels we don't need to set here — its
+# auto-router picks up the exposed port.
+#
+# IMPORTANT: build the runtime images on the host BEFORE the first deploy:
+#   cd /opt/jsperf.app/worker && ./scripts/build-images.sh
+# The orchestrator container only orchestrates `docker run` against those
+# pre-built images; it does not build them itself.
+
+services:
+  jsperf-worker:
+    container_name: jsperf-worker
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      PORT: "8080"
+      BENCHMARK_WORKER_SECRET: ${BENCHMARK_WORKER_SECRET:?set BENCHMARK_WORKER_SECRET in Dokploy env}
+      COLLECT_PERF: ${COLLECT_PERF:-1}
+    volumes:
+      # Required: the worker shells out to `docker run` on the host.
+      - /var/run/docker.sock:/var/run/docker.sock
+    expose:
+      - "8080"
+    cap_add:
+      # Allow the orchestrator (and the containers it spawns) to use
+      # `perf stat`. PERFMON is the modern (kernel >= 5.8) replacement for
+      # SYS_ADMIN's perf bits; we keep SYS_PTRACE because perf needs it.
+      - SYS_PTRACE
+      - PERFMON
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

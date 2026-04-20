@@ -1,51 +1,48 @@
 ---
 name: Firecracker Multi-Runtime Benchmarks
-overview: Add multi-environment benchmark analysis (Firecracker Node/Deno/Bun on Hetzner, Cloudflare Workers) as additional viewpoints alongside the existing QuickJS + V8 Sandbox pipeline, with aligned 1x/2x/4x/8x resource scaling profiles.
+overview: Add Docker-based multi-runtime analysis (Node/Deno/Bun) on an existing Hostinger KVM 2 VPS (with Dokploy) as an additional viewpoint alongside the existing QuickJS + V8 Sandbox pipeline, with aligned 1x/2x/4x/8x resource scaling via Docker cgroup limits.
 todos:
   - id: worker-service
-    content: "Build the Hetzner worker service: Hono HTTP API, Firecracker VM lifecycle management, vsock/serial communication"
+    content: "Build the worker service: Hono HTTP API that spawns Docker containers for each runtime + profile"
     status: pending
-  - id: rootfs-images
-    content: Create Alpine rootfs build scripts for Node.js, Deno, and Bun with minimal footprint
+  - id: docker-images
+    content: Create Docker images for Node.js, Deno, and Bun with benchmark harness baked in
     status: pending
   - id: benchmark-scripts
     content: Write runtime-specific benchmark scripts (Node/Deno/Bun) with perf counter collection and common result format
     status: pending
-  - id: cf-worker
-    content: Deploy Cloudflare Worker benchmark runner -- wrangler project, benchmark harness, single-run endpoint
-    status: pending
-  - id: engine-files
-    content: Create lib/engines/firecracker.js and lib/engines/cfworker.js -- each calls its respective endpoint
+  - id: engine-file
+    content: Create lib/engines/multiruntime.js -- calls the worker API, parses NDJSON stream
     status: pending
   - id: update-runner
-    content: Update lib/engines/runner.js to add optional multi-environment phase after existing QuickJS + V8 flow
+    content: Update lib/engines/runner.js to add optional multi-runtime phase after existing QuickJS + V8 flow
     status: pending
   - id: update-prediction
-    content: Update lib/prediction/model.js to incorporate multi-environment data when available, add cross-runtime divergence
+    content: Update lib/prediction/model.js to incorporate multi-runtime data when available, add cross-runtime divergence
     status: pending
   - id: update-api
-    content: Update pages/api/benchmark/analyze.js -- add env vars for each runner, run environments in parallel when configured
+    content: Update pages/api/benchmark/analyze.js -- add BENCHMARK_WORKER_URL env var, run multi-runtime when configured
     status: pending
   - id: update-ui
-    content: Add new EnvironmentComparison section to DeepAnalysis.js with per-environment cards, keep existing components unchanged
+    content: Add new RuntimeComparison section to DeepAnalysis.js, keep existing CanonicalResult/JITInsight unchanged
     status: pending
   - id: deploy
-    content: Provision Hetzner CCX23, deploy CF Worker, wire all env vars in Vercel
+    content: Deploy worker service via Dokploy, wire BENCHMARK_WORKER_URL in Vercel env vars
     status: pending
 isProject: false
 ---
 
-# Multi-Environment Benchmark Analysis
+# Docker Multi-Runtime Benchmark Analysis
 
 ## Design Principle: Additive, Not Replacement
 
-The existing Deep Analysis pipeline (QuickJS-WASM + V8 via `@vercel/sandbox`) stays **fully intact** as the primary analysis path. Each additional environment (Firecracker, CF Worker) is a **new, independently optional layer**. Each is enabled by its own env var and can go down without affecting anything else.
+The existing Deep Analysis pipeline (QuickJS-WASM + V8 via `@vercel/sandbox`) stays **fully intact**. The Docker multi-runtime analysis is a **new, optional layer** enabled by setting `BENCHMARK_WORKER_URL`. If the worker is down or unconfigured, everything works exactly as today.
 
 ## Current State
 
 The Deep Analysis pipeline in [lib/engines/runner.js](lib/engines/runner.js) orchestrates two engines:
 - **QuickJS-WASM** ([lib/engines/quickjs.js](lib/engines/quickjs.js)) -- deterministic interpreter, runs in-process
-- **V8/Node 24** ([lib/engines/v8sandbox.js](lib/engines/v8sandbox.js)) -- JIT profiling via `@vercel/sandbox` (Firecracker on Vercel's infra)
+- **V8/Node 24** ([lib/engines/v8sandbox.js](lib/engines/v8sandbox.js)) -- JIT profiling via `@vercel/sandbox`
 
 Current resource profiles in `runner.js`:
 
@@ -58,28 +55,26 @@ const RESOURCE_PROFILES = [
 ]
 ```
 
-The API endpoint [pages/api/benchmark/analyze.js](pages/api/benchmark/analyze.js) calls `runAnalysis()` and streams NDJSON progress to the client. Results are cached in Redis and persisted to MongoDB.
-
 ## Resource Profile Alignment
 
-The 1x/2x/4x/8x scaling maps differently to each environment, but the `resourceLevel` and `label` stay consistent across all of them:
+The 1x/2x/4x/8x labels and `resourceLevel` stay consistent. Docker maps them via `--cpus` and `--memory`:
 
-- **QuickJS-WASM** (existing) -- scales by WASM memory limit: 16MB / 32MB / 64MB / 128MB
-- **V8 Sandbox** (existing) -- all run at vcpus=1 (Vercel Sandbox constraint)
-- **Firecracker** (new) -- scales by VM memory: 256MB / 512MB / 1024MB / 2048MB, vcpus: 1 / 1 / 2 / 2
-- **Cloudflare Workers** (new) -- **single run only**, no scaling profiles (fixed-resource V8 isolate)
+- **QuickJS-WASM** (existing) -- WASM memory limit: 16 / 32 / 64 / 128 MB
+- **V8 Sandbox** (existing) -- vcpus=1 across all profiles
+- **Docker containers** (new) -- CPU + memory via cgroup limits:
 
 ```javascript
-const FIRECRACKER_PROFILES = [
-  { label: '1x', resourceLevel: 1, vcpus: 1, memMb: 256 },
-  { label: '2x', resourceLevel: 2, vcpus: 1, memMb: 512 },
-  { label: '4x', resourceLevel: 4, vcpus: 2, memMb: 1024 },
-  { label: '8x', resourceLevel: 8, vcpus: 2, memMb: 2048 },
+const DOCKER_PROFILES = [
+  { label: '1x', resourceLevel: 1, cpus: 0.5, memMb: 256 },
+  { label: '2x', resourceLevel: 2, cpus: 1.0, memMb: 512 },
+  { label: '4x', resourceLevel: 4, cpus: 1.5, memMb: 1024 },
+  { label: '8x', resourceLevel: 8, cpus: 2.0, memMb: 2048 },
 ]
-// CF Workers: single run, no profiles
 ```
 
-## Architecture Overview
+The Hostinger KVM 2 has 2 vCPUs / 8GB RAM. Containers run sequentially (one at a time), so even the 8x profile (2 CPUs, 2GB) is safe. The host OS + Dokploy + worker service use ~1GB, leaving ~7GB headroom.
+
+## Architecture
 
 ```mermaid
 graph TD
@@ -89,72 +84,55 @@ graph TD
         V8Sandbox["V8 @vercel/sandbox (existing)"]
     end
 
-    subgraph hetzner [Hetzner VM - Optional]
-        WorkerAPI["Worker HTTP API (Hono)"]
-        NodeVM["Firecracker: Node.js"]
-        DenoVM["Firecracker: Deno"]
-        BunVM["Firecracker: Bun"]
-    end
-
-    subgraph cloudflare [Cloudflare - Optional]
-        CFWorker["CF Worker (workerd/V8 isolate)"]
+    subgraph hostinger [Hostinger KVM 2 + Dokploy]
+        WorkerAPI["Worker Service (Hono)"]
+        DockerNode["Docker: Node.js"]
+        DockerDeno["Docker: Deno"]
+        DockerBun["Docker: Bun"]
     end
 
     AnalyzeAPI --> QuickJS
     AnalyzeAPI --> V8Sandbox
     AnalyzeAPI -.->|"BENCHMARK_WORKER_URL"| WorkerAPI
-    AnalyzeAPI -.->|"CF_WORKER_URL"| CFWorker
-    WorkerAPI --> NodeVM
-    WorkerAPI --> DenoVM
-    WorkerAPI --> BunVM
-    NodeVM -->|"results + perf counters"| WorkerAPI
-    DenoVM -->|"results + perf counters"| WorkerAPI
-    BunVM -->|"results + perf counters"| WorkerAPI
-    WorkerAPI -.->|"NDJSON"| AnalyzeAPI
-    CFWorker -.->|"JSON"| AnalyzeAPI
+    WorkerAPI -->|"docker run --cpus --memory"| DockerNode
+    WorkerAPI -->|"docker run --cpus --memory"| DockerDeno
+    WorkerAPI -->|"docker run --cpus --memory"| DockerBun
+    DockerNode -->|"JSON stdout"| WorkerAPI
+    DockerDeno -->|"JSON stdout"| WorkerAPI
+    DockerBun -->|"JSON stdout"| WorkerAPI
+    WorkerAPI -.->|"NDJSON stream"| AnalyzeAPI
 ```
 
-Solid lines = always runs. Dashed lines = only when the corresponding env var is set. Each environment is called in **parallel** during Phase 4 to minimize total analysis time.
+Solid lines = always runs. Dashed = only when `BENCHMARK_WORKER_URL` is set. Dokploy manages the worker service (Traefik reverse proxy, SSL, auto-restart). Benchmark containers are ephemeral -- spawned per run, destroyed after.
 
-## What Each Environment Tells You
+## What Each Engine Tells You
 
 - **QuickJS-WASM** -- pure algorithmic cost, no JIT, deterministic
-- **V8 Sandbox** -- how V8 JIT optimizes the code on dedicated Vercel infra
-- **Firecracker Node/Deno/Bun** -- cross-runtime comparison on identical hardware (same CPU, same kernel), with hardware perf counters
-- **Cloudflare Workers** -- real-world edge performance in a V8 isolate with cold/warm start, memory pressure from shared isolate pool
+- **V8 Sandbox** -- V8 JIT on Vercel infra
+- **Docker Node** -- V8 JIT on dedicated hardware with perf counters, resource scaling
+- **Docker Deno** -- same V8 as Node, different runtime overhead / stdlib / startup
+- **Docker Bun** -- JavaScriptCore (JSC), fundamentally different JIT from V8
 
-## Hetzner VM Selection
+## Part 1: Worker Service
 
-A **CCX23** (4 dedicated AMD vCPUs, 16 GB RAM, ~25 EUR/mo) is recommended:
-- **Dedicated vCPUs** -- critical for stable benchmark numbers; shared vCPU instances (CPX) have noisy neighbor variance
-- `/dev/kvm` is exposed on Hetzner Cloud -- Firecracker requires it
-- 4 vCPUs / 16 GB supports the 8x profile (2 vCPUs, 2048MB per VM) with room for the host
-- Could start with CCX13 (2 vCPUs, 8GB, ~13 EUR/mo) and only run up to 4x profiles initially
-
-## Part 1a: Hetzner Firecracker Worker
-
-A standalone Node.js service (Hono + node:child_process) that manages Firecracker VMs.
-
-### Directory structure (new repo or subdirectory)
+### Directory structure
 
 ```
 worker/
-  server.js            # Hono HTTP API
-  firecracker.js       # Firecracker VM lifecycle (create, run, destroy)
+  package.json
+  server.js              # Hono HTTP API
+  docker.js              # Docker container lifecycle (spawn, collect, destroy)
   runtimes/
-    node.js            # Node.js benchmark script builder
-    deno.js            # Deno benchmark script builder
-    bun.js             # Bun benchmark script builder
-    common.js          # Shared benchmark loop logic (time-sliced samples)
-  rootfs/
-    build-rootfs.sh    # Script to build Alpine rootfs images
-    Dockerfile.node    # Node rootfs builder
-    Dockerfile.deno    # Deno rootfs builder
-    Dockerfile.bun     # Bun rootfs builder
-  vmlinux              # Linux kernel binary for Firecracker
-  config/
-    vm-template.json   # Firecracker VM config template
-  setup.sh             # VM provisioning script
+    common.js            # Shared benchmark loop template (time-sliced samples)
+    node.js              # Node.js script builder
+    deno.js              # Deno script builder
+    bun.js               # Bun script builder
+  images/
+    Dockerfile.node      # FROM node:22-alpine + perf tools
+    Dockerfile.deno      # FROM denoland/deno:alpine + perf tools
+    Dockerfile.bun       # FROM oven/bun:alpine + perf tools
+  Dockerfile             # Worker service itself (for Dokploy deployment)
+  docker-compose.yml     # Optional: local dev
 ```
 
 ### Worker API contract (aligned to 1x/2x/4x/8x)
@@ -171,10 +149,10 @@ Content-Type: application/json
   "timeMs": 1500,
   "runtimes": ["node", "deno", "bun"],
   "profiles": [
-    { "label": "1x", "resourceLevel": 1, "vcpus": 1, "memMb": 256 },
-    { "label": "2x", "resourceLevel": 2, "vcpus": 1, "memMb": 512 },
-    { "label": "4x", "resourceLevel": 4, "vcpus": 2, "memMb": 1024 },
-    { "label": "8x", "resourceLevel": 8, "vcpus": 2, "memMb": 2048 }
+    { "label": "1x", "resourceLevel": 1, "cpus": 0.5, "memMb": 256 },
+    { "label": "2x", "resourceLevel": 2, "cpus": 1.0, "memMb": 512 },
+    { "label": "4x", "resourceLevel": 4, "cpus": 1.5, "memMb": 1024 },
+    { "label": "8x", "resourceLevel": 8, "cpus": 2.0, "memMb": 2048 }
   ]
 }
 
@@ -184,82 +162,93 @@ Response: NDJSON stream
 ...
 ```
 
-### Firecracker VM lifecycle (per benchmark invocation)
+### Docker container lifecycle (per benchmark)
 
-1. Select pre-built rootfs for the target runtime
-2. Write benchmark script to a scratch ext4 overlay (or use MMDS/vsock)
-3. Start Firecracker process with the VM config (vcpus, mem from profile)
-4. VM boots (~125ms with minimal kernel), runs the benchmark, writes JSON to vsock/serial
-5. Collect results, kill the Firecracker process
-6. Target overhead: <500ms boot + benchmark time
+For each runtime x profile combination (sequentially to avoid contention):
+
+1. Write benchmark script to a temp file on the host
+2. `docker run` with resource limits and capabilities:
+
+```bash
+docker run --rm \
+  --cpus=1.0 --memory=512m \
+  --network none \
+  --cap-add SYS_PTRACE --cap-add SYS_ADMIN \
+  --security-opt seccomp=unconfined \
+  -v /tmp/bench-<id>.js:/bench.js:ro \
+  jsperf-node:latest \
+  node --expose-gc /bench.js
+```
+
+3. Collect JSON from stdout
+4. Enforce timeout via `AbortSignal` + `docker kill`
+5. Clean up temp file
+
+Key flags:
+- `--cpus` + `--memory` -- cgroup resource limits matching the profile
+- `--network none` -- no network access for benchmark code
+- `--cap-add SYS_PTRACE --cap-add SYS_ADMIN` -- enables `perf stat` inside the container
+- `--security-opt seccomp=unconfined` -- needed for perf counters
+- `--rm` -- auto-remove container after exit
+
+### Docker images
+
+Three lightweight images pre-built on the VPS:
+
+**`jsperf-node:latest`** (Dockerfile.node):
+```dockerfile
+FROM node:22-alpine
+RUN apk add --no-cache perf
+USER node
+ENTRYPOINT ["node"]
+```
+
+**`jsperf-deno:latest`** (Dockerfile.deno):
+```dockerfile
+FROM denoland/deno:alpine
+RUN apk add --no-cache perf
+USER deno
+ENTRYPOINT ["deno", "run", "--allow-hrtime"]
+```
+
+**`jsperf-bun:latest`** (Dockerfile.bun):
+```dockerfile
+FROM oven/bun:alpine
+RUN apk add --no-cache perf
+USER bun
+ENTRYPOINT ["bun", "run"]
+```
 
 ### Runtime-specific benchmark scripts
 
-All three runtimes share the same benchmark loop (time-sliced, samples-based) but differ in APIs:
+All three share the same time-sliced loop structure but differ in APIs:
 
-- **Node.js**: `perf_hooks.performance`, `v8.getHeapStatistics()`, `process.memoryUsage()`, `--expose-gc`
+- **Node.js**: `perf_hooks.performance`, `v8.getHeapStatistics()`, `process.memoryUsage()`, `process.cpuUsage()`, `--expose-gc`
 - **Deno**: `performance.now()`, `Deno.memoryUsage()`, `--v8-flags=--expose-gc`
-- **Bun**: `performance.now()`, `Bun.nanoseconds()` for high-res, `process.memoryUsage()`, `bun:jsc` for JSC heap stats
+- **Bun**: `performance.now()`, `Bun.nanoseconds()`, `process.memoryUsage()`, `bun:jsc` heap stats
 
-### Rich metrics (the real payoff of self-hosted Firecracker)
+### Metrics collected
 
-Since we control the full VM:
+Timing + memory (from the runtime):
+- ops/sec, latency percentiles (mean, p50, p99, min, max)
+- Heap used, heap total, external memory, RSS
+- GC pauses (via `--trace-gc` flag parsing)
+- Startup time (process spawn to first iteration)
 
-- **CPU counters** via `perf stat -e instructions,cycles,cache-misses,branch-misses`
-- **Startup time** -- process spawn to first iteration
-- **GC pauses** -- `--trace-gc` (V8), `bun:jsc` GC events
-- **JIT compilation time** -- `--trace-opt` / `--trace-deopt` (V8), JSC tier-up
-- **RSS/PSS** from `/proc/<pid>/smaps`
-- **Context switches** from `/proc/<pid>/status`
+Hardware perf counters (via `perf stat` wrapper inside the container):
+- instructions, cycles, cache-misses, branch-misses
+- context switches
 
-## Part 1b: Cloudflare Worker Runner
-
-A deployed Cloudflare Worker that accepts benchmark code and runs it in a workerd V8 isolate.
-
-### What it gives you
-
-CF Workers are a fundamentally different execution model: V8 isolates (not a full OS process), shared memory pool, 128MB limit, edge deployment. This answers "how does this code behave on the edge?"
-
-### Setup
-
-- **Wrangler project** in `runners/cloudflare/`
-- Single `POST /` endpoint that accepts `{ code, setup, teardown, timeMs }`
-- Uses the same time-sliced benchmark loop adapted for the Workers API
-- Returns JSON with ops/sec, latency percentiles, memory stats from `caches` API / performance API
-- **No scaling profiles** -- CF Workers are fixed-resource, so a single run per benchmark
-- Auth via a shared secret in the `Authorization` header (stored as a CF Worker secret)
-- Deployed via `wrangler deploy`
-
-### Benchmark script differences
-
-- No `v8.getHeapStatistics()` (not available in workerd)
-- No `process.memoryUsage()` -- use `performance.now()` for timing only
-- No GC control -- cannot `--expose-gc`
-- `performance.now()` resolution may be coarsened for security (timing attacks)
-- Cold start measurement: first request after deploy vs subsequent warm requests
-
-### Result shape
-
-```javascript
-{
-  environment: 'cloudflare-worker',
-  runtime: 'workerd',
-  opsPerSec: 42000,
-  latency: { mean, p50, p99, min, max },
-  coldStartMs: 12,    // first invocation overhead
-  region: 'fra1',     // CF colo the request landed on
-  state: 'completed',
-}
-```
+The benchmark script is wrapped: `perf stat -e instructions,cycles,cache-misses,branch-misses -x, -- node --expose-gc /bench.js`, then parse both the JSON from stdout and the perf CSV from stderr.
 
 ## Part 2: jsperf.app Changes
 
-### Two new engine files (alongside existing `v8sandbox.js` which stays untouched)
+### New engine file: `lib/engines/multiruntime.js`
 
-**`lib/engines/firecracker.js`** -- calls the Hetzner worker, parses NDJSON stream:
+New file alongside `v8sandbox.js` (which stays untouched):
 
 ```javascript
-export async function runOnFirecracker(code, {
+export async function runMultiRuntime(code, {
   setup, teardown, timeMs, runtimes, profiles, signal, onProgress,
 }) {
   const workerUrl = process.env.BENCHMARK_WORKER_URL
@@ -274,46 +263,26 @@ export async function runOnFirecracker(code, {
     body: JSON.stringify({ code, setup, teardown, timeMs, runtimes, profiles }),
     signal,
   })
-  // Parse NDJSON stream, call onProgress, return { node: {...}, deno: {...}, bun: {...} }
-}
-```
-
-**`lib/engines/cfworker.js`** -- calls the deployed CF Worker (single run, no profiles):
-
-```javascript
-export async function runOnCFWorker(code, { setup, teardown, timeMs, signal }) {
-  const url = process.env.CF_WORKER_URL
-  if (!url) return null
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.CF_WORKER_SECRET}`,
-    },
-    body: JSON.stringify({ code, setup, teardown, timeMs }),
-    signal: signal || AbortSignal.timeout(timeMs + 15_000),
-  })
-  return response.json()  // single result object
+  // Parse NDJSON stream, call onProgress per line
+  // Return { node: { profiles, avgOpsPerSec, perfCounters }, deno: {...}, bun: {...} }
 }
 ```
 
 ### Updated runner.js -- additive Phase 4
 
-The existing flow (Phase 1: QuickJS, Phase 2: V8 Sandbox, Phase 3: Prediction) is **unchanged**. A new Phase 4 runs all configured environments **in parallel**:
+Existing flow is **unchanged**. New Phase 4 appended:
 
 ```
 Phase 1: QuickJS-WASM for all tests (UNCHANGED)
 Phase 2: V8 Sandbox for all tests (UNCHANGED)
 Phase 3: Build predictions (UNCHANGED)
-Phase 4: Multi-environment (NEW, parallel, each independently optional)
-  For each test, run concurrently:
-    - runOnFirecracker() with ["node", "deno", "bun"] x 4 profiles
-    - runOnCFWorker() single run
-  Wrap each in try/catch -- failure = null, not a crash
+Phase 4: Multi-runtime (NEW, only when BENCHMARK_WORKER_URL is set)
+  For each test:
+    - runMultiRuntime() with ["node", "deno", "bun"] x 4 profiles
+  Wrapped in try/catch -- failure = null, not a crash
 ```
 
-The results shape gains an optional `environments` field:
+Results shape gains an optional `multiRuntime` field:
 
 ```javascript
 results.push({
@@ -322,101 +291,107 @@ results.push({
   quickjs: { /* unchanged */ },
   v8: { /* unchanged */ },
   prediction,   // unchanged
-  // NEW -- each key is null when its env var is not set or the call failed
-  environments: {
-    firecracker: {
-      node: { profiles: [...], avgOpsPerSec, perfCounters },
-      deno: { profiles: [...], avgOpsPerSec, perfCounters },
-      bun:  { profiles: [...], avgOpsPerSec, perfCounters },
+  // NEW -- null when worker is not configured or call failed
+  multiRuntime: {
+    node: {
+      avgOpsPerSec: 125000,
+      profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec, latency, heapUsed, perfCounters },
+        ...
+      ],
     },
-    cfWorker: {
-      opsPerSec, latency, coldStartMs, region, runtime: 'workerd',
-    },
+    deno: { avgOpsPerSec, profiles: [...] },
+    bun:  { avgOpsPerSec, profiles: [...] },
   }
 })
 ```
 
 ### Updated prediction model ([lib/prediction/model.js](lib/prediction/model.js))
 
-- `buildPrediction()` stays the same (QuickJS + V8 as canonical inputs)
-- New: `buildEnvironmentComparison(environments)` -- produces:
-  - Cross-runtime rankings (Node vs Deno vs Bun on same hardware)
-  - Cross-platform comparison (Firecracker Node vs CF Worker -- same V8, different isolation)
-  - Scaling analysis across runtimes (does Bun scale differently than Node under resource pressure?)
+- `buildPrediction()` stays the same (QuickJS + V8 as canonical)
+- New: `buildRuntimeComparison(multiRuntime)` -- produces:
+  - Cross-runtime rankings (Node vs Deno vs Bun on identical hardware)
+  - Per-runtime scaling curves across 1x/2x/4x/8x
+  - V8 vs JSC divergence detection
 - `compareTests()` stays the same
 
 ### Updated API ([pages/api/benchmark/analyze.js](pages/api/benchmark/analyze.js))
 
 - `@vercel/sandbox` stays as a dependency
-- New optional env vars: `BENCHMARK_WORKER_URL`, `BENCHMARK_WORKER_SECRET`, `CF_WORKER_URL`, `CF_WORKER_SECRET`
-- New progress events: `{ engine: 'environments', status: 'running' }` after the existing V8 phase
-- All environment calls run in parallel via `Promise.allSettled`
-- If all fail, analysis still returns the QuickJS + V8 results
+- New optional env vars: `BENCHMARK_WORKER_URL`, `BENCHMARK_WORKER_SECRET`
+- New progress event: `{ engine: 'multi-runtime', status: 'running' }` after V8 phase
+- If worker is unreachable, log warning and return results without `multiRuntime`
 
 ### Updated UI ([components/DeepAnalysis.js](components/DeepAnalysis.js))
 
-Existing components are **untouched**. New components render below when `environments` data is present:
+Existing components **untouched**. New components render below when `multiRuntime` data is present:
 
-- `ANALYSIS_STEPS` gets one optional step: "Multi-Environment Analysis" (only when any env is configured)
-- [components/CanonicalResult.js](components/CanonicalResult.js) and [components/JITInsight.js](components/JITInsight.js) are **unchanged**
-- New component: **EnvironmentComparison** -- the main new UI section:
-  - **Runtime card** -- bar chart of Node vs Deno vs Bun ops/sec from Firecracker, with perf counter badges
-  - **Platform card** -- Firecracker(Node) vs CF Worker ops/sec comparison (same V8, different isolation models)
-  - **Scaling card** -- how each runtime responds to the 1x/2x/4x/8x profiles on Firecracker
-  - **Cold start card** -- CF Worker cold start vs Firecracker boot time
-- New component: **PerfCounters** -- collapsible table of hardware-level metrics from Firecracker
+- `ANALYSIS_STEPS` gets one optional step: "Multi-Runtime Comparison"
+- [components/CanonicalResult.js](components/CanonicalResult.js) and [components/JITInsight.js](components/JITInsight.js) -- **unchanged**
+- New component: **RuntimeComparison**:
+  - Bar chart of Node vs Deno vs Bun ops/sec
+  - Scaling chart showing how each runtime responds to 1x/2x/4x/8x
+  - V8 vs JSC engine insight callout
+  - Perf counter badges (instructions/op, cache miss rate)
+- New component: **PerfCounters** -- collapsible hardware metrics table
 
 ### Cache key
 
-- Existing `analysis_v2:` key is untouched for QuickJS + V8
-- Environment results get their own key: `environments_v1:${codeHash}` with a 1-hour TTL
-- Core analysis serves instantly from cache; environment data can be refetched independently
+- Existing `analysis_v2:` untouched
+- Multi-runtime: `multiruntime_v1:${codeHash}` with 1-hour TTL
+- Core analysis served from cache instantly; multi-runtime fetched independently
 
-## Part 3: Deployment
+## Part 3: Deployment via Dokploy
 
-### Hetzner VM (Firecracker worker)
+### Worker service deployment
 
-Provisioning script (`worker/setup.sh`):
+1. Push `worker/` to a Git repo (or subdirectory of jsperf.app)
+2. In Dokploy: create a new Application, point to the repo
+3. Dokploy builds the worker `Dockerfile`, runs it as a container
+4. Traefik (managed by Dokploy) handles reverse proxy + SSL on a subdomain like `bench.yourdomain.com`
 
-1. Installs Firecracker binary + jailer
-2. Downloads a minimal Linux kernel (`vmlinux`)
-3. Builds three Alpine rootfs images via Docker:
-   - `rootfs-node.ext4` -- Alpine + Node.js LTS
-   - `rootfs-deno.ext4` -- Alpine + Deno latest
-   - `rootfs-bun.ext4` -- Alpine + Bun latest
-4. Sets up the worker as a systemd unit
-5. Configures Cloudflare Tunnel (no public IP exposure, automatic TLS)
+### Pre-build runtime images on the VPS
 
-### Cloudflare Worker
+SSH into the Hostinger VPS and build the three benchmark images:
 
-- `wrangler deploy` from `runners/cloudflare/`
-- Set worker secret: `wrangler secret put AUTH_TOKEN`
-- Free plan works (10ms CPU / request is enough for small benchmarks), Paid plan ($5/mo) gives 30s CPU time
+```bash
+docker build -t jsperf-node:latest -f images/Dockerfile.node .
+docker build -t jsperf-deno:latest -f images/Dockerfile.deno .
+docker build -t jsperf-bun:latest -f images/Dockerfile.bun .
+```
 
-### Security (all environments)
+These are tiny Alpine images, built once and updated when you want to bump runtime versions.
 
-- Bearer token auth on every endpoint
-- Firecracker VMs have no network access
-- CF Worker validates Authorization header
-- Rate limiting on each runner independently
-- Benchmark code runs as unprivileged user everywhere
+### Worker container needs Docker socket access
+
+The worker service spawns Docker containers, so it needs access to the Docker socket:
+
+```yaml
+# In Dokploy's advanced settings or docker-compose override:
+volumes:
+  - /var/run/docker.sock:/var/run/docker.sock
+```
+
+### Security
+
+- Bearer token auth on the worker API
+- Benchmark containers run with `--network none` (no outbound access)
+- Benchmark code runs as non-root user inside containers
+- Worker rate limits: max 1 concurrent analysis, queue overflow returns 503
+- Docker socket access is the main trust boundary -- the worker service is trusted code
 
 ## Graceful Degradation
 
-Each environment is independently optional. The core QuickJS + V8 analysis always runs.
-
-- **No env vars set** -- existing analysis only, no environment section in UI
-- **Only `BENCHMARK_WORKER_URL` set** -- core analysis + Firecracker Node/Deno/Bun
-- **Only `CF_WORKER_URL` set** -- core analysis + CF Worker single-run
-- **Both set** -- full multi-environment comparison
-- **Any runner is down** -- that runner's section shows "unavailable", others unaffected
-- **One runtime fails inside Firecracker** -- that runtime shows "errored", others display normally
+- **No `BENCHMARK_WORKER_URL` set** -- existing analysis only, no multi-runtime in UI
+- **Worker URL set but worker is down** -- core analysis completes, multi-runtime shows "unavailable"
+- **Worker healthy** -- full analysis: QuickJS + V8 + Node/Deno/Bun comparison
+- **One runtime container fails** -- that runtime shows "errored", others display normally
+- **Docker image missing** -- that runtime is skipped with error, others still run
 
 ## Implementation Order
 
-Each runner can be developed and deployed independently:
-
-1. **CF Worker** -- `wrangler init` + deploy, fastest to ship (could be done in an afternoon)
-2. **Firecracker worker** -- develop on any Linux box with KVM, deploy to Hetzner
-3. **App integration** -- add engine files + Phase 4 in runner + UI components. Ship with all env vars unset = zero behavior change
-4. **Flip switches** -- set env vars one by one in Vercel as each runner is ready
+1. **Worker service** -- develop locally with Docker, test the API
+2. **Docker images** -- build the three runtime images
+3. **App integration** -- add `lib/engines/multiruntime.js`, Phase 4 in runner, new UI. Ship with env var unset = zero behavior change
+4. **Deploy via Dokploy** -- push to repo, create application, configure Docker socket mount
+5. **Flip the switch** -- set `BENCHMARK_WORKER_URL` + `BENCHMARK_WORKER_SECRET` in Vercel
