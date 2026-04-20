@@ -1,7 +1,7 @@
 # Worker (orchestrator) image.
 #
 # This is the long-running service Dokploy deploys. It receives benchmark
-# jobs from jsperf.app and shells out to `docker run` for each runtime.
+# jobs from jsperf.net and shells out to `docker run` for each runtime.
 #
 # Because the worker itself orchestrates other containers, we mount the host
 # Docker socket at /var/run/docker.sock when running this image. The runtime

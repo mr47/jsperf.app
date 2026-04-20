@@ -1,8 +1,8 @@
 {
-  "name": "jsperf.app",
+  "name": "jsperf.net",
   "version": "1.0.4",
   "packageManager": "npm@11.8.0",
-  "description": "jsperf.app",
+  "description": "jsperf.net",
   "repository": "https://github.com/mr47/jsperf.app",
   "main": "index.js",
   "author": "Dmytro Piddubnyi <https://mr47.in>",

@@ -63,7 +63,7 @@ export const getServerSideProps = async ({res, params}) => {
     ${result.map(({slug, revision, published}) => {
       return `
         <url>
-          <loc>https://jsperf.app/${slug}${revision === 1 ? '' : `/${revision}`}</loc>
+          <loc>https://jsperf.net/${slug}${revision === 1 ? '' : `/${revision}`}</loc>
           <lastmod>${new Date(published).toISOString()}</lastmod>
         </url>
       `

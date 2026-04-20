@@ -35,7 +35,7 @@ export default NextAuth({
           headers: {
             Authorization: `token ${account.access_token}`,
             Accept: 'application/vnd.github+json',
-            'User-Agent': 'jsperf.app',
+            'User-Agent': 'jsperf.net',
           },
         })
         if (res.ok) {

@@ -184,9 +184,9 @@ export default function ReportViewer({ report }) {
     <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-foreground flex flex-col">
       <Head>
         <title>{`${report.title} — jsPerf report`}</title>
-        <meta name="description" content={`Performance report for "${report.title}" generated on jsperf.app`} />
+        <meta name="description" content={`Performance report for "${report.title}" generated on jsperf.net`} />
         <meta property="og:title" content={`${report.title} — jsPerf report`} />
-        <meta property="og:description" content="A presentation-ready performance report from jsperf.app" />
+        <meta property="og:description" content="A presentation-ready performance report from jsperf.net" />
       </Head>
 
       <style jsx global>{`

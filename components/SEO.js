@@ -18,7 +18,7 @@ export default function SEO({
   
   const seoTitle = title ? `${title} | jsPerf` : defaultTitle
   const seoDescription = description || defaultDescription
-  const siteUrl = 'https://jsperf.app'
+  const siteUrl = 'https://jsperf.net'
   
   // Use specific canonical URL or fallback to the current path
   const canonicalUrl = canonical || `${siteUrl}${router.asPath === '/' ? '' : router.asPath}`

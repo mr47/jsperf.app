@@ -1,5 +1,5 @@
 /**
- * Tests for the multi-runtime engine (jsperf.app side, not the worker side).
+ * Tests for the multi-runtime engine (jsperf.net side, not the worker side).
  *
  * The engine talks to a remote worker via two endpoints:
  *   POST /api/jobs         enqueueMultiRuntimeJob → { jobId }

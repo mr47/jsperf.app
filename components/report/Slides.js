@@ -200,7 +200,7 @@ function TitleSlide({ report }) {
           </div>
           <div className="text-right">
             <p className="text-xs uppercase tracking-wider text-violet-300/70">Source</p>
-            <p>jsperf.app/{report.slug}{report.revision > 1 ? `/${report.revision}` : ''}</p>
+            <p>jsperf.net/{report.slug}{report.revision > 1 ? `/${report.revision}` : ''}</p>
           </div>
         </div>
       </div>
@@ -521,7 +521,11 @@ function PerfCountersSlide({ report }) {
             <RadarChart data={data.radarData}>
               <PolarGrid />
               <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12 }} />
-              <PolarRadiusAxis angle={30} tick={false} domain={[0, 1]} />
+              {/* Domain runs to 1.25 instead of 1 so the largest sample
+                  on each axis sits at ~80% of the rim instead of being
+                  pinned to the very edge — gives the polygon room to
+                  breathe and stops labels from clipping at the corners. */}
+              <PolarRadiusAxis angle={30} tick={false} domain={[0, 1.25]} />
               {data.tests.map((t, i) => (
                 <Radar
                   key={t + i}
@@ -540,7 +544,8 @@ function PerfCountersSlide({ report }) {
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
             Values are normalised per metric — the test using the most of
-            something on a given axis sits at the rim of the chart.
+            something on a given axis sits near the outer ring (≈80% of
+            the rim, leaving headroom so the labels don't clip).
           </p>
           <ul className="space-y-2">
             {(() => {
@@ -777,7 +782,7 @@ function CreditsSlide({ report }) {
           Run it yourself.
         </h2>
         <p className="mt-4 text-lg text-violet-200/80 max-w-xl">
-          Every benchmark on jsperf.app is reproducible. Open the source
+          Every benchmark on jsperf.net is reproducible. Open the source
           link, hit "Run", and watch the numbers light up in your browser.
         </p>
 
@@ -785,7 +790,7 @@ function CreditsSlide({ report }) {
           <div className="flex items-center gap-3">
             <span className="text-violet-300/70 w-24">Source</span>
             <span className="font-mono text-white/90">
-              jsperf.app/{report.slug}{report.revision > 1 ? `/${report.revision}` : ''}
+              jsperf.net/{report.slug}{report.revision > 1 ? `/${report.revision}` : ''}
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -801,7 +806,7 @@ function CreditsSlide({ report }) {
         </div>
       </div>
       <div className="text-xs text-violet-300/70">
-        Powered by jsperf.app · presentation reports are a donor perk.
+        Powered by jsperf.net · presentation reports are a donor perk.
       </div>
     </SlideShell>
   )

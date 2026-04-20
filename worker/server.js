@@ -1,5 +1,5 @@
 /**
- * jsperf.app multi-runtime benchmark worker.
+ * jsperf.net multi-runtime benchmark worker.
  *
  * Two endpoints for invoking benchmark runs:
  *
@@ -8,10 +8,10 @@
  *     pairs finish. Best for local dev / debugging where you want to see live
  *     progress in your terminal. Subject to the caller's HTTP read timeout.
  *
- *   POST /api/jobs           (preferred from jsperf.app)
+ *   POST /api/jobs           (preferred from jsperf.net)
  *     Async. Enqueues the job, returns 202 immediately with { jobId }. The
  *     caller polls GET /api/jobs/:id until state === 'done' | 'errored'.
- *     This lets jsperf.app's /api/benchmark/analyze return inside Vercel's
+ *     This lets jsperf.net's /api/benchmark/analyze return inside Vercel's
  *     60s window without holding the HTTP connection open for the worker
  *     to finish — the browser polls separately.
  *
@@ -152,7 +152,7 @@ app.post('/api/jobs', async (c) => {
   jobs.set(jobId, job)
 
   // Fire-and-forget. We deliberately don't await — the response is sent
-  // immediately so the caller (jsperf.app's /api/analyze) doesn't burn its
+  // immediately so the caller (jsperf.net's /api/analyze) doesn't burn its
   // own request budget waiting on us.
   void executeJob(job, params).catch(() => { /* errors captured on job */ })
   scheduleDeadline(job)

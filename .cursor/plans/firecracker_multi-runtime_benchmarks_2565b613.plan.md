@@ -78,7 +78,7 @@ The Hostinger KVM 2 has 2 vCPUs / 8GB RAM. Containers run sequentially (one at a
 
 ```mermaid
 graph TD
-    subgraph vercel [jsperf.app on Vercel]
+    subgraph vercel [jsperf.net on Vercel]
         AnalyzeAPI["POST /api/benchmark/analyze"]
         QuickJS["QuickJS-WASM (in-process)"]
         V8Sandbox["V8 @vercel/sandbox (existing)"]
@@ -241,7 +241,7 @@ Hardware perf counters (via `perf stat` wrapper inside the container):
 
 The benchmark script is wrapped: `perf stat -e instructions,cycles,cache-misses,branch-misses -x, -- node --expose-gc /bench.js`, then parse both the JSON from stdout and the perf CSV from stderr.
 
-## Part 2: jsperf.app Changes
+## Part 2: jsperf.net Changes
 
 ### New engine file: `lib/engines/multiruntime.js`
 
@@ -345,7 +345,7 @@ Existing components **untouched**. New components render below when `multiRuntim
 
 ### Worker service deployment
 
-1. Push `worker/` to a Git repo (or subdirectory of jsperf.app)
+1. Push `worker/` to a Git repo (or subdirectory of jsperf.net)
 2. In Dokploy: create a new Application, point to the repo
 3. Dokploy builds the worker `Dockerfile`, runs it as a container
 4. Traefik (managed by Dokploy) handles reverse proxy + SSL on a subdomain like `bench.yourdomain.com`

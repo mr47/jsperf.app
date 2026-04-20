@@ -1,11 +1,11 @@
-# Dokploy-friendly compose file for the jsperf.app benchmark worker.
+# Dokploy-friendly compose file for the jsperf.net benchmark worker.
 #
 # Use Dokploy's "Compose" application type and point Compose Path at
 # `worker/docker-compose.yml`. Dokploy fronts the service via Traefik
 # automatically once a domain is attached.
 #
 # IMPORTANT: build the runtime images on the host BEFORE the first deploy:
-#   cd /opt/jsperf.app/worker && ./scripts/build-images.sh
+#   cd /opt/jsperf.net/worker && ./scripts/build-images.sh
 # The orchestrator only orchestrates `docker run` against those pre-built
 # images; it never builds them itself.
 

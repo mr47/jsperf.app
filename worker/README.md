@@ -1,10 +1,10 @@
-# jsperf.app Multi-Runtime Benchmark Worker
+# jsperf.net Multi-Runtime Benchmark Worker
 
 A long-running HTTP service that benchmarks JavaScript snippets in **Node.js**, **Deno**, and **Bun** inside resource-isolated Docker containers and exposes both a streaming sync API and a polling-based async job API.
 
 This is the optional multi-runtime layer of the Deep Analysis pipeline. The rest of the analysis (QuickJS-WASM, V8 sandbox, prediction model) runs unchanged whether or not this worker is reachable.
 
-`jsperf.app` uses the **async job API** (`POST /api/jobs` + polling) so its serverless function returns inside Vercel's 60s ceiling regardless of how long the worker takes to finish. The streaming `/api/run` endpoint is kept for local development and ad-hoc curl-driven debugging.
+`jsperf.net` uses the **async job API** (`POST /api/jobs` + polling) so its serverless function returns inside Vercel's 60s ceiling regardless of how long the worker takes to finish. The streaming `/api/run` endpoint is kept for local development and ad-hoc curl-driven debugging.
 
 ## What it does
 
@@ -21,8 +21,8 @@ For every benchmark request:
 | --- | --- | --- | --- |
 | `GET`    | `/health`        | Image + perf availability + active job count | smoke tests, monitoring |
 | `POST`   | `/api/run`       | Synchronous, NDJSON-streamed benchmark run | local dev, curl |
-| `POST`   | `/api/jobs`      | Async; enqueue + return `{ jobId }` (HTTP 202) | `jsperf.app` |
-| `GET`    | `/api/jobs/:id`  | Poll job status; returns `{ state, partial?, result?, error? }` | `jsperf.app` |
+| `POST`   | `/api/jobs`      | Async; enqueue + return `{ jobId }` (HTTP 202) | `jsperf.net` |
+| `GET`    | `/api/jobs/:id`  | Poll job status; returns `{ state, partial?, result?, error? }` | `jsperf.net` |
 | `DELETE` | `/api/jobs/:id`  | Cancel a pending/running job | manual ops |
 
 `state` ∈ `{ pending, running, done, errored }`. Completed jobs are evicted from memory after `JOB_RESULT_TTL_MS` (10 minutes). The per-job hard deadline defaults to `JOB_DEADLINE_MS` (30 seconds) and is configurable via the env var of the same name.
@@ -30,7 +30,7 @@ For every benchmark request:
 ## Architecture
 
 ```
-jsperf.app (Vercel)                                   Hostinger KVM 2 + Dokploy
+jsperf.net (Vercel)                                   Hostinger KVM 2 + Dokploy
 ─────────────────────                                 ──────────────────────────────
 
 POST /api/benchmark/analyze ─┬─ POST  /api/jobs ──▶ jsperf-worker
@@ -107,7 +107,7 @@ curl -sN http://localhost:8080/api/run \
 
 You should see one `{ "type": "progress", ... }` and one `{ "type": "result", ... }` line per `(runtime, profile)` pair, then a final `{ "type": "done" }`.
 
-For ad-hoc async (matches what `jsperf.app` actually does):
+For ad-hoc async (matches what `jsperf.net` actually does):
 
 ```bash
 job_id=$(curl -s http://localhost:8080/api/jobs \
@@ -164,7 +164,7 @@ In **Dokploy → Environment**:
 | `JOB_DEADLINE_MS` | no | Hard ceiling for a single async job. Defaults to `30000` (30 s). Increase if you need wider profile sweeps. |
 | `PORT` | no | Defaults to `8080`. |
 
-### 4. Wire up jsperf.app on Vercel
+### 4. Wire up jsperf.net on Vercel
 
 In **Vercel → Project → Settings → Environment Variables** add:
 
@@ -193,7 +193,7 @@ You can also run the full smoke test against a live deploy:
 
 ## Resource profiles
 
-`jsperf.app` only sends a **single** `1x` profile (1 cpu, 512 MB) per multi-runtime job by default — the cross-runtime comparison is the interesting signal here, and per-runtime scaling is already covered by the QuickJS and V8 phases. This keeps wall time per job to ~5 s.
+`jsperf.net` only sends a **single** `1x` profile (1 cpu, 512 MB) per multi-runtime job by default — the cross-runtime comparison is the interesting signal here, and per-runtime scaling is already covered by the QuickJS and V8 phases. This keeps wall time per job to ~5 s.
 
 | Label | CPUs | Memory |
 | --- | --- | --- |

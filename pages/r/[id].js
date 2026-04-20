@@ -17,7 +17,7 @@ export default function ReportPage({ report, notFound }) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-center px-6">
         <Head>
-          <title>Report not found — jsperf.app</title>
+          <title>Report not found — jsperf.net</title>
         </Head>
         <h1 className="text-3xl font-bold tracking-tight">Report not found</h1>
         <p className="mt-3 text-muted-foreground max-w-md">
@@ -28,7 +28,7 @@ export default function ReportPage({ report, notFound }) {
           href="/"
           className="mt-6 inline-flex items-center justify-center rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted"
         >
-          Back to jsperf.app
+          Back to jsperf.net
         </Link>
       </div>
     )

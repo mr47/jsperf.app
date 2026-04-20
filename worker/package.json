@@ -1,7 +1,7 @@
 {
   "name": "jsperf-worker",
   "version": "0.1.0",
-  "description": "Multi-runtime benchmark worker for jsperf.app. Runs Node/Deno/Bun benchmarks in resource-isolated Docker containers.",
+  "description": "Multi-runtime benchmark worker for jsperf.net. Runs Node/Deno/Bun benchmarks in resource-isolated Docker containers.",
   "type": "module",
   "main": "server.js",
   "scripts": {
