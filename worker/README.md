@@ -203,10 +203,26 @@ Callers (or curl) can override `profiles` in the request body to run a wider swe
 
 ## Security model
 
-- Each container runs with `--network none`, `--read-only`, `--pids-limit 256`, `--security-opt no-new-privileges`, and a strict CPU + memory budget.
-- No persistent storage; the per-run tmpdir is deleted on completion.
-- The worker requires a bearer token. Without `BENCHMARK_WORKER_SECRET` set, it logs a warning and serves unauthenticated — only suitable for purely-private development.
-- The Docker socket is mounted into the orchestrator container. This is a privileged operation; only deploy this image inside a trusted environment.
+Each runtime container is isolated at four independent layers, so a hostile or runaway snippet cannot exfiltrate data, exhaust the host, or run past its budget.
+
+**Network isolation** — `--network none` gives the container only a loopback interface. No DNS, no outbound TCP/UDP, no access to the host or sibling containers. User code physically cannot make a network call.
+
+**Wall-clock ceilings** (defense in depth — any one of these alone would stop a runaway):
+
+| Layer | Default | Behavior on expiry |
+| --- | --- | --- |
+| Script-level `TIME_LIMIT` | request `timeMs`, capped at 5 s | Loop exits cleanly, partial result emitted |
+| Per-container `timeoutMs` | **30 s** (`PER_RUN_TIMEOUT_MS` in `server.js`) | `docker kill <name>` + SIGKILL on the docker child |
+| Per-job `JOB_DEADLINE_MS` | **30 s** (env-configurable) | `AbortController` aborts; propagates through all queued container runs |
+| Cgroup CPU + memory budget | per profile | OOM-kill on memory exhaustion; CPU throttled |
+
+The script-level limit alone is not sufficient: code like `while(true){}` *inside* the benchmark function never returns control to the loop, so the elapsed-time check never fires. The per-container 30 s ceiling is the safety net for that case.
+
+**Resource caps** — `--pids-limit 256` (fork-bomb proof), `--ulimit nofile=256:256` (no FD-leak DOS against the host), `--read-only` rootfs, size-bounded `/tmp` and `/work` tmpfs/bind mounts only.
+
+**Privilege containment** — `--security-opt no-new-privileges` blocks setuid/setgid escalation. Containers run as their image's default user (non-root in the official `node`/`deno`/`bun` images).
+
+**Operational** — no persistent storage; per-run tmpdir is deleted on completion. The worker requires a bearer token via `BENCHMARK_WORKER_SECRET`; without it the worker logs a warning and serves unauthenticated, suitable only for private dev. The Docker socket is mounted into the orchestrator container — this is a privileged operation; deploy this image only inside a trusted environment.
 
 ## Known limitations
 

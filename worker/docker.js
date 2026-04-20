@@ -58,7 +58,13 @@ async function ensureWorkDirBase() {
  * @param {string} opts.script - Generated JS source to execute
  * @param {object} opts.profile - { label, cpus, memMb }
  * @param {boolean} [opts.collectPerf=false] - Wrap with `perf stat` if host allows
- * @param {number} [opts.timeoutMs=30000]
+ * @param {number} [opts.timeoutMs=30000] - Hard wall-clock ceiling for THIS
+ *   container. On expiry we send SIGKILL to the docker child process AND
+ *   `docker kill <name>` the container itself, in case the docker CLI is
+ *   itself stuck. The benchmark script also has its own (lower) TIME_LIMIT
+ *   capped at MAX_TIME_MS in server.js — this timer is the safety net
+ *   that catches infinite loops INSIDE __benchFn() (where the script's
+ *   own elapsed-time check never fires because no iteration completes).
  * @param {AbortSignal} [opts.signal]
  * @returns {Promise<{result: object, perfCounters: object|null, durationMs: number, exitCode: number, stderrTail: string}>}
  */
@@ -94,17 +100,31 @@ export async function runInContainer({
       ]
     : runtimeArgs
 
+  // Defense in depth. We isolate the runtime container at four layers so a
+  // pathological snippet (infinite loop, fork bomb, FD leak, OOM, network
+  // probe) can't escape its budget or affect the host. See the README's
+  // "Security model" section for the full rundown.
   const dockerArgs = [
     'run', '--rm',
     '--name', containerName,
+    // Network: no namespace beyond loopback. No DNS, no outbound traffic,
+    // cannot reach the host or other containers.
     '--network', 'none',
+    // CPU + memory: cgroup-enforced. memory-swap == memory disables swap
+    // entirely (otherwise a 512MB container could thrash on host swap).
     '--cpus', String(profile.cpus),
     '--memory', `${profile.memMb}m`,
     '--memory-swap', `${profile.memMb}m`,
+    // PIDs + FDs: stops fork bombs and FD-leak DOS against the host.
     '--pids-limit', '256',
+    '--ulimit', 'nofile=256:256',
+    // Filesystem: root is read-only; only /tmp and /work are writable, both
+    // size-bounded. /work is the per-run bind mount holding bench.js.
     '--read-only',
     '--tmpfs', '/tmp:size=64m,exec',
     '-v', `${workDir}:/work:rw`,
+    // Privilege escalation: blocked. setuid/setgid binaries can't gain extra
+    // capabilities even if present in the runtime image.
     '--security-opt', 'no-new-privileges',
   ]
 
