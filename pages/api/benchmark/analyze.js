@@ -10,10 +10,17 @@ const ratelimit = new Ratelimit({
   analytics: true,
 })
 
+// Next.js requires segment config to be statically analyzable, so this
+// has to be a literal — no env-conditional expression. We pick the higher
+// ceiling unconditionally because:
+//   - When the multi-runtime worker is enabled, runs need ~3 runtimes x
+//     4 profiles per test on a remote worker.
+//   - When it's disabled, the function still returns in well under 60s,
+//     so the higher ceiling is harmless.
+// 300s is the platform default on Vercel as of late 2025; adjust down if
+// your plan has a stricter limit.
 export const config = {
-  // Multi-runtime adds 3 runtimes x 4 profiles per test on a remote worker,
-  // so we need a longer ceiling than the QuickJS+V8-only path.
-  maxDuration: process.env.BENCHMARK_WORKER_URL ? 300 : 60,
+  maxDuration: 300,
 }
 
 export default async function handler(req, res) {
