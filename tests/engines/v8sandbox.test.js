@@ -101,6 +101,72 @@ describe('runInV8Sandbox', () => {
       })
     )
   })
+
+  it('stops the sandbox on the success path', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+    Sandbox.create.mockResolvedValueOnce({
+      writeFiles: vi.fn(async () => {}),
+      runCommand: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: vi.fn(async () => mockStdoutData),
+        stderr: vi.fn(async () => ''),
+      })),
+      stop,
+    })
+
+    await runInV8Sandbox('1 + 1')
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops the sandbox even when the run errors', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+    Sandbox.create.mockResolvedValueOnce({
+      writeFiles: vi.fn(async () => {}),
+      runCommand: vi.fn(async () => ({
+        exitCode: 1,
+        stdout: vi.fn(async () => ''),
+        stderr: vi.fn(async () => 'boom'),
+      })),
+      stop,
+    })
+
+    await runInV8Sandbox('throw new Error()')
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createBenchmarkSnapshot', () => {
+  it('stops the sandbox after taking the snapshot (no leak on success)', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+    Sandbox.create.mockResolvedValueOnce({
+      runCommand: vi.fn(async () => ({ exitCode: 0 })),
+      snapshot: vi.fn(async () => ({ snapshotId: 'snap_abc' })),
+      stop,
+    })
+
+    const { createBenchmarkSnapshot } = await import('../../lib/engines/v8sandbox')
+    const id = await createBenchmarkSnapshot()
+
+    expect(id).toBe('snap_abc')
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops the sandbox when snapshot() throws', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+    Sandbox.create.mockResolvedValueOnce({
+      runCommand: vi.fn(async () => ({ exitCode: 0 })),
+      snapshot: vi.fn(async () => { throw new Error('snapshot failed') }),
+      stop,
+    })
+
+    const { createBenchmarkSnapshot } = await import('../../lib/engines/v8sandbox')
+    await expect(createBenchmarkSnapshot()).rejects.toThrow('snapshot failed')
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
 })
 
 // Integration test -- only runs when VERCEL_TOKEN is available
