@@ -2,9 +2,10 @@ import { signIn, signOut, useSession } from "next-auth/react"
 import { useState, useEffect } from 'react'
 import GitHubIcon from './GitHubIcon'
 import Link from 'next/link'
-import { Moon, Sun, Coffee } from "lucide-react"
+import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
+import DonorBoost from './DonorBoost'
 
 export default function Header(props) {
   const { data: session, status } = useSession()
@@ -47,10 +48,7 @@ export default function Header(props) {
             <Link href="/create" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors flex items-center">
               Create
             </Link>
-            <a href="https://donatello.to/mr47" target="_blank" rel="noopener noreferrer" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors flex items-center gap-1">
-              <Coffee className="w-4 h-4" />
-              <span>Buy me a coffee</span>
-            </a>
+            <DonorBoost />
           </div>
           
           <div className="flex items-center gap-4 mt-4 lg:mt-0">

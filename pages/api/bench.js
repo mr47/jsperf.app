@@ -1,15 +1,10 @@
 import { pagesCollection } from '../../lib/mongodb'
 import { getSession } from "next-auth/react"
 import { shortcode } from "../../utils/Url"
-import { redis } from '../../lib/redis'
-import { Ratelimit } from '@upstash/ratelimit'
+import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 
-const ratelimit = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(30, '1 m'),
-  analytics: true,
-  prefix: 'rl:bench',
-})
+// Free: 30/min by IP. Donor: 120/min by donor identity (see lib/rateLimit.js).
+const RATE_LIMIT = { free: 30, donor: 120, window: '1 m' }
 
 /**
  *
@@ -65,11 +60,17 @@ const revalidatePath = async (baseUrl, path) => {
  */
 const addPage = async (req, res) => {
   try {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1'
-    const { success } = await ratelimit.limit(ip)
+    const rl = await applyTieredRateLimit(req, 'bench', RATE_LIMIT)
+    setRateLimitHeaders(res, rl)
 
-    if (!success) {
-      return res.status(429).json({ message: 'Too many requests', success: false })
+    if (!rl.success) {
+      return res.status(429).json({
+        message: rl.tier === 'donor'
+          ? 'Too many requests, even for a donor — please wait a minute.'
+          : 'Too many requests',
+        success: false,
+        tier: rl.tier,
+      })
     }
 
     const session = await getSession({ req })
@@ -144,11 +145,17 @@ const addPage = async (req, res) => {
  */
 const updatePage = async (req, res) => {
   try {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1'
-    const { success } = await ratelimit.limit(ip)
+    const rl = await applyTieredRateLimit(req, 'bench', RATE_LIMIT)
+    setRateLimitHeaders(res, rl)
 
-    if (!success) {
-      return res.status(429).json({ message: 'Too many requests', success: false })
+    if (!rl.success) {
+      return res.status(429).json({
+        message: rl.tier === 'donor'
+          ? 'Too many requests, even for a donor — please wait a minute.'
+          : 'Too many requests',
+        success: false,
+        tier: rl.tier,
+      })
     }
 
     const session = await getSession({ req })

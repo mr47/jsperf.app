@@ -1,15 +1,13 @@
 import { analysesCollection } from '../../../lib/mongodb'
 import { redis } from '../../../lib/redis'
-import { Ratelimit } from '@upstash/ratelimit'
 import { runAnalysis } from '../../../lib/engines/runner'
 import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
+import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
 import crypto from 'crypto'
 
-const ratelimit = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(2, '1 m'),
-  analytics: true,
-})
+// Deep analysis is expensive — keep the free tier at 1/min/IP. Donors
+// get a small bump to 5/min so they can iterate without the wait.
+const RATE_LIMIT = { free: 1, donor: 5, window: '1 m' }
 
 // Next.js requires segment config to be statically analyzable, so this
 // has to be a literal — no env-conditional expression. 60s is the Hobby
@@ -34,10 +32,14 @@ export default async function handler(req, res) {
   }
 
   try {
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1'
-    const { success } = await ratelimit.limit(`analyze:${ip}`)
-    if (!success) {
-      return res.status(429).json({ error: 'Too many requests. Deep analysis is limited to 2 per minute.' })
+    const rl = await applyTieredRateLimit(req, 'analyze', RATE_LIMIT)
+    setRateLimitHeaders(res, rl)
+    if (!rl.success) {
+      const cap = rl.tier === 'donor' ? RATE_LIMIT.donor : RATE_LIMIT.free
+      return res.status(429).json({
+        error: `Too many requests. Deep analysis is limited to ${cap} per minute${rl.tier === 'donor' ? ' for donors' : ''}.`,
+        tier: rl.tier,
+      })
     }
 
     const { tests, setup, teardown, slug, revision } = req.body

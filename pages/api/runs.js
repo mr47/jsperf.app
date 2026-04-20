@@ -1,13 +1,9 @@
 import { runsCollection } from '../../lib/mongodb'
 import { redis } from '../../lib/redis'
-import { Ratelimit } from '@upstash/ratelimit'
+import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 
-const ratelimit = new Ratelimit({
-  redis: redis,
-  limiter: Ratelimit.slidingWindow(30, '1 m'),
-  analytics: true,
-  prefix: 'rl:runs',
-})
+// Free: 30/min by IP. Donor: 120/min by donor identity.
+const RATE_LIMIT = { free: 30, donor: 120, window: '1 m' }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -16,12 +12,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Use a default IP or get it from headers
-    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1'
-    const { success } = await ratelimit.limit(ip)
+    const rl = await applyTieredRateLimit(req, 'runs', RATE_LIMIT)
+    setRateLimitHeaders(res, rl)
 
-    if (!success) {
-      return res.status(429).json({ error: 'Too many requests' })
+    if (!rl.success) {
+      return res.status(429).json({ error: 'Too many requests', tier: rl.tier })
     }
 
     const runs = await runsCollection()
