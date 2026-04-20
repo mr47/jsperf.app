@@ -102,7 +102,7 @@ function CoolShape() {
   
   return (
     <mesh ref={ref}>
-      <torusKnotGeometry args={[10, 2.5, 48, 12, 2, 3]} />
+      <torusKnotGeometry args={[10, 2.5, 24, 8, 2, 3]} />
       <meshStandardMaterial 
         color="#ffffff" 
         roughness={0.1} 
@@ -146,7 +146,25 @@ export default function HeroBackground() {
   const fgColor = resolvedTheme === 'dark' ? '#818cf8' : '#4338ca' 
 
   return (
-    <div ref={containerRef} className="absolute inset-0 -z-10 h-full w-full overflow-hidden opacity-90 dark:opacity-100 pointer-events-none flex items-center justify-center" style={{ maskImage: "radial-gradient(ellipse at center, black, transparent 75%)", WebkitMaskImage: "radial-gradient(ellipse at center, black, transparent 75%)" }}>
+    <div
+      ref={containerRef}
+      className="absolute inset-0 -z-10 h-full w-full overflow-hidden opacity-90 dark:opacity-100 pointer-events-none flex items-center justify-center"
+      style={{
+        maskImage: "radial-gradient(ellipse at center, black, transparent 75%)",
+        WebkitMaskImage: "radial-gradient(ellipse at center, black, transparent 75%)",
+        // Promote this subtree to its own GPU compositor layer so the
+        // 15Hz ASCII repaints don't dirty the cards/modal/header above.
+        // The four hints below are intentionally redundant: `contain`
+        // scopes paint, `isolation` creates a stacking + backdrop root,
+        // `will-change` requests a layer, and the translateZ(0) forces
+        // it on browsers that defer `will-change` until first animation.
+        contain: 'content',
+        isolation: 'isolate',
+        willChange: 'transform',
+        transform: 'translateZ(0)',
+        backfaceVisibility: 'hidden',
+      }}
+    >
       {isMobile ? (
         <div className="relative w-full h-full opacity-60">
           <div className={`absolute top-[20%] left-[10%] w-64 h-64 rounded-full blur-[100px] ${resolvedTheme === 'dark' ? 'bg-[#00ffff]/40' : 'bg-[#0ea5e9]/40'}`} />
@@ -154,11 +172,18 @@ export default function HeroBackground() {
           <div className={`absolute top-[40%] left-[50%] w-48 h-48 -translate-x-1/2 rounded-full blur-[80px] ${resolvedTheme === 'dark' ? 'bg-[#8a2be2]/40' : 'bg-transparent'}`} />
         </div>
       ) : (
-        <Canvas 
+        <Canvas
           frameloop="demand"
-          dpr={1}
+          dpr={0.15}
           camera={{ position: [0, 0, 30] }}
-          gl={{ powerPreference: 'low-power' }}
+          gl={{
+            powerPreference: 'low-power',
+            antialias: false,
+            stencil: false,
+            depth: true,
+            alpha: true,
+            preserveDrawingBuffer: false,
+          }}
           onCreated={({ gl }) => {
             gl.domElement.style.opacity = '0'
           }}
@@ -166,17 +191,17 @@ export default function HeroBackground() {
           <FrameThrottler paused={!visible} />
 
           <ambientLight intensity={0.3} />
-          <directionalLight position={[10, 10, 10]} color={resolvedTheme === 'dark' ? "#00ffff" : "#0ea5e9"} intensity={5} />  
-          <directionalLight position={[-10, -10, 10]} color={resolvedTheme === 'dark' ? "#ff00ff" : "#d946ef"} intensity={5} /> 
+          <directionalLight position={[10, 10, 10]} color={resolvedTheme === 'dark' ? "#00ffff" : "#0ea5e9"} intensity={5} />
+          <directionalLight position={[-10, -10, 10]} color={resolvedTheme === 'dark' ? "#ff00ff" : "#d946ef"} intensity={5} />
           <directionalLight position={[0, 0, -10]} color={resolvedTheme === 'dark' ? "#8a2be2" : "#ffffff"} intensity={2} />
-          
+
           <CoolShape />
-          
-          <CustomAsciiRenderer 
-            fgColor={fgColor} 
-            bgColor="transparent" 
-            characters=" .:-+*=%@#" 
-            invert={resolvedTheme === 'light'} 
+
+          <CustomAsciiRenderer
+            fgColor={fgColor}
+            bgColor="transparent"
+            characters=" .:-+*=%@#"
+            invert={resolvedTheme === 'light'}
             color={true}
             resolution={0.12}
           />
