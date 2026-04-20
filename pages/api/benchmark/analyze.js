@@ -42,7 +42,7 @@ export default async function handler(req, res) {
       })
     }
 
-    const { tests, setup, teardown, slug, revision } = req.body
+    const { tests, setup, teardown, slug, revision, force } = req.body
 
     if (!tests || !Array.isArray(tests) || tests.length === 0) {
       return res.status(400).json({ error: 'tests array is required and must not be empty' })
@@ -69,7 +69,15 @@ export default async function handler(req, res) {
     const codeHash = computeCodeHash(tests, setup, teardown)
     const cacheKey = `analysis_v4:${codeHash}`
 
-    const cached = await redis.get(cacheKey)
+    // `force: true` from the "Re-analyze" button busts the Redis cache
+    // so the user always gets a fresh QuickJS+V8 run. The MongoDB
+    // snapshot is still appended below — the latest doc wins for future
+    // page loads.
+    if (force === true) {
+      try { await redis.del(cacheKey) } catch (_) { /* non-fatal */ }
+    }
+
+    const cached = !force ? await redis.get(cacheKey) : null
     if (cached) {
       const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached
       // On cache HIT we still need to give the client fresh MR jobIds so

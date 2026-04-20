@@ -3,7 +3,22 @@ import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
 import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
-import { Microscope } from 'lucide-react'
+import { Microscope, RefreshCw, Database } from 'lucide-react'
+
+function formatRelativeTime(value) {
+  if (!value) return null
+  const ts = new Date(value).getTime()
+  if (!Number.isFinite(ts)) return null
+  const diffSec = Math.max(1, Math.floor((Date.now() - ts) / 1000))
+  if (diffSec < 60) return `${diffSec}s ago`
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`
+  const diffHr = Math.floor(diffMin / 60)
+  if (diffHr < 24) return `${diffHr} hour${diffHr === 1 ? '' : 's'} ago`
+  const diffDay = Math.floor(diffHr / 24)
+  if (diffDay < 30) return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`
+  return new Date(ts).toLocaleDateString()
+}
 
 const STEP_META = {
   quickjs: { label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
@@ -115,7 +130,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
 
 export default function DeepAnalysis({
   status, analysis, error, onRetry, progress, pipeline, testCount,
-  multiRuntime,
+  multiRuntime, cachedAt,
 }) {
   const mrStatus = multiRuntime?.status || 'idle'
   const mrData = multiRuntime?.data || null
@@ -170,6 +185,8 @@ export default function DeepAnalysis({
   // the RuntimeComparison panel which still expects the merged shape.
   const enrichedResults = mergeMultiRuntime(analysis.results, mrData)
 
+  const cachedLabel = formatRelativeTime(cachedAt)
+
   return (
     <div className="mt-8 space-y-4 animate-in fade-in duration-500">
       <div className="flex items-center gap-2">
@@ -180,6 +197,32 @@ export default function DeepAnalysis({
         </div>
         <div className="h-px flex-1 bg-border/60" />
       </div>
+
+      {cachedLabel && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-amber-300/50 dark:border-amber-700/40 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2.5 text-xs">
+          <Database className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-foreground font-medium leading-tight">
+              Cached snapshot from {cachedLabel} — results may be stale.
+            </p>
+            <p className="text-muted-foreground leading-tight mt-0.5">
+              Stored from a previous run. JIT behaviour, V8 / runtime versions and worker hardware can drift over time — re-run for current numbers.
+            </p>
+          </div>
+          {onRetry && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 border-amber-400/50 text-amber-800 dark:text-amber-200 hover:bg-amber-100/50 dark:hover:bg-amber-900/30 shrink-0"
+              onClick={onRetry}
+            >
+              <RefreshCw className="w-3 h-3 mr-1" />
+              Re-run analysis
+            </Button>
+          )}
+        </div>
+      )}
 
       {hasErrors && (
         <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">

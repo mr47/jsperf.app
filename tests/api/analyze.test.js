@@ -202,6 +202,21 @@ describe('POST /api/benchmark/analyze', () => {
     expect(res.write).not.toHaveBeenCalled()
   })
 
+  it('busts the Redis cache when force=true is set and skips the cache lookup', async () => {
+    const { redis } = await import('../../lib/redis')
+
+    const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }], force: true })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^analysis_v4:/))
+    // With force=true the handler must not consult the cache, otherwise
+    // a stale entry could short-circuit the streaming run.
+    expect(redis.get).not.toHaveBeenCalled()
+    expect(res.setHeader).toHaveBeenCalledWith('X-Analysis-Cache', 'MISS')
+  })
+
   it('does not cache results with errors', async () => {
     const { runAnalysis } = await import('../../lib/engines/runner')
     const { redis } = await import('../../lib/redis')

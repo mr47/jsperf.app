@@ -70,6 +70,15 @@ export default function DonorBoost() {
     return () => document.removeEventListener('keydown', onKey)
   }, [open])
 
+  // Other parts of the app (e.g. the "Generate report" button on the
+  // benchmark page) can open this modal directly by dispatching this
+  // global event — saves us from threading a context through Layout.
+  useEffect(() => {
+    const onOpen = () => setOpen(true)
+    window.addEventListener('jsperf:open-donor-modal', onOpen)
+    return () => window.removeEventListener('jsperf:open-donor-modal', onOpen)
+  }, [])
+
   useEffect(() => {
     if (showForm && nameInputRef.current) nameInputRef.current.focus()
   }, [showForm])

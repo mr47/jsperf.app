@@ -5,6 +5,7 @@ import { GitFork } from 'lucide-react'
 
 import { pagesCollection } from '../lib/mongodb'
 import TestRunner from '../components/TestRunner'
+import GenerateReportButton from '../components/GenerateReportButton'
 import { bumpDateIfOld } from '../utils/DateBump'
 
 import Layout from '../components/Layout'
@@ -47,12 +48,15 @@ export default function Slug(props) {
           <hgroup>
             <h1 className="text-3xl font-bold tracking-tight">{title} <span className="text-muted-foreground text-xl font-normal ml-2">{`${revision > 1 ? `(v${revision})` : ''}`}</span></h1>
           </hgroup>
-          {session && (
-            <Link href={`/${slug}/${revision}/fork`} className="inline-flex shrink-0 items-center justify-center rounded-md text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring border border-input bg-background shadow-sm hover:bg-muted hover:text-accent-foreground h-9 px-4 py-2 gap-2">
-              <GitFork className="w-4 h-4" />
-              Fork
-            </Link>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <GenerateReportButton slug={slug} revision={revision} />
+            {session && (
+              <Link href={`/${slug}/${revision}/fork`} className="inline-flex shrink-0 items-center justify-center rounded-md text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring border border-input bg-background shadow-sm hover:bg-muted hover:text-accent-foreground h-9 px-4 py-2 gap-2">
+                <GitFork className="w-4 h-4" />
+                Fork
+              </Link>
+            )}
+          </div>
         </div>
         <section>
           <Meta pageData={props.pageData} />

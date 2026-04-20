@@ -123,6 +123,10 @@ export default function Tests(props) {
   const [analysisError, setAnalysisError] = useState(null)
   const [analysisProgress, setAnalysisProgress] = useState(null)
   const [analysisPipeline, setAnalysisPipeline] = useState(null)
+  // When the analysis came from the persisted snapshot rather than a
+  // live run, we surface a small banner with the snapshot date and a
+  // "re-run" affordance. `null` means it's a fresh run from this session.
+  const [analysisCachedAt, setAnalysisCachedAt] = useState(null)
 
   // Multi-runtime is asynchronous: the analyze endpoint enqueues jobs on
   // the worker and returns immediately with jobIds. We poll those jobs
@@ -246,11 +250,34 @@ export default function Tests(props) {
     }
   }, [])
 
-  const runDeepAnalysis = useCallback(async () => {
+  // Publish the live analysis + multi-runtime snapshot to the window
+  // so the "Generate report" button (which lives in the page header,
+  // outside this component's tree) can grab the freshest data without
+  // us having to thread a context through Layout. This is intentionally
+  // scoped per-benchmark: keyed by slug+revision so reports for one
+  // page never leak data captured on another.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (analysisStatus !== 'done' || !analysis) {
+      delete window.__jsperfLiveAnalysis
+      return
+    }
+    window.__jsperfLiveAnalysis = {
+      slug, revision,
+      analysis,
+      multiRuntime: multiRuntimeData || null,
+      multiRuntimeStatus,
+      capturedAt: Date.now(),
+    }
+    return () => { delete window.__jsperfLiveAnalysis }
+  }, [analysisStatus, analysis, multiRuntimeData, multiRuntimeStatus, slug, revision])
+
+  const runDeepAnalysis = useCallback(async ({ force = false } = {}) => {
     setAnalysisStatus('loading')
     setAnalysisError(null)
     setAnalysisProgress(null)
     setAnalysisPipeline(null)
+    setAnalysisCachedAt(null)
     setMultiRuntimeStatus('idle')
     setMultiRuntimeData(null)
     setMultiRuntimeError(null)
@@ -267,6 +294,7 @@ export default function Tests(props) {
           teardown,
           slug,
           revision,
+          force,
         }),
       })
 
@@ -375,6 +403,31 @@ export default function Tests(props) {
       multiRuntimeAbortRef.current?.abort()
     }
   }, [])
+
+  // Load any persisted deep-analysis snapshot for this benchmark
+  // revision so users see results immediately instead of waiting ~30s
+  // for QuickJS+V8 to re-run on every visit. The "Re-analyze" button
+  // can be used to force a fresh run.
+  useEffect(() => {
+    if (!slug || revision == null) return
+    let cancelled = false
+    fetch(`/api/benchmark/analysis?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (cancelled || !data?.analysis) return
+        // Only adopt the cached snapshot if the user hasn't already
+        // triggered a live run while we were fetching.
+        setAnalysisStatus(prev => (prev === 'idle' ? 'done' : prev))
+        setAnalysis(prev => prev || data.analysis)
+        setAnalysisCachedAt(data.createdAt || null)
+        if (data.multiRuntime?.results?.length) {
+          setMultiRuntimeData(prev => prev || data.multiRuntime)
+          setMultiRuntimeStatus(prev => (prev === 'idle' ? 'done' : prev))
+        }
+      })
+      .catch(() => { /* no cache, no problem */ })
+    return () => { cancelled = true }
+  }, [slug, revision])
 
   useEffect(() => {
     fetchStats()
@@ -729,7 +782,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
                   variant="outline"
                   disabled={analysisStatus === 'loading'}
                   className="h-9 font-bold shadow-sm border-violet-500/30 bg-violet-50/50 hover:bg-violet-100/50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:hover:bg-violet-500/20 dark:text-violet-400"
-                  onClick={runDeepAnalysis}
+                  onClick={() => runDeepAnalysis({ force: analysisStatus === 'done' })}
                 >
                   {analysisStatus === 'loading' ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -846,10 +899,11 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
           status={analysisStatus}
           analysis={analysis}
           error={analysisError}
-          onRetry={runDeepAnalysis}
+          onRetry={() => runDeepAnalysis({ force: true })}
           progress={analysisProgress}
           pipeline={analysisPipeline}
           testCount={tests.length}
+          cachedAt={analysisCachedAt}
           multiRuntime={{
             status: multiRuntimeStatus,
             data: multiRuntimeData,
