@@ -21,14 +21,24 @@ services:
       BENCHMARK_WORKER_SECRET: ${BENCHMARK_WORKER_SECRET:?set BENCHMARK_WORKER_SECRET in Dokploy env}
       COLLECT_PERF: ${COLLECT_PERF:-1}
     volumes:
-      # Required: the worker shells out to `docker run` on the host.
-      - /var/run/docker.sock:/var/run/docker.sock
+      # Long-form syntax is required when Dokploy deploys via Docker Swarm
+      # (`docker stack deploy`) — the inline `host:container` shorthand is
+      # silently stripped by some Swarm orchestrators.
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
     expose:
       - "8080"
     cap_add:
-      # Allow the orchestrator (and the containers it spawns) to use
-      # `perf stat`. PERFMON is the modern (kernel >= 5.8) replacement for
-      # SYS_ADMIN's perf bits; we keep SYS_PTRACE because perf needs it.
+      # Allow `perf stat` inside the worker-spawned containers. PERFMON is
+      # the modern (kernel >= 5.8) replacement for SYS_ADMIN's perf bits;
+      # SYS_PTRACE is needed for perf to attach to the runtime process.
+      #
+      # NOTE: Docker Swarm strips cap_add when deploying via `stack deploy`
+      # in many Dokploy versions. If `/health` reports `perf: false` after
+      # deploying, add these capabilities via Dokploy's UI (Service →
+      # Advanced → Capabilities) — the compose entry is a hint, not a
+      # guarantee, in Swarm mode.
       - SYS_PTRACE
       - PERFMON
     healthcheck:
