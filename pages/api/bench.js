@@ -3,8 +3,9 @@ import { getSession } from "next-auth/react"
 import { shortcode } from "../../utils/Url"
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 
-// Free: 30/min by IP. Donor: 120/min by donor identity (see lib/rateLimit.js).
-const RATE_LIMIT = { free: 30, donor: 120, window: '1 m' }
+// Free: 10/min by IP. Donor: 60/min by donor identity (see lib/rateLimit.js).
+// Page create/update is a write to MongoDB — keep it modest to honor server resources.
+const RATE_LIMIT = { free: 10, donor: 60, window: '1 m' }
 
 /**
  *

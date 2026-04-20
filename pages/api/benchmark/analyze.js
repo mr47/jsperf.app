@@ -5,9 +5,11 @@ import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
 import crypto from 'crypto'
 
-// Deep analysis is expensive — keep the free tier at 1/min/IP. Donors
-// get a small bump to 5/min so they can iterate without the wait.
-const RATE_LIMIT = { free: 1, donor: 5, window: '1 m' }
+// Deep analysis boots V8/QuickJS sandboxes (~25-30s of CPU per call), so a
+// per-minute window let a free IP sustain ~60 runs/hour. A 5-minute window
+// caps free users at 24/hour while still allowing a quick iteration burst,
+// and donors get 10 per 5 minutes for comfortable back-to-back tweaking.
+const RATE_LIMIT = { free: 2, donor: 10, window: '5 m' }
 
 // Next.js requires segment config to be statically analyzable, so this
 // has to be a literal — no env-conditional expression. 60s is the Hobby
@@ -37,7 +39,7 @@ export default async function handler(req, res) {
     if (!rl.success) {
       const cap = rl.tier === 'donor' ? RATE_LIMIT.donor : RATE_LIMIT.free
       return res.status(429).json({
-        error: `Too many requests. Deep analysis is limited to ${cap} per minute${rl.tier === 'donor' ? ' for donors' : ''}.`,
+        error: `Too many requests. Deep analysis is limited to ${cap} every 5 minutes${rl.tier === 'donor' ? ' for donors' : ''}.`,
         tier: rl.tier,
       })
     }

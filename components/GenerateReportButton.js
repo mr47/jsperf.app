@@ -221,7 +221,7 @@ export default function GenerateReportButton({ slug, revision, className = '' })
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap justify-center gap-2">
                     <Button onClick={openDonorModal} className="gap-1.5">
                       <Heart className="h-4 w-4" />
                       Become a supporter

@@ -2,8 +2,9 @@ import { runsCollection } from '../../lib/mongodb'
 import { redis } from '../../lib/redis'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 
-// Free: 30/min by IP. Donor: 120/min by donor identity.
-const RATE_LIMIT = { free: 30, donor: 120, window: '1 m' }
+// One POST per completed benchmark run (all test results in a single payload),
+// so this doesn't need to be high. Free: 10/min by IP, donor: 60/min by identity.
+const RATE_LIMIT = { free: 10, donor: 60, window: '1 m' }
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
