@@ -2,6 +2,7 @@ import { analysesCollection } from '../../../lib/mongodb'
 import { redis } from '../../../lib/redis'
 import { Ratelimit } from '@upstash/ratelimit'
 import { runAnalysis } from '../../../lib/engines/runner'
+import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
 import crypto from 'crypto'
 
 const ratelimit = new Ratelimit({
@@ -11,14 +12,17 @@ const ratelimit = new Ratelimit({
 })
 
 // Next.js requires segment config to be statically analyzable, so this
-// has to be a literal — no env-conditional expression. We pick the higher
-// ceiling unconditionally because:
-//   - When the multi-runtime worker is enabled, runs need ~3 runtimes x
-//     4 profiles per test on a remote worker.
-//   - When it's disabled, the function still returns in well under 60s,
-//     so the higher ceiling is harmless.
-// 300s is the platform default on Vercel as of late 2025; adjust down if
-// your plan has a stricter limit.
+// has to be a literal — no env-conditional expression. 60s is the Hobby
+// plan ceiling; we deliberately stay inside it by NOT running multi-runtime
+// inline. The multi-runtime worker is enqueued asynchronously and the
+// browser polls /api/benchmark/multi-runtime/[jobId] for results, so the
+// length of the worker run does not contribute to this function's wall time.
+//
+// Synchronous budget:
+//   - QuickJS:    4 profiles × ~1.5s ≈ 6s
+//   - V8 sandbox: 4 profiles × ~5-8s ≈ 25-30s (sandbox boot dominates)
+//   - Prediction: <100ms
+//   - Total:      ~35s, leaving headroom for slow cold starts.
 export const config = {
   maxDuration: 60,
 }
@@ -52,17 +56,27 @@ export default async function handler(req, res) {
       }
     }
 
-    // Check cache by content hash. We bump the version suffix when the
-    // multi-runtime worker is enabled so cached results from a worker-less
-    // run don't shadow the richer ones (and vice versa).
+    // Cache by content hash. Two separate cache scopes:
+    //   - analysis_v4:<hash>     base analysis (QuickJS + V8 + prediction)
+    //   - mr_v1:<hash>           per-test multi-runtime results, fetched
+    //                            and embedded by the polling client through
+    //                            /api/benchmark/multi-runtime/[jobId]
+    // We keep them separate because base and MR have very different
+    // refresh cadences (base is deterministic; MR can vary with worker
+    // host load) and so a stale cache in one shouldn't shadow the other.
     const codeHash = computeCodeHash(tests, setup, teardown)
-    const cacheVersion = process.env.BENCHMARK_WORKER_URL ? 'v3-mr' : 'v2'
-    const cacheKey = `analysis_${cacheVersion}:${codeHash}`
+    const cacheKey = `analysis_v4:${codeHash}`
 
     const cached = await redis.get(cacheKey)
     if (cached) {
+      const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached
+      // On cache HIT we still need to give the client fresh MR jobIds so
+      // it can poll for new MR data (or pick up cached MR from the proxy
+      // endpoint, which has its own per-hash cache).
+      const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash)
+      const merged = mergeMultiRuntimeMeta(cachedData, mrInfo)
       res.setHeader('X-Analysis-Cache', 'HIT')
-      return res.status(200).json(typeof cached === 'string' ? JSON.parse(cached) : cached)
+      return res.status(200).json(merged)
     }
 
     // Stream NDJSON progress + final result
@@ -75,7 +89,30 @@ export default async function handler(req, res) {
       res.write(JSON.stringify(obj) + '\n')
     }
 
-    // Run the analysis with progress streaming
+    // Tell the client which engines are part of this run so it can render
+    // the full step list immediately. 'multi-runtime' shows up as a step
+    // even though it's not done by this function — the client tracks it
+    // separately via polling.
+    const enabledEngines = ['quickjs', 'v8']
+    if (process.env.BENCHMARK_WORKER_URL) enabledEngines.push('multi-runtime')
+    enabledEngines.push('prediction')
+    sendLine({ type: 'pipeline', engines: enabledEngines })
+
+    // Kick off MR jobs FIRST so they run on the worker concurrently with
+    // QuickJS+V8 here. By the time we finish those phases the worker is
+    // typically already done, so the client's first poll gets results.
+    const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash)
+    if (mrInfo?.jobs) {
+      sendLine({
+        type: 'multi-runtime-enqueued',
+        jobs: mrInfo.jobs,
+        codeHash,
+        deadlineMs: mrInfo.deadlineMs,
+      })
+    } else if (mrInfo?.error) {
+      sendLine({ type: 'multi-runtime-unavailable', error: mrInfo.error })
+    }
+
     const analysis = await runAnalysis(tests, {
       setup: setup || undefined,
       teardown: teardown || undefined,
@@ -83,7 +120,6 @@ export default async function handler(req, res) {
       onProgress: (step) => sendLine({ type: 'progress', ...step }),
     })
 
-    // Persist to MongoDB
     const analyses = await analysesCollection()
     const doc = {
       codeHash,
@@ -96,12 +132,12 @@ export default async function handler(req, res) {
     }
     await analyses.insertOne(doc)
 
-    // Only cache successful (error-free) results
     if (!analysis.hasErrors) {
       await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
     }
 
-    sendLine({ type: 'result', data: analysis })
+    const final = mergeMultiRuntimeMeta(analysis, mrInfo)
+    sendLine({ type: 'result', data: final })
     return res.end()
   } catch (error) {
     console.error('Analysis error:', error)
@@ -117,6 +153,57 @@ export default async function handler(req, res) {
     }
 
     return res.status(500).json({ error: 'Internal Server Error' })
+  }
+}
+
+/**
+ * Enqueue one MR job per test on the remote worker. Returns:
+ *   { jobs: [{ testIndex, jobId }, ...], deadlineMs }     on success
+ *   { error: string }                                     when worker is
+ *                                                         configured but
+ *                                                         unreachable
+ *   null                                                  when the worker
+ *                                                         is not configured
+ */
+async function maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash) {
+  if (!process.env.BENCHMARK_WORKER_URL) return null
+
+  const enqueues = await Promise.all(tests.map((t, i) =>
+    enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500 })
+      .then(res => ({ testIndex: i, res }))
+      .catch(err => ({ testIndex: i, res: { unavailable: true, error: err.message || String(err) } }))
+  ))
+
+  const successes = enqueues.filter(e => e.res?.jobId)
+  if (successes.length === 0) {
+    const firstError = enqueues.find(e => e.res?.unavailable)?.res?.error
+    return { error: firstError || 'Failed to enqueue multi-runtime jobs' }
+  }
+
+  // Cache the testIndex → jobId map so the polling proxy endpoint can
+  // surface the most-recent run for this codeHash if a user refreshes
+  // before the MR job completes.
+  try {
+    await redis.setex(
+      `mr_jobs_v1:${codeHash}`,
+      300,
+      JSON.stringify(successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId }))),
+    )
+  } catch (_) { /* non-fatal */ }
+
+  return {
+    jobs: successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId })),
+    deadlineMs: successes[0].res.deadlineMs,
+  }
+}
+
+function mergeMultiRuntimeMeta(analysis, mrInfo) {
+  if (!mrInfo) return analysis
+  return {
+    ...analysis,
+    multiRuntime: mrInfo.jobs
+      ? { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs }
+      : { unavailable: true, error: mrInfo.error },
   }
 }
 

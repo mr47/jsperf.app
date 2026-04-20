@@ -1,8 +1,10 @@
 # jsperf.app Multi-Runtime Benchmark Worker
 
-A long-running HTTP service that benchmarks JavaScript snippets in **Node.js**, **Deno**, and **Bun** inside resource-isolated Docker containers, then streams results back to `jsperf.app` as NDJSON.
+A long-running HTTP service that benchmarks JavaScript snippets in **Node.js**, **Deno**, and **Bun** inside resource-isolated Docker containers and exposes both a streaming sync API and a polling-based async job API.
 
-This is the optional Phase 4 of the Deep Analysis pipeline. The rest of the analysis (QuickJS-WASM, V8 sandbox, prediction model) runs unchanged whether or not this worker is reachable.
+This is the optional multi-runtime layer of the Deep Analysis pipeline. The rest of the analysis (QuickJS-WASM, V8 sandbox, prediction model) runs unchanged whether or not this worker is reachable.
+
+`jsperf.app` uses the **async job API** (`POST /api/jobs` + polling) so its serverless function returns inside Vercel's 60s ceiling regardless of how long the worker takes to finish. The streaming `/api/run` endpoint is kept for local development and ad-hoc curl-driven debugging.
 
 ## What it does
 
@@ -11,23 +13,40 @@ For every benchmark request:
 1. Receives a code snippet, setup, teardown, time budget, runtime list, and resource profile list.
 2. Spawns a fresh container per `(runtime, profile)` pair with strict CPU/memory/PID limits and no network access.
 3. Wraps the runtime invocation with `perf stat` (when the host allows it) to capture hardware counters: `instructions`, `cycles`, `cache-misses`, `branch-misses`, `page-faults`, `context-switches`.
-4. Streams a JSON line per finished run via NDJSON (`type: "result"`), interleaved with `type: "progress"` events.
+4. Returns the result either by streaming NDJSON (`/api/run`) or by storing it in an in-memory job map for the caller to poll (`/api/jobs`).
+
+## Endpoints
+
+| Method | Path | Purpose | Used by |
+| --- | --- | --- | --- |
+| `GET`    | `/health`        | Image + perf availability + active job count | smoke tests, monitoring |
+| `POST`   | `/api/run`       | Synchronous, NDJSON-streamed benchmark run | local dev, curl |
+| `POST`   | `/api/jobs`      | Async; enqueue + return `{ jobId }` (HTTP 202) | `jsperf.app` |
+| `GET`    | `/api/jobs/:id`  | Poll job status; returns `{ state, partial?, result?, error? }` | `jsperf.app` |
+| `DELETE` | `/api/jobs/:id`  | Cancel a pending/running job | manual ops |
+
+`state` ∈ `{ pending, running, done, errored }`. Completed jobs are evicted from memory after `JOB_RESULT_TTL_MS` (10 minutes). The per-job hard deadline defaults to `JOB_DEADLINE_MS` (30 seconds) and is configurable via the env var of the same name.
 
 ## Architecture
 
 ```
-jsperf.app (Vercel)               Hostinger KVM 2 + Dokploy
-─────────────────────             ──────────────────────────────
-runner.js (Phase 4) ──HTTP──▶ jsperf-worker (this service)
-                                         │
-                                         │  docker run --rm ...
-                                         ▼
-                              ┌────────────────────┐
-                              │ jsperf-bench-node  │
-                              │ jsperf-bench-deno  │
-                              │ jsperf-bench-bun   │
-                              └────────────────────┘
+jsperf.app (Vercel)                                   Hostinger KVM 2 + Dokploy
+─────────────────────                                 ──────────────────────────────
+
+POST /api/benchmark/analyze ─┬─ POST  /api/jobs ──▶ jsperf-worker
+                             │                          │
+   QuickJS + V8 + prediction │   (returns 202           │  docker run --rm ...
+   run synchronously here    │    immediately)          ▼
+                             │                  ┌────────────────────┐
+   returns multiRuntime jobIds                  │ jsperf-bench-node  │
+                                                │ jsperf-bench-deno  │
+browser polls ──▶ GET /api/benchmark/           │ jsperf-bench-bun   │
+                  multi-runtime/:jobId          └────────────────────┘
+                       │
+                       └─ proxies ──▶ GET /api/jobs/:id
 ```
+
+`/api/benchmark/analyze` enqueues the multi-runtime job **before** running QuickJS+V8 so the worker runs concurrently with the synchronous phases. By the time base analysis finishes (~30s), the worker is usually already done — the browser's first poll typically returns the result.
 
 The worker is a thin orchestrator. It does not persist any state; benchmark scripts are written to a per-run tmpdir, mounted read-write into one container, then deleted. Cold-start cost per run is dominated by container creation (~150–400ms on a KVM 2 box).
 
@@ -73,7 +92,7 @@ In a second terminal, run the smoke test:
 
 It hits `/health`, posts a tiny benchmark to `/api/run`, and asserts that all three runtimes returned a result line. Exit code is non-zero on any failure, so it's CI-friendly.
 
-For ad-hoc requests:
+For ad-hoc streaming requests:
 
 ```bash
 curl -sN http://localhost:8080/api/run \
@@ -87,6 +106,26 @@ curl -sN http://localhost:8080/api/run \
 ```
 
 You should see one `{ "type": "progress", ... }` and one `{ "type": "result", ... }` line per `(runtime, profile)` pair, then a final `{ "type": "done" }`.
+
+For ad-hoc async (matches what `jsperf.app` actually does):
+
+```bash
+job_id=$(curl -s http://localhost:8080/api/jobs \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $BENCHMARK_WORKER_SECRET" \
+  -d '{"code": "Math.sqrt(Math.random()*1000)", "timeMs": 1000}' \
+  | jq -r .jobId)
+
+# Poll until done
+while :; do
+  s=$(curl -s -H "Authorization: Bearer $BENCHMARK_WORKER_SECRET" \
+       "http://localhost:8080/api/jobs/$job_id")
+  state=$(echo "$s" | jq -r .state)
+  echo "state=$state"
+  [[ "$state" == "done" || "$state" == "errored" ]] && echo "$s" | jq && break
+  sleep 1
+done
+```
 
 ## Deploy on Hostinger via Dokploy
 
@@ -122,6 +161,7 @@ In **Dokploy → Environment**:
 | --- | --- | --- |
 | `BENCHMARK_WORKER_SECRET` | yes | Shared bearer token. Use `openssl rand -hex 32`. |
 | `COLLECT_PERF` | no | `1` (default) to wrap runtime invocations with `perf stat`. Set to `0` if your kernel rejects it. |
+| `JOB_DEADLINE_MS` | no | Hard ceiling for a single async job. Defaults to `30000` (30 s). Increase if you need wider profile sweeps. |
 | `PORT` | no | Defaults to `8080`. |
 
 ### 4. Wire up jsperf.app on Vercel
@@ -133,7 +173,7 @@ In **Vercel → Project → Settings → Environment Variables** add:
 | `BENCHMARK_WORKER_URL` | `https://worker.your-domain.tld` |
 | `BENCHMARK_WORKER_SECRET` | (the same token you set on the worker) |
 
-Re-deploy. The Deep Analysis pipeline will now invoke the worker as Phase 4. If the worker is offline or returns an error the rest of the analysis still completes — the multi-runtime panel just shows a small "worker unreachable" notice.
+Re-deploy. The Deep Analysis pipeline will now enqueue an async job on the worker for every analyze request and the browser will poll `/api/benchmark/multi-runtime/[jobId]` for the result. If the worker is offline, returns an error, or polling times out, the rest of the analysis still completes — the multi-runtime panel just shows a small "worker unreachable" notice and base results render normally.
 
 ## Health check
 
@@ -153,16 +193,13 @@ You can also run the full smoke test against a live deploy:
 
 ## Resource profiles
 
-The worker runs each runtime against four profiles, mirroring the existing 1x/2x/4x/8x scale used by QuickJS and the V8 sandbox so analysis reports line up:
+`jsperf.app` only sends a **single** `1x` profile (1 cpu, 512 MB) per multi-runtime job by default — the cross-runtime comparison is the interesting signal here, and per-runtime scaling is already covered by the QuickJS and V8 phases. This keeps wall time per job to ~5 s.
 
 | Label | CPUs | Memory |
 | --- | --- | --- |
-| `1x` | 0.5 | 256 MB |
-| `2x` | 1.0 | 512 MB |
-| `4x` | 1.5 | 1024 MB |
-| `8x` | 2.0 | 2048 MB |
+| `1x` | 1.0 | 512 MB |
 
-A KVM 2 host (2 vCPU / 8 GB RAM) can comfortably run the largest profile in isolation. Profiles run sequentially, never in parallel, to avoid noisy-neighbor measurement artifacts.
+Callers (or curl) can override `profiles` in the request body to run a wider sweep. Profiles run sequentially, never in parallel, to avoid noisy-neighbor measurement artifacts. A KVM 2 host (2 vCPU / 8 GB RAM) can comfortably run a 2.0-cpu / 2 GB profile in isolation.
 
 ## Security model
 

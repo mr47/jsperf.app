@@ -5,44 +5,40 @@ import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
 import { Microscope } from 'lucide-react'
 
-const ANALYSIS_STEPS_BASE = [
-  { key: 'quickjs', label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
-  { key: 'v8', label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
-  { key: 'prediction', label: 'Building prediction model', desc: 'Scaling analysis & regression' },
-]
-
-const ANALYSIS_STEP_MULTIRUNTIME = {
-  key: 'multi-runtime',
-  label: 'Comparing Node / Deno / Bun',
-  desc: 'Cross-runtime + hardware perf counters',
+const STEP_META = {
+  quickjs: { label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
+  v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
+  'multi-runtime': { label: 'Comparing Node / Deno / Bun', desc: 'Cross-runtime + hardware perf counters' },
+  prediction: { label: 'Building prediction model', desc: 'Scaling analysis & regression' },
 }
 
-// Build the step list dynamically: only show the multi-runtime step once
-// the server has emitted at least one progress event for it. This keeps
-// the UI clean when the worker is not configured.
-function buildSteps(seenMultiRuntime) {
-  if (!seenMultiRuntime) return ANALYSIS_STEPS_BASE
-  return [
-    ANALYSIS_STEPS_BASE[0],
-    ANALYSIS_STEPS_BASE[1],
-    ANALYSIS_STEP_MULTIRUNTIME,
-    ANALYSIS_STEPS_BASE[2],
-  ]
+const DEFAULT_PIPELINE = ['quickjs', 'v8', 'prediction']
+
+// Build the step list. Prefer the explicit pipeline the server announces
+// at the start of streaming (so we can render all four steps from t=0,
+// including multi-runtime). If the server hasn't told us yet, fall back
+// to the legacy "detect when we see the engine in a progress event" path
+// so older API responses still render reasonably.
+function buildSteps(pipeline, seenMultiRuntime) {
+  let keys
+  if (Array.isArray(pipeline) && pipeline.length > 0) {
+    keys = pipeline.filter(k => STEP_META[k])
+  } else {
+    keys = seenMultiRuntime
+      ? ['quickjs', 'v8', 'multi-runtime', 'prediction']
+      : DEFAULT_PIPELINE
+  }
+  return keys.map(key => ({ key, ...STEP_META[key] }))
 }
 
-function indexFor(engine, seenMultiRuntime) {
-  const steps = buildSteps(seenMultiRuntime)
-  const idx = steps.findIndex(s => s.key === engine)
-  return idx >= 0 ? idx : 0
-}
-
-function AnalysisProgress({ progress, testCount, seenMultiRuntime }) {
+function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
   const currentEngine = progress?.engine || 'quickjs'
   const currentStatus = progress?.status || 'running'
   const testIndex = progress?.testIndex ?? 0
 
-  const steps = buildSteps(seenMultiRuntime)
-  const baseIndex = indexFor(currentEngine, seenMultiRuntime)
+  const steps = buildSteps(pipeline, seenMultiRuntime)
+  const idx = steps.findIndex(s => s.key === currentEngine)
+  const baseIndex = idx >= 0 ? idx : 0
   const stepIndex = currentStatus === 'done' ? baseIndex + 1 : baseIndex
 
   const totalSteps = steps.length
@@ -117,12 +113,24 @@ function AnalysisProgress({ progress, testCount, seenMultiRuntime }) {
   )
 }
 
-export default function DeepAnalysis({ status, analysis, error, onRetry, progress, testCount }) {
-  const seenMultiRuntime = progress?.engine === 'multi-runtime'
-    || (analysis?.results || []).some(r => r.multiRuntime || r.multiRuntimeError)
+export default function DeepAnalysis({
+  status, analysis, error, onRetry, progress, pipeline, testCount,
+  multiRuntime,
+}) {
+  const mrStatus = multiRuntime?.status || 'idle'
+  const mrData = multiRuntime?.data || null
+  const mrError = multiRuntime?.error || null
+  const seenMultiRuntime = mrStatus !== 'idle' && mrStatus !== 'unavailable'
 
   if (status === 'loading') {
-    return <AnalysisProgress progress={progress} testCount={testCount || 1} seenMultiRuntime={seenMultiRuntime} />
+    return (
+      <AnalysisProgress
+        progress={progress}
+        pipeline={pipeline}
+        testCount={testCount || 1}
+        seenMultiRuntime={seenMultiRuntime}
+      />
+    )
   }
 
   if (status === 'error') {
@@ -156,6 +164,12 @@ export default function DeepAnalysis({ status, analysis, error, onRetry, progres
       r.quickjs?.profiles?.some(p => p.state === 'errored')
     )
 
+  // Merge async multi-runtime results onto the per-test base results.
+  // The base results don't carry MR data anymore (it's polled separately
+  // after the analyze call returns) — this stitches the two together for
+  // the RuntimeComparison panel which still expects the merged shape.
+  const enrichedResults = mergeMultiRuntime(analysis.results, mrData)
+
   return (
     <div className="mt-8 space-y-4 animate-in fade-in duration-500">
       <div className="flex items-center gap-2">
@@ -177,20 +191,79 @@ export default function DeepAnalysis({ status, analysis, error, onRetry, progres
       )}
 
       <CanonicalResult
-        results={analysis.results}
+        results={enrichedResults}
         comparison={analysis.comparison}
       />
 
       <JITInsight
-        results={analysis.results}
+        results={enrichedResults}
         comparison={analysis.comparison}
       />
 
       <ScalingPredictionChart
-        results={analysis.results}
+        results={enrichedResults}
       />
 
-      <RuntimeComparison results={analysis.results} />
+      <MultiRuntimeSection
+        results={enrichedResults}
+        status={mrStatus}
+        error={mrError}
+      />
     </div>
   )
+}
+
+function mergeMultiRuntime(baseResults, mrData) {
+  if (!Array.isArray(baseResults)) return baseResults || []
+  if (!mrData?.results) return baseResults
+
+  const byIndex = new Map(mrData.results.map(r => [r.testIndex, r]))
+  return baseResults.map(r => {
+    const mr = byIndex.get(r.testIndex)
+    if (!mr) return r
+    if (mr.state === 'done') {
+      return { ...r, multiRuntime: mr.runtimes, runtimeComparison: mr.runtimeComparison }
+    }
+    if (mr.state === 'errored') {
+      return { ...r, multiRuntimeError: mr.error || 'multi-runtime job failed' }
+    }
+    return r
+  })
+}
+
+function MultiRuntimeSection({ results, status, error }) {
+  if (status === 'idle' || status === 'unavailable') {
+    // Nothing to show — either no worker configured, or worker unreachable
+    // and we deliberately don't surface a panel for that. (RuntimeComparison
+    // already handles the multiRuntimeError case for partial failures.)
+    return <RuntimeComparison results={results} />
+  }
+
+  if (status === 'pending') {
+    return (
+      <div className="rounded-xl border border-violet-200/60 dark:border-violet-800/40 bg-violet-50/30 dark:bg-violet-950/10 p-4 flex items-center gap-3">
+        <div className="h-4 w-4 rounded-full border-2 border-violet-500 border-t-transparent animate-spin flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-foreground leading-tight">
+            Comparing Node / Deno / Bun
+          </p>
+          <p className="text-xs text-muted-foreground leading-tight">
+            Running on remote worker — hardware perf counters incoming.
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  if (status === 'errored') {
+    return (
+      <div className="rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-amber-50/30 dark:bg-amber-950/10 p-3">
+        <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+          Multi-runtime comparison unavailable: {error || 'unknown error'}
+        </p>
+      </div>
+    )
+  }
+
+  return <RuntimeComparison results={results} />
 }

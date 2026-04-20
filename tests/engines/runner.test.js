@@ -20,28 +20,7 @@ vi.mock('../../lib/engines/v8sandbox', () => ({
   })),
 }))
 
-vi.mock('../../lib/engines/multiruntime', () => ({
-  runMultiRuntime: vi.fn(async () => ({
-    runtimes: {
-      node: {
-        avgOpsPerSec: 100000,
-        profiles: [
-          { label: '1x', resourceLevel: 1, cpus: 0.5, memMb: 256, opsPerSec: 80000, state: 'completed', latency: { mean: 0.01, p50: 0.01, p99: 0.02 }, memory: { after: { rss: 50_000_000, heapUsed: 20_000_000 } }, perfCounters: null },
-          { label: '8x', resourceLevel: 8, cpus: 2, memMb: 2048, opsPerSec: 120000, state: 'completed', latency: { mean: 0.008, p50: 0.008, p99: 0.015 }, memory: { after: { rss: 80_000_000, heapUsed: 30_000_000 } }, perfCounters: null },
-        ],
-      },
-      bun: {
-        avgOpsPerSec: 200000,
-        profiles: [
-          { label: '1x', resourceLevel: 1, cpus: 0.5, memMb: 256, opsPerSec: 200000, state: 'completed', latency: { mean: 0.005, p50: 0.005, p99: 0.01 }, memory: { after: { rss: 30_000_000, heapUsed: 10_000_000 } }, perfCounters: null },
-        ],
-      },
-    },
-  })),
-}))
-
 import { runAnalysis } from '../../lib/engines/runner'
-import { runMultiRuntime } from '../../lib/engines/multiruntime'
 
 describe('runAnalysis', () => {
   it('runs both engines and combines results', async () => {
@@ -171,55 +150,21 @@ describe('runAnalysis', () => {
     await expect(runAnalysis([])).rejects.toThrow('At least one test is required')
   })
 
-  describe('multi-runtime phase', () => {
-    it('skips multi-runtime when BENCHMARK_WORKER_URL is unset', async () => {
-      const original = process.env.BENCHMARK_WORKER_URL
-      delete process.env.BENCHMARK_WORKER_URL
-      runMultiRuntime.mockClear()
+  // Multi-runtime is no longer driven by runAnalysis — the analyze API
+  // enqueues async jobs on the remote worker concurrently with QuickJS+V8
+  // and the browser polls the worker directly. Runner stays focused on
+  // the synchronous, in-process engines.
+  it('does not touch multi-runtime regardless of BENCHMARK_WORKER_URL', async () => {
+    const original = process.env.BENCHMARK_WORKER_URL
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
 
-      const result = await runAnalysis([{ code: 'x + 1', title: 'test' }])
+    const result = await runAnalysis([{ code: 'x + 1', title: 'test' }])
 
-      expect(runMultiRuntime).not.toHaveBeenCalled()
-      expect(result.results[0].multiRuntime).toBeUndefined()
-      expect(result.results[0].runtimeComparison).toBeUndefined()
+    expect(result.results[0].multiRuntime).toBeUndefined()
+    expect(result.results[0].runtimeComparison).toBeUndefined()
+    expect(result.results[0].multiRuntimeError).toBeUndefined()
 
-      if (original) process.env.BENCHMARK_WORKER_URL = original
-    })
-
-    it('attaches multiRuntime + runtimeComparison when worker is configured', async () => {
-      const original = process.env.BENCHMARK_WORKER_URL
-      process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
-      runMultiRuntime.mockClear()
-
-      const progress = []
-      const result = await runAnalysis(
-        [{ code: 'x + 1', title: 'test' }],
-        { onProgress: (s) => progress.push(s) }
-      )
-
-      expect(runMultiRuntime).toHaveBeenCalledTimes(1)
-      expect(result.results[0].multiRuntime).toBeDefined()
-      expect(result.results[0].multiRuntime.node).toBeDefined()
-      expect(result.results[0].runtimeComparison).toBeDefined()
-      expect(result.results[0].runtimeComparison.fastestRuntime).toBe('bun')
-      expect(progress.some(p => p.engine === 'multi-runtime')).toBe(true)
-
-      if (original) process.env.BENCHMARK_WORKER_URL = original
-      else delete process.env.BENCHMARK_WORKER_URL
-    })
-
-    it('records error when worker is configured but unreachable', async () => {
-      const original = process.env.BENCHMARK_WORKER_URL
-      process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
-      runMultiRuntime.mockResolvedValueOnce({ unavailable: true, error: 'connection refused' })
-
-      const result = await runAnalysis([{ code: 'x + 1', title: 'test' }])
-
-      expect(result.results[0].multiRuntime).toBeNull()
-      expect(result.results[0].multiRuntimeError).toBe('connection refused')
-
-      if (original) process.env.BENCHMARK_WORKER_URL = original
-      else delete process.env.BENCHMARK_WORKER_URL
-    })
+    if (original) process.env.BENCHMARK_WORKER_URL = original
+    else delete process.env.BENCHMARK_WORKER_URL
   })
 })

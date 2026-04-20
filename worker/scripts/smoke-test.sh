@@ -19,7 +19,7 @@ if [ -n "$TOKEN" ]; then
   auth_header=(-H "Authorization: Bearer $TOKEN")
 fi
 
-echo "[1/3] Hitting $WORKER_URL/health"
+echo "[1/4] Hitting $WORKER_URL/health"
 health=$(curl -sf "$WORKER_URL/health")
 echo "$health" | sed 's/^/      /'
 
@@ -33,7 +33,7 @@ for runtime in node deno bun; do
   fi
 done
 
-echo "[2/3] POST /api/run with a trivial benchmark (single profile)"
+echo "[2/4] POST /api/run with a trivial benchmark (single profile)"
 payload='{
   "code": "Math.sqrt(Math.random() * 1000)",
   "timeMs": 500,
@@ -53,7 +53,7 @@ curl -sN -X POST "$WORKER_URL/api/run" \
   | sed 's/^/      /' >&2
 
 echo
-echo "[3/3] Verifying response"
+echo "[3/4] Verifying /api/run response"
 
 # Must contain a result line for each runtime.
 for runtime in node deno bun; do
@@ -75,4 +75,42 @@ if ! grep -qE '"opsPerSec":[1-9][0-9]*' "$tmp"; then
   exit 1
 fi
 
-echo "OK — worker is healthy and all three runtimes returned results."
+echo "[4/4] POST /api/jobs (async) and poll until done"
+job_resp=$(curl -sf -X POST "$WORKER_URL/api/jobs" \
+  -H 'Content-Type: application/json' \
+  "${auth_header[@]}" \
+  -d "$payload")
+echo "$job_resp" | sed 's/^/      /'
+
+job_id=$(echo "$job_resp" | sed -n 's/.*"jobId":"\([^"]*\)".*/\1/p')
+if [ -z "$job_id" ]; then
+  echo "ERROR: /api/jobs did not return a jobId." >&2
+  exit 1
+fi
+
+# Poll up to 60s. Worker default deadline is 30s + headroom for startup.
+for i in $(seq 1 40); do
+  sleep 1.5
+  status=$(curl -sf "$WORKER_URL/api/jobs/$job_id" "${auth_header[@]}")
+  state=$(echo "$status" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+  printf '      poll #%-2d  state=%s\n' "$i" "$state"
+  case "$state" in
+    done) break ;;
+    errored)
+      echo "ERROR: async job errored — $status" >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ "$state" != "done" ]; then
+  echo "ERROR: async job did not complete within polling window." >&2
+  exit 1
+fi
+
+if ! echo "$status" | grep -q '"runtimes"'; then
+  echo "ERROR: completed job is missing runtimes payload." >&2
+  exit 1
+fi
+
+echo "OK — worker is healthy, sync and async paths both return results."

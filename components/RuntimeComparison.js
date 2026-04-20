@@ -56,9 +56,11 @@ export default function RuntimeComparison({ results }) {
           </h3>
         </div>
         <p className="text-xs text-muted-foreground mb-4">
-          Same snippet executed in Node.js, Deno, and Bun under matched
-          1x/2x/4x/8x CPU + memory budgets. V8 (Node, Deno) vs JavaScriptCore (Bun)
-          surfaces engine-level performance differences that single-engine analysis cannot.
+          Same snippet executed in Node.js, Deno, and Bun under a matched
+          CPU + memory budget. V8 (Node, Deno) vs JavaScriptCore (Bun)
+          surfaces engine-level performance differences that single-engine
+          analysis cannot — including raw hardware perf counters
+          (instructions, cycles, cache misses) per runtime.
         </p>
 
         {anyError && !anyData && (

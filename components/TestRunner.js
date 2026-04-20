@@ -37,6 +37,17 @@ export default function Tests(props) {
   const [analysis, setAnalysis] = useState(null)
   const [analysisError, setAnalysisError] = useState(null)
   const [analysisProgress, setAnalysisProgress] = useState(null)
+  const [analysisPipeline, setAnalysisPipeline] = useState(null)
+
+  // Multi-runtime is asynchronous: the analyze endpoint enqueues jobs on
+  // the worker and returns immediately with jobIds. We poll those jobs
+  // here while the user is already looking at the base results.
+  //   status: 'idle' | 'pending' | 'done' | 'errored' | 'unavailable'
+  //   data:   { results: [{ testIndex, runtimes, runtimeComparison }, ...] }
+  const [multiRuntimeStatus, setMultiRuntimeStatus] = useState('idle')
+  const [multiRuntimeData, setMultiRuntimeData] = useState(null)
+  const [multiRuntimeError, setMultiRuntimeError] = useState(null)
+  const multiRuntimeAbortRef = useRef(null)
 
   const windowRef = useRef(null)
   const isQuickRunRef = useRef(false)
@@ -53,10 +64,113 @@ export default function Tests(props) {
     }
   }, [slug, revision])
 
+  // Poll the multi-runtime proxy endpoint until every enqueued job
+  // resolves (or the deadline is hit). Updates state incrementally so
+  // the per-test panels can render as soon as their job finishes,
+  // instead of waiting for the slowest one.
+  const pollMultiRuntime = useCallback(async ({ jobs, codeHash, deadlineMs }) => {
+    if (!Array.isArray(jobs) || jobs.length === 0) return
+
+    setMultiRuntimeStatus('pending')
+    setMultiRuntimeData({ results: jobs.map(j => ({ testIndex: j.testIndex, state: 'pending' })) })
+
+    const controller = new AbortController()
+    multiRuntimeAbortRef.current?.abort()
+    multiRuntimeAbortRef.current = controller
+
+    // Soft client-side ceiling. The worker enforces its own deadline; we
+    // add ~30s of slack on top to cover network jitter and queueing.
+    const overallDeadline = Date.now() + (Number(deadlineMs) || 30_000) + 30_000
+    const remaining = new Map(jobs.map(j => [j.testIndex, j.jobId]))
+    const collected = new Map()
+    let firstError = null
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms))
+
+    while (remaining.size > 0 && Date.now() < overallDeadline && !controller.signal.aborted) {
+      const polls = await Promise.all(
+        Array.from(remaining.entries()).map(async ([testIndex, jobId]) => {
+          try {
+            const url = `/api/benchmark/multi-runtime/${encodeURIComponent(jobId)}`
+              + `?testIndex=${testIndex}`
+              + (codeHash ? `&codeHash=${encodeURIComponent(codeHash)}` : '')
+            const res = await fetch(url, { signal: controller.signal })
+            if (!res.ok) return { testIndex, transient: true }
+            const body = await res.json()
+            return { testIndex, body }
+          } catch (err) {
+            if (err.name === 'AbortError') throw err
+            return { testIndex, transient: true }
+          }
+        })
+      )
+
+      for (const p of polls) {
+        if (!p.body) continue
+        if (p.body.state === 'done') {
+          collected.set(p.testIndex, {
+            testIndex: p.testIndex,
+            state: 'done',
+            runtimes: p.body.runtimes,
+            runtimeComparison: p.body.runtimeComparison,
+          })
+          remaining.delete(p.testIndex)
+        } else if (p.body.state === 'errored') {
+          collected.set(p.testIndex, {
+            testIndex: p.testIndex,
+            state: 'errored',
+            error: p.body.error,
+          })
+          if (!firstError) firstError = p.body.error
+          remaining.delete(p.testIndex)
+        } else {
+          collected.set(p.testIndex, {
+            testIndex: p.testIndex,
+            state: p.body.state,
+            partial: p.body.partial || null,
+          })
+        }
+      }
+
+      // Snapshot incremental state so per-test panels render as soon as
+      // they're ready (don't wait for the slowest job to finish).
+      setMultiRuntimeData({
+        results: jobs.map(j =>
+          collected.get(j.testIndex) || { testIndex: j.testIndex, state: 'pending' }
+        ),
+      })
+
+      if (remaining.size === 0) break
+      await sleep(1500)
+    }
+
+    if (controller.signal.aborted) return
+
+    if (remaining.size > 0) {
+      setMultiRuntimeStatus('errored')
+      setMultiRuntimeError('Multi-runtime polling timed out')
+      return
+    }
+
+    const allErrored = Array.from(collected.values()).every(r => r.state === 'errored')
+    if (allErrored) {
+      setMultiRuntimeStatus('errored')
+      setMultiRuntimeError(firstError || 'All multi-runtime jobs failed')
+    } else {
+      setMultiRuntimeStatus('done')
+    }
+  }, [])
+
   const runDeepAnalysis = useCallback(async () => {
     setAnalysisStatus('loading')
     setAnalysisError(null)
     setAnalysisProgress(null)
+    setAnalysisPipeline(null)
+    setMultiRuntimeStatus('idle')
+    setMultiRuntimeData(null)
+    setMultiRuntimeError(null)
+    multiRuntimeAbortRef.current?.abort()
+    multiRuntimeAbortRef.current = null
 
     try {
       const res = await fetch('/api/benchmark/analyze', {
@@ -86,11 +200,23 @@ export default function Tests(props) {
 
       const contentType = res.headers.get('Content-Type') || ''
 
-      // Cache hits return standard JSON
+      // Cache hits return standard JSON. The cached payload may include
+      // fresh multiRuntime jobIds (the API re-enqueues those even on
+      // cache HIT) — kick off polling if so.
       if (contentType.includes('application/json')) {
         const data = await res.json()
         setAnalysis(data)
         setAnalysisStatus('done')
+        if (data?.multiRuntime?.jobs) {
+          pollMultiRuntime({
+            jobs: data.multiRuntime.jobs,
+            codeHash: data.codeHash || null,
+            deadlineMs: data.multiRuntime.deadlineMs,
+          })
+        } else if (data?.multiRuntime?.unavailable) {
+          setMultiRuntimeStatus('unavailable')
+          setMultiRuntimeError(data.multiRuntime.error || null)
+        }
         return
       }
 
@@ -98,6 +224,38 @@ export default function Tests(props) {
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let mrEnqueueInfo = null
+      let mrCodeHash = null
+
+      const handleMessage = (msg) => {
+        if (msg.type === 'pipeline') {
+          setAnalysisPipeline(Array.isArray(msg.engines) ? msg.engines : null)
+        } else if (msg.type === 'multi-runtime-enqueued') {
+          mrEnqueueInfo = { jobs: msg.jobs, deadlineMs: msg.deadlineMs }
+          mrCodeHash = msg.codeHash || null
+          setMultiRuntimeStatus('pending')
+          setMultiRuntimeData({
+            results: (msg.jobs || []).map(j => ({ testIndex: j.testIndex, state: 'pending' })),
+          })
+        } else if (msg.type === 'multi-runtime-unavailable') {
+          setMultiRuntimeStatus('unavailable')
+          setMultiRuntimeError(msg.error || null)
+        } else if (msg.type === 'progress') {
+          setAnalysisProgress({
+            engine: msg.engine,
+            testIndex: msg.testIndex,
+            status: msg.status,
+            runtime: msg.runtime,
+            profile: msg.profile,
+          })
+        } else if (msg.type === 'result') {
+          setAnalysis(msg.data)
+          setAnalysisStatus('done')
+        } else if (msg.type === 'error') {
+          setAnalysisError(msg.error)
+          setAnalysisStatus('error')
+        }
+      }
 
       while (true) {
         const { done, value } = await reader.read()
@@ -109,42 +267,29 @@ export default function Tests(props) {
 
         for (const line of lines) {
           if (!line.trim()) continue
-          const msg = JSON.parse(line)
-
-          if (msg.type === 'progress') {
-            setAnalysisProgress({
-              engine: msg.engine,
-              testIndex: msg.testIndex,
-              status: msg.status,
-              runtime: msg.runtime,
-              profile: msg.profile,
-            })
-          } else if (msg.type === 'result') {
-            setAnalysis(msg.data)
-            setAnalysisStatus('done')
-          } else if (msg.type === 'error') {
-            setAnalysisError(msg.error)
-            setAnalysisStatus('error')
-          }
+          handleMessage(JSON.parse(line))
         }
       }
 
-      // Process any remaining buffer
-      if (buffer.trim()) {
-        const msg = JSON.parse(buffer)
-        if (msg.type === 'result') {
-          setAnalysis(msg.data)
-          setAnalysisStatus('done')
-        } else if (msg.type === 'error') {
-          setAnalysisError(msg.error)
-          setAnalysisStatus('error')
-        }
+      if (buffer.trim()) handleMessage(JSON.parse(buffer))
+
+      // Now that the base analysis is in, start polling the worker for
+      // multi-runtime results. The worker probably finished while we
+      // were running QuickJS+V8, so the first poll usually returns done.
+      if (mrEnqueueInfo) {
+        pollMultiRuntime({ ...mrEnqueueInfo, codeHash: mrCodeHash })
       }
     } catch (e) {
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
     }
-  }, [tests, setup, teardown, slug, revision])
+  }, [tests, setup, teardown, slug, revision, pollMultiRuntime])
+
+  useEffect(() => {
+    return () => {
+      multiRuntimeAbortRef.current?.abort()
+    }
+  }, [])
 
   useEffect(() => {
     fetchStats()
@@ -607,7 +752,13 @@ Why is the fastest snippet performing better in modern JavaScript engines?${incl
           error={analysisError}
           onRetry={runDeepAnalysis}
           progress={analysisProgress}
+          pipeline={analysisPipeline}
           testCount={tests.length}
+          multiRuntime={{
+            status: multiRuntimeStatus,
+            data: multiRuntimeData,
+            error: multiRuntimeError,
+          }}
         />
       )}
 
