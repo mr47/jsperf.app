@@ -2,9 +2,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Cpu, Trophy } from 'lucide-react'
 
 const RUNTIME_META = {
-  node: { label: 'Node.js', engine: 'V8',  text: 'text-emerald-600 dark:text-emerald-400', dot: 'bg-emerald-500' },
-  deno: { label: 'Deno',    engine: 'V8',  text: 'text-sky-600 dark:text-sky-400',         dot: 'bg-sky-500' },
-  bun:  { label: 'Bun',     engine: 'JSC', text: 'text-pink-600 dark:text-pink-400',       dot: 'bg-pink-500' },
+  node: { label: 'Node.js', engine: 'V8',  text: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
+  deno: { label: 'Deno',    engine: 'V8',  text: 'text-sky-600 dark:text-sky-400',         bar: 'bg-sky-500',     dot: 'bg-sky-500' },
+  bun:  { label: 'Bun',     engine: 'JSC', text: 'text-pink-600 dark:text-pink-400',       bar: 'bg-pink-500',    dot: 'bg-pink-500' },
 }
 
 const RUNTIME_ORDER = ['node', 'deno', 'bun']
@@ -62,15 +62,17 @@ export default function RuntimeComparison({ results }) {
           analysis cannot.
         </p>
 
+        <RuntimeLegend />
+
         {anyError && !anyData && (
-          <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20 mb-4">
+          <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20 mt-4">
             <p className="text-xs text-amber-800 dark:text-amber-200">
               Multi-runtime worker is configured but unreachable. Showing core analysis only.
             </p>
           </div>
         )}
 
-        <div className="space-y-6">
+        <div className="space-y-6 mt-4">
           {results.map((r) => {
             const cmp = r.runtimeComparison
             if (!cmp || !cmp.available) return null
@@ -82,13 +84,27 @@ export default function RuntimeComparison({ results }) {
   )
 }
 
+function RuntimeLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+      {RUNTIME_ORDER.map((rt) => {
+        const meta = RUNTIME_META[rt]
+        return (
+          <span key={rt} className="inline-flex items-center gap-1.5">
+            <span className={`inline-block h-2 w-2 rounded-full ${meta.dot}`} />
+            <span className={`font-medium ${meta.text}`}>{meta.label}</span>
+            <span className="text-muted-foreground/70">({meta.engine})</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 function TestRuntimePanel({ title, comparison }) {
   const byName = Object.fromEntries(comparison.runtimes.map(r => [r.runtime, r]))
   const ordered = RUNTIME_ORDER.map(name => byName[name]).filter(Boolean)
 
-  // Flatten everything we want to display to a single per-runtime record so
-  // we can drive the table from a uniform `series` shape regardless of
-  // whether the row comes from the benchmark itself or perf-stat counters.
   const series = ordered.map((rt) => {
     const p = rt.profiles?.[0] || {}
     const c = p.perfCounters || {}
@@ -122,11 +138,16 @@ function TestRuntimePanel({ title, comparison }) {
     || s.values.branchMisses != null
   )
 
-  // Section grouping = Throughput / Latency / Memory / Hardware counters.
-  // `direction` controls which value gets the trophy: 'higher' for ops/s and
-  // IPC; 'lower' for latency, memory, cache misses, etc. `null` skips the
-  // winner highlight (e.g. raw instruction count is not "better/worse" alone).
-  const sections = [
+  // The "headline" charts are the ones we render as overlaid bars at the top.
+  // Everything (including these) also lands in the unified table below.
+  const headlineCharts = [
+    { key: 'opsPerSec',   label: 'Throughput',   unit: 'ops/s',         direction: 'higher', format: formatOps },
+    { key: 'latencyMean', label: 'Latency p50',  unit: 'per iteration', direction: 'lower',  format: formatLatency },
+    { key: 'latencyP99',  label: 'Latency p99',  unit: 'per iteration', direction: 'lower',  format: formatLatency },
+    { key: 'rss',         label: 'Memory (RSS)', unit: 'resident',      direction: 'lower',  format: formatBytes },
+  ]
+
+  const tableSections = [
     {
       label: 'Throughput',
       rows: [
@@ -143,14 +164,14 @@ function TestRuntimePanel({ title, comparison }) {
     {
       label: 'Memory',
       rows: [
-        { key: 'rss',      label: 'RSS',           direction: 'lower', format: formatBytes },
-        { key: 'heapUsed', label: 'Heap used',     direction: 'lower', format: formatBytes },
+        { key: 'rss',      label: 'RSS',       direction: 'lower', format: formatBytes },
+        { key: 'heapUsed', label: 'Heap used', direction: 'lower', format: formatBytes },
       ],
     },
   ]
 
   if (hasPerf) {
-    sections.push({
+    tableSections.push({
       label: 'Hardware counters',
       rows: [
         { key: 'instructions', label: 'Instructions',      direction: null,     format: formatBig },
@@ -183,7 +204,23 @@ function TestRuntimePanel({ title, comparison }) {
         </div>
       )}
 
-      <UnifiedTable series={series} sections={sections} />
+      {/* Headline visual: joint bar chart per metric */}
+      <div className="rounded-lg border border-border/50 divide-y divide-border/40">
+        {headlineCharts.map((chart) => (
+          <JointChart
+            key={chart.key}
+            label={chart.label}
+            unit={chart.unit}
+            direction={chart.direction}
+            format={chart.format}
+            series={series}
+            valueOf={(s) => s.values[chart.key]}
+          />
+        ))}
+      </div>
+
+      {/* Detail view: unified table with green/red striped winner/loser cells */}
+      <UnifiedTable series={series} sections={tableSections} />
 
       {series.some(s => s.hasError) && (
         <div className="text-[11px] text-red-600 dark:text-red-400 space-y-0.5">
@@ -200,13 +237,79 @@ function TestRuntimePanel({ title, comparison }) {
 }
 
 /**
- * One table to rule them all: runtimes are columns, metrics are rows,
- * grouped into sections (Throughput / Latency / Memory / HW counters).
- *
- * Per-row "winner" detection: for direction='higher' we bold + trophy the
- * largest value; for 'lower' the smallest non-zero value; for null (raw
- * counts) nothing is highlighted because the row carries no inherent
- * winner semantics on its own.
+ * One metric, three runtimes overlaid as horizontal bars. Bar widths are
+ * always proportional to the absolute value (relative to the row max), so
+ * "lower is better" charts don't lie about magnitude — the trophy is the
+ * winner signal, not the bar length.
+ */
+function JointChart({ label, unit, direction, format, series, valueOf }) {
+  const validValues = series
+    .map(s => valueOf(s))
+    .filter(v => v != null && Number.isFinite(v) && v > 0)
+
+  const maxVal = validValues.length > 0 ? Math.max(...validValues) : 0
+  const winnerVal = validValues.length >= 2
+    ? (direction === 'higher' ? Math.max(...validValues) : Math.min(...validValues))
+    : null
+
+  const directionLabel = direction === 'higher' ? 'higher is better' : 'lower is better'
+
+  return (
+    <div className="px-3 py-3">
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-xs font-medium text-foreground">
+          {label}
+          <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
+            ({directionLabel})
+          </span>
+        </div>
+        <div className="text-[10px] text-muted-foreground">{unit}</div>
+      </div>
+
+      <div className="space-y-1.5">
+        {series.map((s) => {
+          const v = valueOf(s)
+          const valid = v != null && Number.isFinite(v) && v > 0
+          const isWinner = valid && v === winnerVal && validValues.length > 1
+          const widthPct = valid && maxVal > 0 ? Math.max(2, (v / maxVal) * 100) : 0
+
+          return (
+            <div key={s.runtime} className="flex items-center gap-2">
+              <div className="w-16 shrink-0 text-[11px] flex items-center gap-1">
+                <span className={`inline-block h-2 w-2 rounded-full ${s.meta.dot}`} />
+                <span className={`font-medium ${s.meta.text}`}>{s.meta.label}</span>
+              </div>
+              <div className="flex-1 h-3 rounded-full bg-muted overflow-hidden relative">
+                {valid ? (
+                  <div
+                    className={`${s.meta.bar} h-full rounded-full transition-all duration-700`}
+                    style={{ width: `${widthPct}%` }}
+                  />
+                ) : (
+                  <div className="h-full w-full border border-dashed border-border/60 rounded-full" />
+                )}
+              </div>
+              <div className="w-24 shrink-0 text-right text-[11px] tabular-nums flex items-center justify-end gap-1">
+                {isWinner && <Trophy className="h-3 w-3 text-amber-500" aria-label="Best" />}
+                <span className={valid ? 'text-foreground font-medium' : 'text-muted-foreground'}>
+                  {valid ? format(v) : '—'}
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Unified table — runtimes are columns, metrics are rows, grouped into
+ * sections. Per-row coloring matches the benchmark results table:
+ *   - winner cell:  bg-green-500/10  + green text
+ *   - loser cell:   bg-red-500/10    + red text
+ * Rows with `direction: null` (raw instruction / cycle counts) skip the
+ * coloring because there's no inherent winner without context.
  */
 function UnifiedTable({ series, sections }) {
   return (
@@ -256,7 +359,7 @@ function SectionRows({ section, series, isFirstSection }) {
 
       {section.rows.map((row) => {
         const values = series.map(s => s.values[row.key])
-        const winnerIdx = pickWinnerIndex(values, row.direction)
+        const { winnerIdx, loserIdx } = pickExtremes(values, row.direction)
 
         return (
           <tr key={row.key} className="border-t border-border/30">
@@ -265,17 +368,25 @@ function SectionRows({ section, series, isFirstSection }) {
               const v = s.values[row.key]
               const valid = v != null && Number.isFinite(v)
               const isWinner = i === winnerIdx
+              const isLoser  = i === loserIdx
+
+              const cellBg = isWinner
+                ? 'bg-green-500/10'
+                : isLoser
+                  ? 'bg-red-500/10'
+                  : ''
+              const textCls = isWinner
+                ? 'text-green-700 dark:text-green-400 font-semibold'
+                : isLoser
+                  ? 'text-red-700 dark:text-red-400 font-medium'
+                  : (valid ? 'text-foreground' : 'text-muted-foreground/60')
+
               return (
                 <td
                   key={s.runtime}
-                  className={`py-1.5 px-3 text-right tabular-nums ${
-                    isWinner ? 'font-semibold text-foreground' : (valid ? 'text-foreground' : 'text-muted-foreground/60')
-                  }`}
+                  className={`py-1.5 px-3 text-right tabular-nums transition-colors ${cellBg} ${textCls}`}
                 >
-                  <span className="inline-flex items-center gap-1 justify-end">
-                    {isWinner && <Trophy className="h-3 w-3 text-amber-500" aria-label="Best" />}
-                    <span>{valid ? row.format(v) : '—'}</span>
-                  </span>
+                  {valid ? row.format(v) : '—'}
                 </td>
               )
             })}
@@ -294,14 +405,26 @@ function SectionRows({ section, series, isFirstSection }) {
   )
 }
 
-function pickWinnerIndex(values, direction) {
-  if (!direction) return -1
+/**
+ * For a row of values across runtimes, return the indices of the winner
+ * (best per `direction`) and the loser (worst per `direction`). Returns -1
+ * for either when there's no semantic winner (direction == null) or when
+ * there aren't enough valid values to compare.
+ */
+function pickExtremes(values, direction) {
+  if (!direction) return { winnerIdx: -1, loserIdx: -1 }
   const valid = values
     .map((v, i) => ({ v, i }))
     .filter(({ v }) => v != null && Number.isFinite(v) && v > 0)
-  if (valid.length < 2) return -1
-  const best = direction === 'higher'
-    ? valid.reduce((a, b) => (b.v > a.v ? b : a))
-    : valid.reduce((a, b) => (b.v < a.v ? b : a))
-  return best.i
+  if (valid.length < 2) return { winnerIdx: -1, loserIdx: -1 }
+
+  const sorted = [...valid].sort((a, b) =>
+    direction === 'higher' ? b.v - a.v : a.v - b.v
+  )
+  // Don't paint a winner+loser when every runtime returned the same number
+  // (a real "tie" — happens for very fast snippets that hit measurement
+  // floor in all three engines).
+  if (sorted[0].v === sorted[sorted.length - 1].v) return { winnerIdx: -1, loserIdx: -1 }
+
+  return { winnerIdx: sorted[0].i, loserIdx: sorted[sorted.length - 1].i }
 }

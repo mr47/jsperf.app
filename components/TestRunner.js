@@ -20,6 +20,91 @@ const ChatGPTLogo = ({ className }) => (
   <img src="/openai.webp" alt="ChatGPT Logo" className={`object-contain ${className}`} />
 )
 
+const RUNTIME_LABELS_FOR_PROMPT = { node: 'Node.js (V8)', deno: 'Deno (V8)', bun: 'Bun (JSC)' }
+const RUNTIME_ORDER_FOR_PROMPT = ['node', 'deno', 'bun']
+
+/**
+ * Render a compact, prompt-friendly multi-runtime block for the LLM.
+ *
+ * We only include data for tests where the comparison is `available` (at
+ * least one runtime returned numbers). Hardware perf counters are added
+ * inline only when at least one runtime captured them — most snippets
+ * won't need them, and this keeps the prompt small enough to paste.
+ *
+ * Returns '' when there's no useful data to include, so the caller can
+ * cheaply concatenate without checking.
+ */
+function formatMultiRuntimeForPrompt(multiRuntimeData) {
+  const results = multiRuntimeData?.results
+  if (!Array.isArray(results) || results.length === 0) return ''
+
+  const ready = results.filter(r => r?.state === 'done' && r.runtimeComparison?.available)
+  if (ready.length === 0) return ''
+
+  const blocks = ready.map((r) => {
+    const cmp = r.runtimeComparison
+    const byName = Object.fromEntries(cmp.runtimes.map(rt => [rt.runtime, rt]))
+    const ordered = RUNTIME_ORDER_FOR_PROMPT.map(name => byName[name]).filter(Boolean)
+
+    const runtimeLines = ordered.map((rt) => {
+      const p = rt.profiles?.[0] || {}
+      const c = p.perfCounters || {}
+
+      const fmtLatency = (ms) => {
+        if (ms == null || !Number.isFinite(ms)) return 'n/a'
+        if (ms < 0.001) return `${(ms * 1_000_000).toFixed(0)}ns`
+        if (ms < 1) return `${(ms * 1000).toFixed(2)}µs`
+        return `${ms.toFixed(2)}ms`
+      }
+      const fmtBytes = (n) => {
+        if (n == null) return 'n/a'
+        if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)}MB`
+        if (n >= 1024) return `${(n / 1024).toFixed(1)}KB`
+        return `${n}B`
+      }
+      const fmtBig = (n) => {
+        if (n == null || !Number.isFinite(n)) return 'n/a'
+        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
+        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+        if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+        return String(Math.round(n))
+      }
+
+      const ipc = (c.instructions != null && c.cycles != null && c.cycles > 0)
+        ? (c.instructions / c.cycles).toFixed(2)
+        : null
+
+      const perfBits = []
+      if (ipc != null) perfBits.push(`IPC=${ipc}`)
+      if (c.instructions != null) perfBits.push(`instr=${fmtBig(c.instructions)}`)
+      if (c['cache-misses'] != null) perfBits.push(`cache-miss=${fmtBig(c['cache-misses'])}`)
+      if (c['branch-misses'] != null) perfBits.push(`branch-miss=${fmtBig(c['branch-misses'])}`)
+
+      const perfStr = perfBits.length > 0 ? `; ${perfBits.join(', ')}` : ''
+      const opsStr = `${formatNumber(rt.avgOpsPerSec)} ops/s`
+      const latStr = `p50=${fmtLatency(p.latencyMean)} p99=${fmtLatency(p.latencyP99)}`
+      const memStr = p.rss != null ? ` rss=${fmtBytes(p.rss)}` : ''
+
+      return `    ${RUNTIME_LABELS_FOR_PROMPT[rt.runtime] || rt.runtime}: ${opsStr}; ${latStr}${memStr}${perfStr}`
+    }).join('\n')
+
+    const fastest = RUNTIME_LABELS_FOR_PROMPT[cmp.fastestRuntime] || cmp.fastestRuntime
+    const slowest = RUNTIME_LABELS_FOR_PROMPT[cmp.slowestRuntime] || cmp.slowestRuntime
+    const spreadLine = (cmp.spread > 1 && fastest && slowest)
+      ? `\n    ➜ ${cmp.spread}x throughput spread (fastest: ${fastest}, slowest: ${slowest})`
+      : ''
+
+    return `--- Test ${r.testIndex + 1} ---\n${runtimeLines}${spreadLine}`
+  }).join('\n\n')
+
+  return `
+
+### Multi-Runtime Comparison (Node.js / Deno / Bun, same isolated CPU+memory budget):
+Each runtime ran the same snippet inside its own Docker container with identical resource limits. V8 powers Node and Deno; Bun uses JavaScriptCore. Differences are real engine/runtime effects, not hardware noise.
+
+${blocks}`
+}
+
 export default function Tests(props) {
   const {id, slug, revision, setup, teardown} = props
 
@@ -540,6 +625,17 @@ These results come from isolated, reproducible server runs — QuickJS-WASM as a
 ${serverResults}
 
 ${divergenceNote}`
+
+      const multiRuntimeSection = formatMultiRuntimeForPrompt(multiRuntimeData)
+      if (multiRuntimeSection) {
+        analysisSection += multiRuntimeSection
+      }
+    }
+
+    const promptHints = []
+    if (includeAnalysis) promptHints.push('JIT amplification, scaling type, characteristics')
+    if (includeAnalysis && multiRuntimeStatus === 'done') {
+      promptHints.push('cross-runtime variation (Node/Deno/Bun) and hardware perf counters where available')
     }
 
     const prompt = `I ran a JavaScript performance benchmark. Please analyze the results and explain why the fastest snippet is faster, focusing on V8/browser engine optimizations.
@@ -550,7 +646,7 @@ ${resultsText}
 ### Code Snippets:
 ${codeText}${analysisSection}
 
-Why is the fastest snippet performing better in modern JavaScript engines?${includeAnalysis ? ' Use the deep analysis data (JIT amplification, scaling type, characteristics) to give a more precise explanation.' : ''}`
+Why is the fastest snippet performing better in modern JavaScript engines?${promptHints.length > 0 ? ` Use the deep analysis data (${promptHints.join('; ')}) to give a more precise explanation.` : ''}`
 
     return encodeURIComponent(prompt)
   }
