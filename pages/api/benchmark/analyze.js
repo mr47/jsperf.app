@@ -20,7 +20,7 @@ const ratelimit = new Ratelimit({
 // 300s is the platform default on Vercel as of late 2025; adjust down if
 // your plan has a stricter limit.
 export const config = {
-  maxDuration: 300,
+  maxDuration: 60,
 }
 
 export default async function handler(req, res) {

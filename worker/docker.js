@@ -15,8 +15,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdtemp, writeFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -27,9 +26,28 @@ const IMAGE_BY_RUNTIME = {
 }
 
 const ENTRYPOINT_BY_RUNTIME = {
+  // --allow-hrtime was removed in Deno 2 (always-on), so we don't pass it.
   node: ['node', '--expose-gc', '/work/bench.js'],
-  deno: ['deno', 'run', '--allow-hrtime', '--v8-flags=--expose-gc', '/work/bench.js'],
+  deno: ['deno', 'run', '--v8-flags=--expose-gc', '/work/bench.js'],
   bun: ['bun', 'run', '/work/bench.js'],
+}
+
+// Host-visible work directory. We MUST write benchmark scripts here (not
+// /tmp inside the orchestrator container) because we bind-mount this path
+// into runtime containers via the host Docker daemon — and the host can
+// only see paths that exist on the host.
+//
+// In dev (no compose mount) this falls back to /tmp, which works as long
+// as the orchestrator is running directly on the host.
+const WORK_DIR_BASE = process.env.WORK_DIR_BASE || '/tmp/jsperf-worker'
+
+let workDirReady = null
+async function ensureWorkDirBase() {
+  if (!workDirReady) {
+    workDirReady = mkdir(WORK_DIR_BASE, { recursive: true, mode: 0o777 })
+      .catch(() => {}) // tolerate EEXIST and read-only fs in tests
+  }
+  return workDirReady
 }
 
 /**
@@ -55,7 +73,8 @@ export async function runInContainer({
   const image = IMAGE_BY_RUNTIME[runtime]
   if (!image) throw new Error(`Unknown runtime: ${runtime}`)
 
-  const workDir = await mkdtemp(join(tmpdir(), `bench-${runtime}-`))
+  await ensureWorkDirBase()
+  const workDir = await mkdtemp(join(WORK_DIR_BASE, `bench-${runtime}-`))
   const scriptPath = join(workDir, 'bench.js')
   await writeFile(scriptPath, script, 'utf8')
 
