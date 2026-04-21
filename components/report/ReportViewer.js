@@ -24,12 +24,15 @@ import {
 } from 'lucide-react'
 import { SLIDE_COMPONENTS, SLIDE_LABELS } from './Slides'
 import { buildDeck } from './slideUtils'
+import MobileReportViewer from './MobileReportViewer'
+import SlideProgress from './SlideProgress'
 
 export default function ReportViewer({ report }) {
   const deck = buildDeck(report)
   const [index, setIndex] = useState(0)
   const [copied, setCopied] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [chromeVisible, setChromeVisible] = useState(true)
   const [shareUrl, setShareUrl] = useState('')
   const { resolvedTheme } = useTheme()
 
@@ -137,6 +140,31 @@ export default function ReportViewer({ report }) {
     document.addEventListener('fullscreenchange', onChange)
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
+
+  // Auto-hide the on-screen chevrons + slide counter while presenting.
+  // Mirrors PowerPoint/Keynote: chrome reappears on mouse move and
+  // fades out again after ~2s of stillness. Only active in fullscreen
+  // so the windowed viewer keeps its always-visible controls.
+  useEffect(() => {
+    if (!isFullscreen) {
+      setChromeVisible(true)
+      return
+    }
+    let timer
+    const reveal = () => {
+      setChromeVisible(true)
+      clearTimeout(timer)
+      timer = setTimeout(() => setChromeVisible(false), 2000)
+    }
+    reveal()
+    window.addEventListener('mousemove', reveal)
+    window.addEventListener('keydown', reveal)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('mousemove', reveal)
+      window.removeEventListener('keydown', reveal)
+    }
+  }, [isFullscreen])
 
   const toggleFullscreen = useCallback(() => {
     if (typeof document === 'undefined') return
@@ -335,8 +363,31 @@ export default function ReportViewer({ report }) {
         }
       `}</style>
 
-      {/* Top toolbar */}
-      <div className="print:hidden flex items-center gap-2 px-3 sm:px-5 py-3 border-b bg-white/80 dark:bg-slate-900/60 backdrop-blur sticky top-0 z-20">
+      {/* Mobile: a clean vertical scroll instead of a 16:9 stage. */}
+      <div className="md:hidden print:hidden">
+        <MobileReportViewer
+          report={report}
+          shareUrl={shareUrl}
+          copied={copied}
+          onCopyLink={onCopyLink}
+          onShare={onShare}
+        />
+      </div>
+
+      {/* Desktop / tablet: the slide-deck viewer. */}
+      <div
+        className={`hidden md:flex md:flex-col md:flex-1 print:hidden ${
+          isFullscreen ? 'bg-black' : ''
+        }`}
+      >
+
+      {/* Top toolbar — hidden while presenting so the slide is the
+          only thing on screen. */}
+      <div
+        className={`${
+          isFullscreen ? 'hidden' : 'flex'
+        } items-center gap-2 px-3 sm:px-5 py-3 border-b bg-white/80 dark:bg-slate-900/60 backdrop-blur sticky top-0 z-20`}
+      >
         <Link href="/" className="flex items-center gap-2 font-semibold text-sm hover:opacity-80">
           <Presentation className="h-4 w-4 text-violet-600" />
           <span>jsPerf report</span>
@@ -382,10 +433,21 @@ export default function ReportViewer({ report }) {
         </div>
       </div>
 
-      {/* On screen: a single 16:9 stage with the active slide. */}
-      <div className="flex-1 flex items-center justify-center p-3 sm:p-6 print:hidden">
+      {/* On screen: a single 16:9 stage with the active slide.
+          In fullscreen we drop padding/border/shadow and let the
+          stage fill the viewport (letterboxed by aspect-ratio so
+          the slide stays 16:9 regardless of the screen shape). */}
+      <div
+        className={`flex-1 flex items-center justify-center ${
+          isFullscreen ? 'p-0' : 'p-3 sm:p-6'
+        }`}
+      >
         <div
-          className="relative w-full max-w-[1280px] aspect-[16/9] rounded-2xl shadow-xl bg-white dark:bg-slate-900 text-foreground overflow-hidden border"
+          className={`relative w-full aspect-[16/9] bg-white dark:bg-slate-900 text-foreground overflow-hidden ${
+            isFullscreen
+              ? 'max-h-screen'
+              : 'max-w-[1280px] rounded-2xl shadow-xl border'
+          } ${isFullscreen && !chromeVisible ? 'cursor-none' : ''}`}
           role="region"
           aria-label={`Slide ${index + 1} of ${deck.length}`}
         >
@@ -395,7 +457,9 @@ export default function ReportViewer({ report }) {
             type="button"
             onClick={goPrev}
             disabled={index === 0}
-            className="absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 text-white flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-colors backdrop-blur-sm"
+            className={`absolute left-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 text-white flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed backdrop-blur-sm transition-opacity duration-300 ${
+              isFullscreen && !chromeVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
             aria-label="Previous slide"
           >
             <ChevronLeft className="h-5 w-5" />
@@ -404,43 +468,38 @@ export default function ReportViewer({ report }) {
             type="button"
             onClick={goNext}
             disabled={index === deck.length - 1}
-            className="absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 text-white flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed transition-colors backdrop-blur-sm"
+            className={`absolute right-2 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/20 hover:bg-black/40 text-white flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed backdrop-blur-sm transition-opacity duration-300 ${
+              isFullscreen && !chromeVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            }`}
             aria-label="Next slide"
           >
             <ChevronRight className="h-5 w-5" />
           </button>
 
-          <div className="absolute bottom-3 right-4 px-2 py-1 rounded-md bg-black/30 backdrop-blur-sm text-white text-xs font-medium">
-            {index + 1} / {deck.length}
-          </div>
+          {/* Dot progress only appears in fullscreen — the labeled
+              thumbnail strip below the stage already serves as the
+              navigator in windowed mode. */}
+          {isFullscreen && (
+            <SlideProgress
+              deck={deck}
+              index={index}
+              onSelect={setIndex}
+              labels={SLIDE_LABELS}
+              className={`absolute bottom-3 left-1/2 -translate-x-1/2 transition-opacity duration-300 ${
+                chromeVisible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+              }`}
+            />
+          )}
         </div>
       </div>
 
-      {/* The print stack — rendered ALL THE TIME but moved off-screen
-          while presenting. We can't use `display:none` here: Recharts'
-          ResponsiveContainer relies on a measured layout (it uses a
-          ResizeObserver on its parent), and a hidden parent reports
-          a 0×0 size, leaving the SVGs blank in the PDF. By laying it
-          out at the real 1280×720 print size off-screen, every chart
-          is fully measured and painted by the time the user hits
-          Print, so the PDF captures them correctly. */}
-      <div className="report-print-stack" aria-hidden>
-        {deck.map((key, i) => {
-          const Cmp = SLIDE_COMPONENTS[key]
-          if (!Cmp) return null
-          return (
-            <div
-              key={`print-${key}-${i}`}
-              className="report-print-page bg-white text-slate-900"
-            >
-              <Cmp report={report} />
-            </div>
-          )
-        })}
-      </div>
-
-      {/* Thumbnail strip */}
-      <div className="print:hidden border-t bg-white/80 dark:bg-slate-900/60 backdrop-blur px-3 sm:px-5 py-3 overflow-x-auto">
+      {/* Thumbnail strip (desktop) — hidden in fullscreen so the
+          slide owns the screen during a presentation. */}
+      <div
+        className={`${
+          isFullscreen ? 'hidden' : 'block'
+        } border-t bg-white/80 dark:bg-slate-900/60 backdrop-blur px-3 sm:px-5 py-3 overflow-x-auto`}
+      >
         <div className="flex items-center gap-2 min-w-max">
           {deck.map((key, i) => (
             <button
@@ -466,6 +525,33 @@ export default function ReportViewer({ report }) {
             Print / PDF
           </button>
         </div>
+      </div>
+
+      </div>{/* /desktop wrapper */}
+
+      {/* The print stack — rendered ALL THE TIME (at every breakpoint)
+          but moved off-screen while presenting. We can't use
+          `display:none` here: Recharts' ResponsiveContainer relies on
+          a measured layout (it uses a ResizeObserver on its parent),
+          and a hidden parent reports a 0×0 size, leaving the SVGs
+          blank in the PDF. By laying it out at the real 1280×720 print
+          size off-screen, every chart is fully measured and painted
+          by the time the user hits Print, so the PDF captures them
+          correctly. Lives outside the desktop wrapper so mobile users
+          can still print. */}
+      <div className="report-print-stack" aria-hidden>
+        {deck.map((key, i) => {
+          const Cmp = SLIDE_COMPONENTS[key]
+          if (!Cmp) return null
+          return (
+            <div
+              key={`print-${key}-${i}`}
+              className="report-print-page bg-white text-slate-900"
+            >
+              <Cmp report={report} />
+            </div>
+          )
+        })}
       </div>
     </div>
   )

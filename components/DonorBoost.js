@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { signIn, useSession } from 'next-auth/react'
-import { Coffee, Sparkles, X, Loader2, Zap, Heart, Check } from 'lucide-react'
+import { Coffee, Sparkles, X, Loader2, Zap, Heart, Check, Presentation } from 'lucide-react'
 import GitHubIcon from './GitHubIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -335,6 +335,7 @@ function DonorView({ donor, onSignOut }) {
           <PerkRow icon={Zap} label="Save / load benchmark" value="120 / min" />
           <PerkRow icon={Zap} label="Submit benchmark runs" value="120 / min" />
           <PerkRow icon={Zap} label="Deep analysis" value="5 / min" />
+          <PerkRow icon={Presentation} label="Presentation reports" value="Unlocked" />
         </div>
       </div>
 
@@ -384,10 +385,11 @@ function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
         <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
           What you get for any donation
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Perk label="Save / load" detail="120 / min" sub="up from 30" />
           <Perk label="Run submissions" detail="120 / min" sub="up from 30" />
           <Perk label="Deep analysis" detail="5 / min" sub="up from 1" />
+          <Perk label="Reports" detail="Unlocked" sub="shareable slide deck" />
         </div>
         <div className="text-xs text-muted-foreground mt-3">Boost lasts 30 days, automatically refreshed for active subscribers.</div>
       </div>
