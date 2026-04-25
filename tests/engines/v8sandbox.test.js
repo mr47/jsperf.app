@@ -260,6 +260,44 @@ describe('runInV8Sandbox', () => {
       restoreVercelEnv(env)
     }
   })
+
+  it('does not attempt REST deletion with an unscoped personal token', async () => {
+    const env = snapshotVercelEnv()
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+    const fetchMock = vi.fn()
+
+    try {
+      process.env.VERCEL_TOKEN = 'vercel_pat_without_project_context'
+      delete process.env.VERCEL_OIDC_TOKEN
+      delete process.env.VERCEL_TEAM_ID
+      delete process.env.VERCEL_PROJECT_ID
+      vi.stubGlobal('fetch', fetchMock)
+
+      Sandbox.create.mockResolvedValueOnce({
+        sandboxId: 'sbx_unscoped_123',
+        writeFiles: vi.fn(async () => {}),
+        runCommand: vi.fn(async () => ({
+          exitCode: 0,
+          stdout: vi.fn(async () => mockStdoutData),
+          stderr: vi.fn(async () => ''),
+        })),
+        stop,
+      })
+
+      await runInV8Sandbox('1 + 1')
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(stop).toHaveBeenCalledTimes(1)
+      expect(stop).toHaveBeenCalledWith(expect.objectContaining({
+        blocking: true,
+        signal: expect.any(AbortSignal),
+      }))
+    } finally {
+      vi.unstubAllGlobals()
+      restoreVercelEnv(env)
+    }
+  })
 })
 
 describe('createBenchmarkSnapshot', () => {

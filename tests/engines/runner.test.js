@@ -64,7 +64,7 @@ describe('runAnalysis', () => {
     runInV8Sandbox.mockImplementation(async () => {
       v8CallCount++
       // First test: higher V8 ops (runtime faster due to JIT)
-      const isFirstTest = v8CallCount <= 4
+      const isFirstTest = v8CallCount <= 1
       return {
         state: 'completed',
         opsPerSec: isFirstTest ? 100000 : 20000,
@@ -95,6 +95,21 @@ describe('runAnalysis', () => {
     expect(result.results[1].testIndex).toBe(1)
     expect(result.results[0].title).toBe('Test A')
     expect(result.results[1].title).toBe('Test B')
+  })
+
+  it('runs V8 once per unique sandbox resource config per test', async () => {
+    const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
+    runInV8Sandbox.mockClear()
+
+    const result = await runAnalysis([
+      { code: 'a()', title: 'Test A' },
+      { code: 'b()', title: 'Test B' },
+    ])
+
+    expect(runInV8Sandbox).toHaveBeenCalledTimes(2)
+    expect(result.results[0].v8.profiles).toHaveLength(4)
+    expect(result.results[1].v8.profiles).toHaveLength(4)
+    expect(result.results[0].v8.profiles.every(profile => profile.opsPerSec > 0)).toBe(true)
   })
 
   it('handles partial failure (one engine errors)', async () => {
