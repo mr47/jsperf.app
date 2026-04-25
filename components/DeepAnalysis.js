@@ -169,7 +169,7 @@ export default function DeepAnalysis({
   if (status !== 'done' || !analysis) return null
 
   const engineErrors = collectEngineErrors(analysis.results)
-  const hasErrors = analysis.hasErrors || engineErrors.length > 0
+  const hasErrors = analysis.hasErrors || engineErrors.some(e => e.severity === 'error')
   const errorMessage = formatEngineErrorMessage(engineErrors)
 
   // Merge async multi-runtime results onto the per-test base results.
@@ -260,6 +260,7 @@ function collectEngineErrors(results) {
     ]) {
       const profile = result[engine.key]?.profiles?.find(p => p.state === 'errored')
       if (!profile) continue
+      if (engine.key === 'quickjs' && result.v8?.opsPerSec > 0) continue
 
       const message = profile.error || 'unknown error'
       const dedupeKey = `${engine.key}:${message}`
@@ -270,6 +271,7 @@ function collectEngineErrors(results) {
         label: engine.label,
         title: result.title || `Test ${result.testIndex + 1}`,
         message,
+        severity: 'error',
       })
     }
   }

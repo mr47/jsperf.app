@@ -142,6 +142,31 @@ describe('runAnalysis', () => {
     expect(result.hasErrors).toBe(false)
   })
 
+  it('does not mark QuickJS-only compile failures as fatal when V8 succeeds', async () => {
+    const { runInQuickJS } = await import('../../lib/engines/quickjs')
+    runInQuickJS.mockClear()
+    const qjsCompileError = {
+      state: 'errored',
+      error: "Compile error: unexpected token in expression: ''",
+      opsPerSec: 0,
+      latency: null,
+      memoryUsed: null,
+    }
+    runInQuickJS
+      .mockResolvedValueOnce(qjsCompileError)
+      .mockResolvedValueOnce(qjsCompileError)
+      .mockResolvedValueOnce(qjsCompileError)
+      .mockResolvedValueOnce(qjsCompileError)
+
+    const result = await runAnalysis([
+      { code: 'modernSyntax()', title: 'modern syntax' },
+    ])
+
+    expect(result.results[0].quickjs.opsPerSec).toBe(0)
+    expect(result.results[0].v8.opsPerSec).toBeGreaterThan(0)
+    expect(result.hasErrors).toBe(false)
+  })
+
   it('handles partial failure (one engine errors)', async () => {
     const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
     runInV8Sandbox.mockResolvedValueOnce({

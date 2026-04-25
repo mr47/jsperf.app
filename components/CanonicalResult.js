@@ -2,6 +2,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber } from '../utils/ArrayUtils'
 
 function hasEngineError(result) {
+  if (result.v8?.opsPerSec > 0) return false
   return (
     result.v8?.profiles?.some(p => p.state === 'errored') ||
     result.quickjs?.profiles?.some(p => p.state === 'errored')
@@ -10,6 +11,7 @@ function hasEngineError(result) {
 
 function getFirstError(result) {
   const v8Error = result.v8?.profiles?.find(p => p.state === 'errored')
+  if (!v8Error && result.v8?.opsPerSec > 0) return null
   const qjsError = result.quickjs?.profiles?.find(p => p.state === 'errored')
   return v8Error?.error || qjsError?.error || 'Unknown error'
 }

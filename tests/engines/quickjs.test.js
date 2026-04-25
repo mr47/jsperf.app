@@ -25,6 +25,16 @@ describe('runInQuickJS', () => {
     expect(result.opsPerSec).toBeGreaterThan(0)
   })
 
+  it('compiles snippets that end with a line comment', async () => {
+    const result = await runInQuickJS(
+      'var x = 1 + 1; // trailing comment',
+      { timeMs: 500 }
+    )
+
+    expect(result.state).toBe('completed')
+    expect(result.opsPerSec).toBeGreaterThan(0)
+  })
+
   it('returns deterministic relative results for same code', async () => {
     const code = 'var s = 0; for (var i = 0; i < 50; i++) s += i;'
 
