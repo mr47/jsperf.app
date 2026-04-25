@@ -32,6 +32,8 @@ describe('runAnalysis', () => {
     expect(result.results[0].quickjs.opsPerSec).toBeGreaterThan(0)
     expect(result.results[0].v8.opsPerSec).toBeGreaterThan(0)
     expect(result.results[0].prediction).toBeDefined()
+    expect(result.results[0].complexity).toBeDefined()
+    expect(result.results[0].complexity.time.notation).toBe('O(1)')
     expect(result.hasErrors).toBe(false)
   })
 
@@ -95,6 +97,20 @@ describe('runAnalysis', () => {
     expect(result.results[1].testIndex).toBe(1)
     expect(result.results[0].title).toBe('Test A')
     expect(result.results[1].title).toBe('Test B')
+    expect(result.results[0].complexity.version).toBe(1)
+    expect(result.results[1].complexity.version).toBe(1)
+  })
+
+  it('adds static complexity estimates using setup only as context', async () => {
+    const result = await runAnalysis([
+      { code: 'let total = 0; for (const item of items) total += item.value', title: 'sum' },
+    ], {
+      setup: 'const items = Array.from({ length: 100 }, (_, i) => ({ value: i }))',
+    })
+
+    expect(result.results[0].complexity.time.notation).toBe('O(n)')
+    expect(result.results[0].complexity.space.notation).toBe('O(1)')
+    expect(result.results[0].complexity.setupContext.symbols).toContain('items')
   })
 
   it('runs one canonical single-vCPU V8 profile per test', async () => {
@@ -204,6 +220,7 @@ describe('runAnalysis', () => {
     expect(progressCalls.length).toBeGreaterThan(0)
     expect(progressCalls.some(p => p.engine === 'quickjs')).toBe(true)
     expect(progressCalls.some(p => p.engine === 'v8')).toBe(true)
+    expect(progressCalls.some(p => p.engine === 'complexity')).toBe(true)
     expect(progressCalls.some(p => p.engine === 'prediction')).toBe(true)
   })
 

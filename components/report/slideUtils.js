@@ -230,6 +230,26 @@ export function collectPredictionResults(report) {
     }))
 }
 
+export function collectComplexityResults(report) {
+  return (report?.analysis?.results || [])
+    .filter(r => r?.complexity && typeof r.complexity === 'object')
+    .map((r, i) => ({
+      ...r,
+      title: r.title || `Test ${Number.isInteger(r.testIndex) ? r.testIndex + 1 : i + 1}`,
+    }))
+}
+
+export function hasComplexityMetrics(report) {
+  return collectComplexityResults(report).some(r => {
+    const complexity = r.complexity || {}
+    return Boolean(
+      complexity.time?.notation ||
+      complexity.space?.notation ||
+      complexity.explanation
+    )
+  })
+}
+
 export function hasJitMetrics(report) {
   return collectPredictionResults(report).some(r => {
     const prediction = r.prediction || {}
@@ -327,6 +347,7 @@ export function buildDeck(report) {
   if (flattenRuntimes(report).length) slides.push('runtimes')
   if (collectPerfSamples(report).length) slides.push('perfCounters')
   if (hasJitMetrics(report)) slides.push('jitAmplification')
+  if (hasComplexityMetrics(report)) slides.push('complexity')
   if (hasMemoryResponse(report)) slides.push('memoryResponse')
 
   if (hasInsightContent(report?.analysis?.comparison)) slides.push('insight')

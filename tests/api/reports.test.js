@@ -39,6 +39,7 @@ vi.mock('../../lib/mongodb', () => ({
           title: 'Fast loop',
           v8: { opsPerSec: 80000, profiles: [{ opsPerSec: 80000, samples: 50, state: 'completed' }] },
           quickjs: { opsPerSec: 1000, profiles: [{ opsPerSec: 1000, samples: 50, state: 'completed' }] },
+          complexity: { time: { notation: 'O(n)' }, space: { notation: 'O(1)' }, async: { mode: 'none' } },
         },
         {
           testIndex: 1,
@@ -114,6 +115,7 @@ describe('createReport', () => {
     expect(stored.summary.lagger.title).toBe('Slow loop')
     expect(stored.summary.dataSource).toBe('v8')
     expect(stored.analysis.comparison).toMatchObject({ fastestByAlgorithm: 0, fastestByRuntime: 0 })
+    expect(stored.analysis.results[0].complexity.time.notation).toBe('O(n)')
   })
 
   it('snapshots client-supplied multi-runtime data into the persisted analysis', async () => {

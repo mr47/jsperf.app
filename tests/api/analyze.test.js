@@ -36,6 +36,8 @@ vi.mock('../../lib/engines/runner', () => ({
     opts?.onProgress?.({ engine: 'quickjs', testIndex: 0, status: 'done' })
     opts?.onProgress?.({ engine: 'v8', testIndex: 0, status: 'running' })
     opts?.onProgress?.({ engine: 'v8', testIndex: 0, status: 'done' })
+    opts?.onProgress?.({ engine: 'complexity', testIndex: 0, status: 'running' })
+    opts?.onProgress?.({ engine: 'complexity', testIndex: 0, status: 'done' })
     opts?.onProgress?.({ engine: 'prediction', testIndex: 0, status: 'running' })
     opts?.onProgress?.({ engine: 'prediction', testIndex: 0, status: 'done' })
 
@@ -53,6 +55,14 @@ vi.mock('../../lib/engines/runner', () => ({
             memSensitivity: 0,
             predictedAt: { '1x': 50000, '2x': 100000 },
             characteristics: { cpuBound: true, memoryBound: false, allocationHeavy: false, jitFriendly: true },
+          },
+          complexity: {
+            version: 1,
+            time: { notation: 'O(1)', label: 'constant', confidence: 0.9 },
+            space: { notation: 'O(1)', label: 'constant', confidence: 0.88 },
+            async: { mode: 'none', concurrency: 'sync', notes: [] },
+            explanation: 'Only constant work detected.',
+            signals: [],
           },
         },
       ],
@@ -195,6 +205,7 @@ describe('POST /api/benchmark/analyze', () => {
     expect(progressMsgs.length).toBeGreaterThan(0)
     expect(progressMsgs.some(m => m.engine === 'quickjs')).toBe(true)
     expect(progressMsgs.some(m => m.engine === 'v8')).toBe(true)
+    expect(progressMsgs.some(m => m.engine === 'complexity')).toBe(true)
 
     expect(resultMsgs).toHaveLength(1)
     expect(resultMsgs[0].data.results).toBeDefined()
@@ -202,6 +213,7 @@ describe('POST /api/benchmark/analyze', () => {
     expect(resultMsgs[0].data.results[0].quickjs).toBeDefined()
     expect(resultMsgs[0].data.results[0].v8).toBeDefined()
     expect(resultMsgs[0].data.results[0].prediction).toBeDefined()
+    expect(resultMsgs[0].data.results[0].complexity).toBeDefined()
     expect(insertOneMock).toHaveBeenCalledWith(expect.objectContaining({
       codeHash: expect.any(String),
       multiRuntimeCacheKey: expect.any(String),
@@ -232,7 +244,7 @@ describe('POST /api/benchmark/analyze', () => {
 
     await handler(req, res)
 
-    expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^analysis_v7:/))
+    expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^analysis_v8:/))
     // With force=true the handler must not consult the cache, otherwise
     // a stale entry could short-circuit the streaming run.
     expect(redis.get).not.toHaveBeenCalled()
@@ -250,6 +262,7 @@ describe('POST /api/benchmark/analyze', () => {
         quickjs: { opsPerSec: 1000, profiles: [{ state: 'completed', opsPerSec: 1000 }] },
         v8: { opsPerSec: 0, profiles: [{ state: 'errored', opsPerSec: 0, error: 'Sandbox failed' }] },
         prediction: { scalingType: 'noisy', scalingConfidence: 0, jitBenefit: 0, memSensitivity: 0, predictedAt: {}, characteristics: {} },
+        complexity: { time: { notation: 'O(1)' }, space: { notation: 'O(1)' }, async: { mode: 'none' } },
       }],
       comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
       hasErrors: true,

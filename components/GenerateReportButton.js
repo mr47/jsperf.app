@@ -176,8 +176,8 @@ export default function GenerateReportButton({ slug, revision, className = '' })
                   <div>
                     <h3 className="text-lg font-semibold tracking-tight">Your report is ready</h3>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      A frozen snapshot of this benchmark, packaged as a slide deck. The link works for
-                      anyone you share it with — no sign-in required to view.
+                      A frozen snapshot of this benchmark, packaged as a slide deck with runtime, JIT,
+                      memory, and complexity readouts. The link works for anyone you share it with — no sign-in required to view.
                     </p>
                   </div>
 
@@ -217,7 +217,7 @@ export default function GenerateReportButton({ slug, revision, className = '' })
                       <h3 className="text-base font-semibold tracking-tight">Donor perk</h3>
                       <p className="mt-1 text-sm text-muted-foreground">
                         Generating shareable presentation reports is reserved for jsPerf supporters.
-                        Donations keep the V8 / QuickJS / multi-runtime pipelines and AI analyses running.
+                        Donations keep the V8 / QuickJS / multi-runtime pipelines, complexity slides, and AI analyses running.
                       </p>
                     </div>
                   </div>

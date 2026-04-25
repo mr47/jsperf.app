@@ -379,7 +379,7 @@ export default function Home(props) {
                   Help keep jsPerf.net free, fast, and ad-free
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  Deep Analysis runs on real Firecracker microVMs and multi-runtime workers &mdash; all of it costs real money to operate. If jsPerf saves you time, please consider supporting the project. Donors get higher rate limits, a <strong className="text-foreground">Boosted</strong> badge, and access to shareable presentation reports.
+                  Deep Analysis runs on real Firecracker microVMs, multi-runtime workers, and static complexity analysis &mdash; all of it costs real money to operate. If jsPerf saves you time, please consider supporting the project. Donors get higher rate limits, a <strong className="text-foreground">Boosted</strong> badge, and access to shareable presentation reports with complexity slides.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 pt-2 justify-center md:justify-start">
                   <Button asChild size="lg" className="rounded-full px-6 bg-rose-500 hover:bg-rose-600 text-white shadow-md hover:shadow-lg transition-all">

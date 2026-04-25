@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import {
   formatOps,
   formatMultiplier,
@@ -11,7 +12,9 @@ import {
   flattenRuntimes,
   collectPerfSamples,
   collectPredictionResults,
+  collectComplexityResults,
   collectMemoryResponseSeries,
+  hasComplexityMetrics,
   hasJitMetrics,
   hasMemoryResponse,
   hasInsightContent,
@@ -187,6 +190,31 @@ describe('slideUtils.buildDeck', () => {
     const deck = buildDeck(report)
     expect(deck).toContain('jitAmplification')
     expect(deck).toContain('memoryResponse')
+  })
+
+  it('includes complexity slide when static complexity metrics are present', () => {
+    const deck = buildDeck({
+      summary: {},
+      analysis: {
+        results: [
+          {
+            testIndex: 0,
+            title: 'linear',
+            complexity: {
+              time: { notation: 'O(n)', label: 'linear', confidence: 0.9 },
+              space: { notation: 'O(1)', label: 'constant', confidence: 0.88 },
+              async: { mode: 'none', concurrency: 'sync', notes: [] },
+              explanation: 'One dynamic loop was detected.',
+            },
+          },
+        ],
+      },
+    })
+
+    expect(deck).toContain('complexity')
+    const slidesSource = readFileSync('components/report/Slides.js', 'utf8')
+    expect(slidesSource).toContain('complexity: ComplexitySlide')
+    expect(slidesSource).toContain("complexity: 'Complexity'")
   })
 
   it('includes methodology when only controlled runtime data is present', () => {
@@ -381,6 +409,23 @@ describe('slideUtils prediction helpers', () => {
     expect(series.source).toBe('quickjs')
     expect(series.data[0]).toMatchObject({ resource: '16 MB', test0: 1000, test1: 500 })
     expect(series.series.map(s => s.title)).toEqual(['a', 'b'])
+  })
+})
+
+describe('slideUtils complexity helpers', () => {
+  it('collects complexity results and detects usable metrics', () => {
+    const report = {
+      analysis: {
+        results: [
+          { testIndex: 0, title: 'a', complexity: { time: { notation: 'O(n)' }, space: { notation: 'O(1)' } } },
+          { testIndex: 1, title: 'b', complexity: null },
+        ],
+      },
+    }
+
+    expect(collectComplexityResults(report).map(r => r.title)).toEqual(['a'])
+    expect(hasComplexityMetrics(report)).toBe(true)
+    expect(hasComplexityMetrics({ analysis: { results: [] } })).toBe(false)
   })
 })
 

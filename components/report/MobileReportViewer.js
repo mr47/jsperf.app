@@ -43,6 +43,7 @@ import {
   flattenRuntimes,
   collectPerfSamples,
   collectPredictionResults,
+  collectComplexityResults,
   collectMemoryResponseSeries,
   formatPercent,
 } from './slideUtils'
@@ -88,6 +89,7 @@ function Pill({ children, color = 'slate' }) {
     rose: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
     violet: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
     amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+    sky: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200',
   }[color]
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${palette}`}>
@@ -544,6 +546,61 @@ function MemoryResponseSection({ report }) {
   )
 }
 
+function ComplexitySection({ report }) {
+  const results = useMemo(() => collectComplexityResults(report), [report])
+  if (!results.length) return null
+
+  const asyncLabel = (mode) => ({
+    'single-await': 'single await',
+    'sequential-await': 'sequential awaits',
+    'async-iteration': 'async iteration',
+    'parallel-fanout': 'Promise fan-out',
+    race: 'Promise race',
+    unknown: 'async',
+  }[mode] || mode)
+
+  return (
+    <SectionCard icon={Gauge} eyebrow="Static complexity" title="Big-O from code structure" accent="violet">
+      <p className="mb-4 text-xs text-muted-foreground">
+        Setup is parsed for context, but the estimate scores only each benchmark test body.
+      </p>
+      <div className="space-y-4">
+        {results.map((r) => {
+          const c = r.complexity || {}
+          const asyncMode = c.async?.mode && c.async.mode !== 'none' ? c.async.mode : null
+          return (
+            <div key={r.testIndex ?? r.title} className="rounded-xl border-2 border-violet-200 dark:border-violet-800/60 bg-violet-50 dark:bg-violet-950/30 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">{r.title}</div>
+                  {Number.isFinite(Number(c.time?.confidence)) && (
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {formatPercent(Number(c.time.confidence) * 100, 0)} confidence
+                    </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <Pill color="violet">{c.time?.notation || 'unknown'}</Pill>
+                  <Pill color="sky">{c.space?.notation || 'unknown'}</Pill>
+                </div>
+              </div>
+              {c.explanation && (
+                <p className="mt-2 text-xs leading-relaxed text-foreground/80">{c.explanation}</p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {asyncMode && <Pill color="amber">{asyncLabel(asyncMode)}</Pill>}
+                {(c.signals || []).slice(0, 4).map(signal => (
+                  <Pill key={signal} color="slate">{signal}</Pill>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </SectionCard>
+  )
+}
+
 function InsightSection({ report }) {
   const insight = report?.analysis?.comparison
   if (!insight) return null
@@ -777,6 +834,7 @@ export default function MobileReportViewer({
         <RuntimesSection report={report} />
         <PerfCountersSection report={report} />
         <JitAmplificationSection report={report} />
+        <ComplexitySection report={report} />
         <MemoryResponseSection report={report} />
         <InsightSection report={report} />
         <MethodologySection report={report} />

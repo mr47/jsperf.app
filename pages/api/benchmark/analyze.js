@@ -22,6 +22,7 @@ const RATE_LIMIT = { free: 2, donor: 10, window: '5 m' }
 // Synchronous budget:
 //   - QuickJS:    4 memory profiles × ~1.5s ≈ 6s
 //   - V8 sandbox: 1 canonical single-vCPU run × ~5-8s
+//   - Complexity: <100ms static pass
 //   - Prediction: <100ms
 //   - Total:      ~35s, leaving headroom for slow cold starts.
 export const config = {
@@ -67,7 +68,7 @@ export default async function handler(req, res) {
     // because selected Node/Deno/Bun versions affect the result independently.
     const codeHash = computeCodeHash(tests, setup, teardown)
     const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(tests, setup, teardown, multiRuntimeOptions)
-    const cacheKey = `analysis_v7:${codeHash}`
+    const cacheKey = `analysis_v8:${codeHash}`
 
     // `force: true` from the "Re-analyze" button busts the Redis cache
     // so the user always gets a fresh QuickJS+V8 run. The MongoDB
@@ -104,6 +105,7 @@ export default async function handler(req, res) {
     // separately via polling.
     const enabledEngines = ['quickjs', 'v8']
     if (process.env.BENCHMARK_WORKER_URL) enabledEngines.push('multi-runtime')
+    enabledEngines.push('complexity')
     enabledEngines.push('prediction')
     sendLine({ type: 'pipeline', engines: enabledEngines })
 

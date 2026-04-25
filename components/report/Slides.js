@@ -55,6 +55,7 @@ import {
   flattenRuntimes,
   collectPerfSamples,
   collectPredictionResults,
+  collectComplexityResults,
   collectMemoryResponseSeries,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
@@ -790,6 +791,142 @@ function MemoryResponseSlide({ report }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Slide: Static complexity                                           */
+/* ------------------------------------------------------------------ */
+
+function ComplexitySlide({ report }) {
+  const results = useMemo(() => collectComplexityResults(report), [report])
+  if (!results.length) return null
+
+  const visible = results.slice(0, 6)
+  const hidden = Math.max(0, results.length - visible.length)
+  const hasAsync = visible.some(r => r.complexity?.async?.mode && r.complexity.async.mode !== 'none')
+  const timeOrder = ['constant', 'logarithmic', 'linear', 'linearithmic', 'quadratic', 'cubic', 'unknown']
+  const timeKey = (complexity) => {
+    const label = complexity?.time?.label
+    if (label) return String(label).toLowerCase()
+    const notation = String(complexity?.time?.notation || '').toLowerCase().replace(/\s+/g, '')
+    if (notation === 'o(1)') return 'constant'
+    if (notation === 'o(logn)') return 'logarithmic'
+    if (notation === 'o(n)') return 'linear'
+    if (notation === 'o(nlogn)') return 'linearithmic'
+    if (notation === 'o(n^2)') return 'quadratic'
+    if (notation === 'o(n^3)') return 'cubic'
+    return 'unknown'
+  }
+  const timeRank = (complexity) => {
+    const idx = timeOrder.indexOf(timeKey(complexity))
+    return idx >= 0 ? idx : timeOrder.length - 1
+  }
+  const peak = [...results].sort((a, b) => timeRank(b.complexity) - timeRank(a.complexity))[0]
+  const constantSpace = results.filter(r => r.complexity?.space?.notation === 'O(1)' || r.complexity?.space?.label === 'constant').length
+  const linearOrBetter = results.filter(r => timeRank(r.complexity) <= timeOrder.indexOf('linear')).length
+
+  const asyncLabel = (mode) => ({
+    'single-await': 'single await',
+    'sequential-await': 'sequential awaits',
+    'async-iteration': 'async iteration',
+    'parallel-fanout': 'Promise fan-out',
+    race: 'Promise race',
+    unknown: 'async',
+  }[mode] || mode)
+
+  return (
+    <SlideShell
+      accent="radial-gradient(closest-side, rgba(139,92,246,0.18), transparent)"
+      className="bg-gradient-to-br from-slate-50 via-white to-violet-50 dark:from-slate-950 dark:via-slate-950 dark:to-violet-950/30"
+    >
+      <SlideHeader icon={Gauge} eyebrow="Static complexity" title="What the code shape suggests" />
+
+      <div className="mb-6 grid grid-cols-3 gap-4">
+        <div className="rounded-3xl border-2 border-violet-200 dark:border-violet-800/60 bg-violet-50/70 dark:bg-violet-950/30 p-5">
+          <div className="text-xs uppercase tracking-wider text-violet-700 dark:text-violet-300 font-semibold">Peak time</div>
+          <div className="mt-2 text-4xl font-black tracking-tight">{peak?.complexity?.time?.notation || 'unknown'}</div>
+          <div className="mt-2 text-sm text-muted-foreground truncate">{peak?.title || 'No test'}</div>
+        </div>
+        <div className="rounded-3xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/70 dark:bg-sky-950/30 p-5">
+          <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 font-semibold">Space</div>
+          <div className="mt-2 text-4xl font-black tracking-tight">{constantSpace}/{results.length}</div>
+          <div className="mt-2 text-sm text-muted-foreground">tests estimated as O(1)</div>
+        </div>
+        <div className="rounded-3xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/30 p-5">
+          <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-semibold">Shape</div>
+          <div className="mt-2 text-4xl font-black tracking-tight">{linearOrBetter}/{results.length}</div>
+          <div className="mt-2 text-sm text-muted-foreground">linear or better</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1.35fr_0.65fr] print:grid-cols-[1.35fr_0.65fr] gap-5 flex-1 min-h-0">
+        <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-6 flex flex-col min-h-0">
+          <div className="mb-4 grid grid-cols-[minmax(0,1fr)_120px_120px] gap-4 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <div>Test</div>
+            <div className="text-right">Time</div>
+            <div className="text-right">Space</div>
+          </div>
+          <div className="space-y-4 overflow-hidden">
+            {visible.map((r) => {
+              const c = r.complexity || {}
+              const asyncMode = c.async?.mode && c.async.mode !== 'none' ? c.async.mode : null
+              const rank = timeRank(c)
+              return (
+                <div key={r.testIndex ?? r.title} className="grid grid-cols-[minmax(0,1fr)_120px_120px] gap-4 rounded-2xl bg-slate-50/80 dark:bg-slate-950/30 p-4">
+                  <div className="min-w-0">
+                    <div className="text-base font-semibold truncate">{r.title}</div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <div className="grid flex-1 grid-cols-6 gap-1.5">
+                        {timeOrder.slice(0, 6).map((key, i) => (
+                          <div key={key} className={`h-2.5 rounded-full ${i === rank ? 'bg-violet-500' : 'bg-slate-200 dark:bg-slate-800'}`} />
+                        ))}
+                      </div>
+                      {asyncMode && <Tag color="amber">{asyncLabel(asyncMode)}</Tag>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-black tabular-nums">{c.time?.notation || 'unknown'}</div>
+                    {Number.isFinite(Number(c.time?.confidence)) && (
+                      <div className="text-xs text-muted-foreground">{formatPercent(Number(c.time.confidence) * 100, 0)}</div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-black tabular-nums">{c.space?.notation || 'unknown'}</div>
+                    <div className="text-xs text-muted-foreground">{c.space?.label || 'space'}</div>
+                  </div>
+                </div>
+              )
+            })}
+            {hidden > 0 && (
+              <p className="pt-3 text-xs text-muted-foreground">+{hidden} more test{hidden === 1 ? '' : 's'} not shown.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-6">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">How to read it</div>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/80">
+              The analyser scores the benchmark test body from its parsed code structure. Setup variables help identify context, but setup work is not charged to every test case.
+            </p>
+          </div>
+          <div className="rounded-3xl border border-violet-200 dark:border-violet-800/60 bg-violet-50/70 dark:bg-violet-950/30 p-6">
+            <div className="text-xs uppercase tracking-wider text-violet-700 dark:text-violet-300 font-semibold">Estimate, not proof</div>
+            <p className="mt-2 text-sm leading-relaxed text-foreground/80">
+              Dynamic calls, regular expressions, platform APIs, and parser recovery can reduce confidence. Use this beside the measured runtime data.
+            </p>
+          </div>
+          {hasAsync && (
+            <div className="rounded-3xl border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 p-6 text-sm">
+              <span className="font-semibold">Async changes scheduling.</span>{' '}
+              <span className="text-foreground/80">
+                Big-O describes total work; awaits and Promise fan-out affect elapsed time and resource pressure.
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </SlideShell>
+  )
+}
+/* ------------------------------------------------------------------ */
 /*  Slide: AI insight                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -1085,6 +1222,7 @@ export const SLIDE_COMPONENTS = {
   runtimes: RuntimesSlide,
   perfCounters: PerfCountersSlide,
   jitAmplification: JitAmplificationSlide,
+  complexity: ComplexitySlide,
   memoryResponse: MemoryResponseSlide,
   insight: InsightSlide,
   methodology: MethodologySlide,
@@ -1099,6 +1237,7 @@ export const SLIDE_LABELS = {
   runtimes: 'Runtimes',
   perfCounters: 'Perf counters',
   jitAmplification: 'JIT boost',
+  complexity: 'Complexity',
   memoryResponse: 'Memory',
   insight: 'Insight',
   methodology: 'Methodology',

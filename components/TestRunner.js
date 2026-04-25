@@ -802,6 +802,8 @@ export default function Tests(props) {
           `--- Test ${r.testIndex + 1} (${r.title}) ---`,
           `  QuickJS (interpreter): ${formatNumber(Math.round(r.quickjs.opsPerSec))} ops/sec`,
           `  V8 (JIT):              ${formatNumber(Math.round(r.v8.opsPerSec))} ops/sec`,
+          r.complexity ? `  Static Complexity:    time ${r.complexity.time?.notation || 'unknown'}, space ${r.complexity.space?.notation || 'unknown'}${r.complexity.async?.mode && r.complexity.async.mode !== 'none' ? `, async ${r.complexity.async.mode}` : ''}` : null,
+          r.complexity?.explanation ? `  Complexity Notes:     ${r.complexity.explanation}` : null,
           `  JIT Amplification:     ${r.prediction?.jitBenefit ?? 'N/A'}x`,
           `  Memory Response:       ${r.prediction?.scalingType ?? 'N/A'} (fit quality: ${r.prediction?.scalingConfidence != null ? (r.prediction.scalingConfidence * 100).toFixed(0) + '%' : 'N/A'})`,
           `  Memory Sensitivity:    ${r.prediction?.memSensitivity ?? 'N/A'}`,
@@ -830,7 +832,7 @@ ${divergenceNote}`
     }
 
     const promptHints = []
-    if (includeAnalysis) promptHints.push('JIT amplification, memory response, characteristics')
+    if (includeAnalysis) promptHints.push('JIT amplification, memory response, static complexity, characteristics')
     if (includeAnalysis && multiRuntimeStatus === 'done') {
       promptHints.push('cross-runtime variation (Node/Deno/Bun) and hardware perf counters where available')
     }

@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button'
 import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
+import ComplexityInsight from './ComplexityInsight'
 import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
 import { Microscope, RefreshCw, Database } from 'lucide-react'
@@ -24,10 +25,11 @@ const STEP_META = {
   quickjs: { label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
   v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
   'multi-runtime': { label: 'Comparing Node / Deno / Bun', desc: 'Single-core runtime comparison + hardware perf counters' },
+  complexity: { label: 'Estimating complexity', desc: 'Static time, space and async heuristics' },
   prediction: { label: 'Building prediction model', desc: 'JIT amplification and memory-response analysis' },
 }
 
-const DEFAULT_PIPELINE = ['quickjs', 'v8', 'multi-runtime', 'prediction']
+const DEFAULT_PIPELINE = ['quickjs', 'v8', 'multi-runtime', 'complexity', 'prediction']
 
 // Build the step list. The fallback includes multi-runtime so the loading
 // panel doesn't reflow when the server's first pipeline event arrives.
@@ -233,6 +235,10 @@ export default function DeepAnalysis({
       <JITInsight
         results={enrichedResults}
         comparison={analysis.comparison}
+      />
+
+      <ComplexityInsight
+        results={enrichedResults}
       />
 
       <ScalingPredictionChart
