@@ -263,6 +263,14 @@ export default function Tests(props) {
   const lastHeartbeatRef = useRef(0)
   const watchdogTimerRef = useRef(null)
   const stoppedForVisibilityRef = useRef(false)
+  const statusMessageRef = useRef('')
+  const lastCycleUiUpdateRef = useRef(0)
+
+  const setStatusMessageIfChanged = useCallback((message) => {
+    if (statusMessageRef.current === message) return
+    statusMessageRef.current = message
+    setStatusMessage(message)
+  }, [])
 
   const fetchStats = useCallback(() => {
     if (slug && revision) {
@@ -608,6 +616,7 @@ export default function Tests(props) {
         elapsed, total, opsPerSec, taskIndex, taskCount, error
       } = event.data
       const id = Number(rawId)
+      let shouldUpdateCycleUi = true
 
       if (status === 'running') {
         const pct = total > 0 ? Math.min(100, Math.round((elapsed / total) * 100)) : 0
@@ -615,13 +624,22 @@ export default function Tests(props) {
           opsPerSec > 0 ? `~${formatNumber(Math.round(opsPerSec))} ops/s` : 'warming up…'
         const taskProgress =
           taskCount > 1 ? `[${taskIndex + 1}/${taskCount}] ` : ''
-        setStatusMessage(`${taskProgress}${name} — ${hzEstimate} — ${pct}%`)
+        const message = `${taskProgress}${name} — ${hzEstimate} — ${pct}%`
+        const now = performance.now()
+        shouldUpdateCycleUi = lastCycleUiUpdateRef.current === 0 || now - lastCycleUiUpdateRef.current > 100
+        if (shouldUpdateCycleUi) {
+          lastCycleUiUpdateRef.current = now
+          setStatusMessageIfChanged(message)
+        }
       } else if (!['finished', 'completed', 'error'].includes(status)) {
-        setStatusMessage(`${name} × ${count} (${size} sample${size === 1 ? '' : 's'})`)
+        setStatusMessageIfChanged(`${name} × ${count} (${size} sample${size === 1 ? '' : 's'})`)
       }
 
-      setTests((prevTests) =>
-        prevTests.map((test, idx) => {
+      if (!shouldUpdateCycleUi) return
+
+      setTests((prevTests) => {
+        let changed = false
+        const nextTests = prevTests.map((test, idx) => {
           if (idx !== id) return test
           if (
             test.hz != null &&
@@ -630,14 +648,26 @@ export default function Tests(props) {
           ) {
             return test
           }
-          return {
+          const next = {
             ...test,
             status,
             ...(status === 'running' ? { elapsed, total, opsPerSec } : {}),
             ...(status === 'error' ? { error } : {}),
           }
+          if (
+            next.status === test.status &&
+            next.elapsed === test.elapsed &&
+            next.total === test.total &&
+            next.opsPerSec === test.opsPerSec &&
+            next.error === test.error
+          ) {
+            return test
+          }
+          changed = true
+          return next
         })
-      )
+        return changed ? nextTests : prevTests
+      })
     })
 
     _broker.register('complete', event => {
@@ -706,16 +736,16 @@ export default function Tests(props) {
       })
       if (stoppedForVisibilityRef.current) {
         stoppedForVisibilityRef.current = false
-        setStatusMessage('Stopped — tab became inactive. Run again when ready.')
+        setStatusMessageIfChanged('Stopped — tab became inactive. Run again when ready.')
         setBenchStatus('ready')
       } else {
-        setStatusMessage('Done. Ready to run again.')
+        setStatusMessageIfChanged('Done. Ready to run again.')
         setBenchStatus('complete')
       }
     })
 
     _broker.register('ready', () => {
-      setStatusMessage('Ready to run.')
+      setStatusMessageIfChanged('Ready to run.')
       setBenchStatus('ready')
     })
 
@@ -723,7 +753,7 @@ export default function Tests(props) {
       _broker.unregisterAll()
       clearInterval(watchdogTimerRef.current)
     }
-  }, [iframeKey, slug, revision])
+  }, [iframeKey, slug, revision, setStatusMessageIfChanged])
 
   const sandboxUrl = `/sandbox/${id}`
 
@@ -732,7 +762,7 @@ export default function Tests(props) {
 
     if (!options) {
       broker.emit('run', {options})
-      setStatusMessage('Stopped.')
+      setStatusMessageIfChanged('Stopped.')
       setBenchStatus('ready')
       return
     }
@@ -741,6 +771,7 @@ export default function Tests(props) {
     broker.emit('run', {options})
 
     lastHeartbeatRef.current = performance.now()
+    lastCycleUiUpdateRef.current = 0
     watchdogTimerRef.current = setInterval(() => {
       // If we haven't heard from the iframe in 3 seconds, it's likely stuck in an infinite loop
       if (performance.now() - lastHeartbeatRef.current > 3000) {
@@ -757,7 +788,7 @@ export default function Tests(props) {
           return test
         }))
         
-        setStatusMessage('Test timed out. Iframe reset.')
+        setStatusMessageIfChanged('Test timed out. Iframe reset.')
         setBenchStatus('complete')
         setIframeKey(k => k + 1)
       }

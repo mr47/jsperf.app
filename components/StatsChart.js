@@ -6,11 +6,11 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   Cell
 } from 'recharts'
 import { formatNumber } from '../utils/ArrayUtils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import SafeResponsiveContainer from './SafeResponsiveContainer'
 
 const COLORS = [
   '#3b82f6', // blue-500
@@ -86,31 +86,29 @@ export default function StatsChart({ stats, tests }) {
                 Comparing the mean operations per second for each test case.
               </p>
             </div>
-            <div className="h-[320px] w-full" style={{ minWidth: 0 }}>
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <BarChart
-                  data={overallData}
-                  layout="vertical"
-                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="var(--border)" opacity={0.3} />
-                  <XAxis type="number" tickFormatter={compactNumber} tick={{ fill: 'var(--muted-foreground)' }} />
-                  <YAxis type="category" dataKey="name" width={200} tick={{ fontSize: 13, fill: 'var(--foreground)' }} />
-                  <Tooltip 
-                    cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
-                    formatter={(value, name) => [name === 'Ops/sec' ? formatNumber(value) : value, 'Ops/sec']}
-                    contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px', color: 'var(--foreground)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                    itemStyle={{ color: 'var(--foreground)', fontWeight: '500' }}
-                    labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px', marginBottom: '4px' }}
-                  />
-                  <Bar dataKey="Ops/sec" radius={[0, 6, 6, 0]} animationDuration={1000}>
-                    {overallData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <SafeResponsiveContainer className="h-[320px] w-full" style={{ minWidth: 0 }}>
+              <BarChart
+                data={overallData}
+                layout="vertical"
+                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="var(--border)" opacity={0.3} />
+                <XAxis type="number" tickFormatter={compactNumber} tick={{ fill: 'var(--muted-foreground)' }} />
+                <YAxis type="category" dataKey="name" width={200} tick={{ fontSize: 13, fill: 'var(--foreground)' }} />
+                <Tooltip 
+                  cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
+                  formatter={(value, name) => [name === 'Ops/sec' ? formatNumber(value) : value, 'Ops/sec']}
+                  contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px', color: 'var(--foreground)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  itemStyle={{ color: 'var(--foreground)', fontWeight: '500' }}
+                  labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px', marginBottom: '4px' }}
+                />
+                <Bar dataKey="Ops/sec" radius={[0, 6, 6, 0]} animationDuration={1000}>
+                  {overallData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </SafeResponsiveContainer>
           </div>
         ) : (
           <div className="p-8 text-center border border-border/60 rounded-xl bg-card">
@@ -137,31 +135,29 @@ export default function StatsChart({ stats, tests }) {
                   Showing the fastest browsers/OS combinations according to community runs.
                 </p>
               </div>
-              <div className="h-[320px] w-full" style={{ minWidth: 0 }}>
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <BarChart
-                    data={chartData}
-                    layout="vertical"
-                    margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="var(--border)" opacity={0.3} />
-                    <XAxis type="number" tickFormatter={compactNumber} tick={{ fill: 'var(--muted-foreground)' }} />
-                    <YAxis type="category" dataKey="name" width={220} tick={{ fontSize: 13, fill: 'var(--foreground)' }} />
-                    <Tooltip 
-                      cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
-                      formatter={(value, name) => [name === 'Ops/sec' ? formatNumber(value) : value, 'Ops/sec']}
-                      contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px', color: 'var(--foreground)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                      itemStyle={{ color: 'var(--foreground)', fontWeight: '500' }}
-                      labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px', marginBottom: '4px' }}
-                    />
-                    <Bar dataKey="Ops/sec" radius={[0, 6, 6, 0]} animationDuration={1000}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              <SafeResponsiveContainer className="h-[320px] w-full" style={{ minWidth: 0 }}>
+                <BarChart
+                  data={chartData}
+                  layout="vertical"
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={true} stroke="var(--border)" opacity={0.3} />
+                  <XAxis type="number" tickFormatter={compactNumber} tick={{ fill: 'var(--muted-foreground)' }} />
+                  <YAxis type="category" dataKey="name" width={220} tick={{ fontSize: 13, fill: 'var(--foreground)' }} />
+                  <Tooltip 
+                    cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
+                    formatter={(value, name) => [name === 'Ops/sec' ? formatNumber(value) : value, 'Ops/sec']}
+                    contentStyle={{ backgroundColor: 'var(--card)', borderColor: 'var(--border)', borderRadius: '8px', color: 'var(--foreground)', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    itemStyle={{ color: 'var(--foreground)', fontWeight: '500' }}
+                    labelStyle={{ color: 'var(--muted-foreground)', fontSize: '12px', marginBottom: '4px' }}
+                  />
+                  <Bar dataKey="Ops/sec" radius={[0, 6, 6, 0]} animationDuration={1000}>
+                    {chartData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </SafeResponsiveContainer>
             </div>
           </TabsContent>
         )

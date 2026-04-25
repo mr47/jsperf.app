@@ -6,10 +6,10 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   Legend,
 } from 'recharts'
 import { formatNumber } from '../utils/ArrayUtils'
+import SafeResponsiveContainer from './SafeResponsiveContainer'
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
 
@@ -101,40 +101,38 @@ export default function ScalingPredictionChart({ results }) {
           {!v8Available && ' V8 is still used for the canonical JIT result when available.'}
         </p>
 
-        <div className="h-[260px] w-full" style={{ minWidth: 0 }}>
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
-              <XAxis
-                dataKey="resource"
-                tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
-                label={{ value: 'Memory limit', position: 'insideBottom', offset: -2, fill: 'var(--muted-foreground)', fontSize: 11 }}
+        <SafeResponsiveContainer className="h-[260px] w-full" style={{ minWidth: 0 }}>
+          <LineChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" opacity={0.3} />
+            <XAxis
+              dataKey="resource"
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+              label={{ value: 'Memory limit', position: 'insideBottom', offset: -2, fill: 'var(--muted-foreground)', fontSize: 11 }}
+            />
+            <YAxis
+              tickFormatter={compactNumber}
+              tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+              label={{ value: 'ops/sec', angle: -90, position: 'insideLeft', fill: 'var(--muted-foreground)', fontSize: 11 }}
+            />
+            <Tooltip
+              content={<CustomTooltip memoryMap={
+                Object.fromEntries(chartData.map(d => [d.resource, memoryMap[d._label] || d.resource]))
+              } />}
+            />
+            <Legend wrapperStyle={{ fontSize: '12px' }} />
+            {validResults.map((r, i) => (
+              <Line
+                key={r.testIndex}
+                type="monotone"
+                dataKey={r.title}
+                stroke={COLORS[i % COLORS.length]}
+                strokeWidth={2}
+                dot={{ r: 4 }}
+                activeDot={{ r: 6 }}
               />
-              <YAxis
-                tickFormatter={compactNumber}
-                tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                label={{ value: 'ops/sec', angle: -90, position: 'insideLeft', fill: 'var(--muted-foreground)', fontSize: 11 }}
-              />
-              <Tooltip
-                content={<CustomTooltip memoryMap={
-                  Object.fromEntries(chartData.map(d => [d.resource, memoryMap[d._label] || d.resource]))
-                } />}
-              />
-              <Legend wrapperStyle={{ fontSize: '12px' }} />
-              {validResults.map((r, i) => (
-                <Line
-                  key={r.testIndex}
-                  type="monotone"
-                  dataKey={r.title}
-                  stroke={COLORS[i % COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 4 }}
-                  activeDot={{ r: 6 }}
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+            ))}
+          </LineChart>
+        </SafeResponsiveContainer>
 
         {predictions.length > 0 && (
           <div className="mt-4 space-y-2">

@@ -33,7 +33,6 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer,
   Cell,
   RadarChart,
   PolarGrid,
@@ -60,6 +59,7 @@ import {
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
+import SafeResponsiveContainer from '../SafeResponsiveContainer'
 
 /* ------------------------------------------------------------------ */
 /*  Building blocks                                                    */
@@ -237,36 +237,34 @@ function LeaderboardSlide({ report }) {
   return (
     <SlideShell accent="radial-gradient(closest-side, rgba(16,185,129,0.25), transparent)">
       <SlideHeader icon={Gauge} eyebrow="Speed leaderboard" title="Ops per second, ranked" />
-      <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ top: 8, right: 64, bottom: 8, left: 12 }}>
-            <CartesianGrid strokeDasharray="3 3" horizontal={false} className="opacity-30" />
-            <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={formatOps} />
-            <YAxis
-              type="category"
-              dataKey="name"
-              tick={{ fontSize: 13 }}
-              width={Math.min(220, Math.max(120, ...data.map(d => d.name.length * 7)))}
-              interval={0}
-            />
-            <Tooltip
-              cursor={{ fill: 'rgba(148,163,184,0.1)' }}
-              formatter={(value) => [formatOps(value) + ' ops/sec', 'Speed']}
-              contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-            />
-            <Bar dataKey="ops" radius={[0, 8, 8, 0]} label={{
-              position: 'right',
-              formatter: (v) => formatOps(v),
-              fontSize: 12,
-              fill: 'currentColor',
-            }}>
-              {data.map((entry, i) => (
-                <Cell key={i} fill={entry.color} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <SafeResponsiveContainer className="flex-1 min-h-0">
+        <BarChart data={data} layout="vertical" margin={{ top: 8, right: 64, bottom: 8, left: 12 }}>
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} className="opacity-30" />
+          <XAxis type="number" tick={{ fontSize: 12 }} tickFormatter={formatOps} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            tick={{ fontSize: 13 }}
+            width={Math.min(220, Math.max(120, ...data.map(d => d.name.length * 7)))}
+            interval={0}
+          />
+          <Tooltip
+            cursor={{ fill: 'rgba(148,163,184,0.1)' }}
+            formatter={(value) => [formatOps(value) + ' ops/sec', 'Speed']}
+            contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+          />
+          <Bar dataKey="ops" radius={[0, 8, 8, 0]} label={{
+            position: 'right',
+            formatter: (v) => formatOps(v),
+            fontSize: 12,
+            fill: 'currentColor',
+          }}>
+            {data.map((entry, i) => (
+              <Cell key={i} fill={entry.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </SafeResponsiveContainer>
       <p className="mt-4 text-xs text-muted-foreground">
         Source: {report?.summary?.dataSource === 'v8'
           ? 'V8 Firecracker analysis'
@@ -414,23 +412,21 @@ function RuntimesSlide({ report }) {
   return (
     <SlideShell accent="radial-gradient(closest-side, rgba(59,130,246,0.25), transparent)">
       <SlideHeader icon={Cpu} eyebrow="Cross-runtime" title="Node · Deno · Bun · friends" />
-      <div className="flex-1 min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data.rows} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-            <XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} />
-            <YAxis tick={{ fontSize: 12 }} tickFormatter={formatOps} />
-            <Tooltip
-              formatter={(value, name) => [formatOps(value) + ' ops/sec', name]}
-              contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
-            />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            {data.runtimes.map(rt => (
-              <Bar key={rt} dataKey={rt} fill={runtimeHexColor(rt)} radius={[6, 6, 0, 0]} />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <SafeResponsiveContainer className="flex-1 min-h-0">
+        <BarChart data={data.rows} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
+          <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+          <XAxis dataKey="name" tick={{ fontSize: 12 }} interval={0} />
+          <YAxis tick={{ fontSize: 12 }} tickFormatter={formatOps} />
+          <Tooltip
+            formatter={(value, name) => [formatOps(value) + ' ops/sec', name]}
+            contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+          />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          {data.runtimes.map(rt => (
+            <Bar key={rt} dataKey={rt} fill={runtimeHexColor(rt)} radius={[6, 6, 0, 0]} />
+          ))}
+        </BarChart>
+      </SafeResponsiveContainer>
       <p className="mt-4 text-xs text-muted-foreground">
         Same code executed on different JavaScript engines. Higher bars = faster.
       </p>
@@ -510,31 +506,29 @@ function PerfCountersSlide({ report }) {
     <SlideShell accent="radial-gradient(closest-side, rgba(139,92,246,0.25), transparent)">
       <SlideHeader icon={Microscope} eyebrow="Hardware perf counters" title={`What the CPU sees · ${data.runtime}`} />
       <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 print:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 print:col-span-2 min-h-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart data={data.radarData}>
-              <PolarGrid />
-              <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12 }} />
-              {/* Domain runs to 1.25 instead of 1 so the largest sample
-                  on each axis sits at ~80% of the rim instead of being
-                  pinned to the very edge — gives the polygon room to
-                  breathe and stops labels from clipping at the corners. */}
-              <PolarRadiusAxis angle={30} tick={false} domain={[0, 1.25]} />
-              {data.tests.map((t, i) => (
-                <Radar
-                  key={t + i}
-                  name={t}
-                  dataKey={t}
-                  stroke={palette[i % palette.length]}
-                  fill={palette[i % palette.length]}
-                  fillOpacity={0.18}
-                />
-              ))}
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Tooltip formatter={(v) => [(v * 100).toFixed(0) + '% of max', '']} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
+        <SafeResponsiveContainer className="lg:col-span-2 print:col-span-2 h-full min-h-0">
+          <RadarChart data={data.radarData}>
+            <PolarGrid />
+            <PolarAngleAxis dataKey="metric" tick={{ fontSize: 12 }} />
+            {/* Domain runs to 1.25 instead of 1 so the largest sample
+                on each axis sits at ~80% of the rim instead of being
+                pinned to the very edge — gives the polygon room to
+                breathe and stops labels from clipping at the corners. */}
+            <PolarRadiusAxis angle={30} tick={false} domain={[0, 1.25]} />
+            {data.tests.map((t, i) => (
+              <Radar
+                key={t + i}
+                name={t}
+                dataKey={t}
+                stroke={palette[i % palette.length]}
+                fill={palette[i % palette.length]}
+                fillOpacity={0.18}
+              />
+            ))}
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Tooltip formatter={(v) => [(v * 100).toFixed(0) + '% of max', '']} />
+          </RadarChart>
+        </SafeResponsiveContainer>
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
             Values are normalised per metric — the test using the most of
@@ -717,36 +711,34 @@ function MemoryResponseSlide({ report }) {
     >
       <SlideHeader icon={Activity} eyebrow="Memory response" title="Throughput under memory limits" />
       <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr] print:grid-cols-[1.25fr_0.75fr] gap-6 flex-1 min-h-0">
-        <div className="min-h-0 rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-white/75 dark:bg-slate-900/60 p-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={response.data} margin={{ top: 8, right: 24, bottom: 20, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
-              <XAxis dataKey="resource" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} tickFormatter={formatOps} />
-              <Tooltip
-                formatter={(value, name) => [formatOps(value) + ' ops/sec', response.series.find(s => s.key === name)?.title || name]}
-                contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+        <SafeResponsiveContainer className="h-full min-h-0 rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-white/75 dark:bg-slate-900/60 p-4">
+          <LineChart data={response.data} margin={{ top: 8, right: 24, bottom: 20, left: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+            <XAxis dataKey="resource" tick={{ fontSize: 12 }} />
+            <YAxis tick={{ fontSize: 12 }} tickFormatter={formatOps} />
+            <Tooltip
+              formatter={(value, name) => [formatOps(value) + ' ops/sec', response.series.find(s => s.key === name)?.title || name]}
+              contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+            />
+            <Legend
+              formatter={(value) => response.series.find(s => s.key === value)?.title || value}
+              wrapperStyle={{ fontSize: 12 }}
+            />
+            {response.series.map((s, i) => (
+              <Line
+                key={s.key}
+                type="monotone"
+                dataKey={s.key}
+                name={s.title}
+                stroke={speedColor(i, response.series.length)}
+                strokeWidth={3}
+                dot={{ r: 4 }}
+                activeDot={{ r: 6 }}
+                connectNulls
               />
-              <Legend
-                formatter={(value) => response.series.find(s => s.key === value)?.title || value}
-                wrapperStyle={{ fontSize: 12 }}
-              />
-              {response.series.map((s, i) => (
-                <Line
-                  key={s.key}
-                  type="monotone"
-                  dataKey={s.key}
-                  name={s.title}
-                  stroke={speedColor(i, response.series.length)}
-                  strokeWidth={3}
-                  dot={{ r: 4 }}
-                  activeDot={{ r: 6 }}
-                  connectNulls
-                />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+            ))}
+          </LineChart>
+        </SafeResponsiveContainer>
 
         <div className="flex flex-col gap-4 text-sm">
           <div className="rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/80 dark:bg-sky-950/30 p-5">
