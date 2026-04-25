@@ -5,6 +5,9 @@
   "description": "jsperf.net",
   "repository": "https://github.com/mr47/jsperf.app",
   "main": "index.js",
+  "engines": {
+    "node": "22.x"
+  },
   "author": "Dmytro Piddubnyi <https://mr47.in>",
   "license": "ISC",
   "scripts": {
