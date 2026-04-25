@@ -19,7 +19,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev --no-audit --no-fund
 
-COPY server.js docker.js ./
+COPY server.js docker.js runtime-targets.js ./
 COPY runtimes ./runtimes
 
 ENV NODE_ENV=production
