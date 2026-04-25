@@ -125,6 +125,57 @@ export function flattenRuntimes(report) {
 }
 
 /**
+ * Summarise the controlled Node/Deno/Bun worker measurements for the
+ * methodology slide. Browser stats and runtime-worker stats are collected
+ * through different paths, so the report needs to name both explicitly.
+ */
+export function aggregateRuntimeSources(report) {
+  const slots = flattenRuntimes(report)
+  const byRuntime = new Map()
+  let totalProfiles = 0
+
+  for (const slot of slots) {
+    const profiles = Array.isArray(slot.profiles) ? slot.profiles : []
+    totalProfiles += profiles.length
+
+    const current = byRuntime.get(slot.runtime) || {
+      runtime: slot.runtime,
+      tests: 0,
+      profiles: 0,
+      opsTotal: 0,
+      opsSamples: 0,
+      hasPerfCounters: false,
+    }
+    current.tests += 1
+    current.profiles += profiles.length
+    if (Number.isFinite(slot.avgOpsPerSec) && slot.avgOpsPerSec > 0) {
+      current.opsTotal += slot.avgOpsPerSec
+      current.opsSamples += 1
+    }
+    if (profiles.some(p => p?.perfCounters && Object.keys(p.perfCounters).length > 0)) {
+      current.hasPerfCounters = true
+    }
+    byRuntime.set(slot.runtime, current)
+  }
+
+  const runtimes = [...byRuntime.values()]
+    .map(r => ({
+      runtime: r.runtime,
+      tests: r.tests,
+      profiles: r.profiles,
+      avgOpsPerSec: r.opsSamples ? Math.round(r.opsTotal / r.opsSamples) : 0,
+      hasPerfCounters: r.hasPerfCounters,
+    }))
+    .sort((a, b) => a.runtime.localeCompare(b.runtime, undefined, { numeric: true }))
+
+  return {
+    totalRuntimeSlots: slots.length,
+    totalProfiles,
+    runtimes,
+  }
+}
+
+/**
  * Across the full report, return every profile that captured perf
  * counters (regardless of which test or runtime). Empty array means
  * the perf-counters slide should be skipped.
@@ -173,7 +224,8 @@ export function buildDeck(report) {
   if (hasInsightContent(report?.analysis?.comparison)) slides.push('insight')
 
   const agg = aggregateStats(report?.stats)
-  if (agg.totalRuns > 0) slides.push('methodology')
+  const runtimeSources = aggregateRuntimeSources(report)
+  if (agg.totalRuns > 0 || runtimeSources.runtimes.length > 0) slides.push('methodology')
 
   slides.push('credits')
   return slides

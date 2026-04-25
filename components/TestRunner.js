@@ -435,14 +435,16 @@ export default function Tests(props) {
 
       const contentType = res.headers.get('Content-Type') || ''
 
-      // Cache hits return standard JSON. The cached payload may include
-      // fresh multiRuntime jobIds (the API re-enqueues those even on
-      // cache HIT) — kick off polling if so.
+      // Cache hits return standard JSON. Multi-runtime data may already be
+      // cached, or the API may return fresh worker jobIds to poll.
       if (contentType.includes('application/json')) {
         const data = await res.json()
         setAnalysis(data)
         setAnalysisStatus('done')
-        if (data?.multiRuntime?.jobs) {
+        if (data?.multiRuntime?.results) {
+          setMultiRuntimeData({ results: data.multiRuntime.results })
+          setMultiRuntimeStatus('done')
+        } else if (data?.multiRuntime?.jobs) {
           pollMultiRuntime({
             jobs: data.multiRuntime.jobs,
             codeHash: data.multiRuntime.cacheKey || data.codeHash || null,
@@ -472,6 +474,9 @@ export default function Tests(props) {
           setMultiRuntimeData({
             results: (msg.jobs || []).map(j => ({ testIndex: j.testIndex, state: 'pending' })),
           })
+        } else if (msg.type === 'multi-runtime-cached') {
+          setMultiRuntimeData({ results: msg.results || [] })
+          setMultiRuntimeStatus('done')
         } else if (msg.type === 'multi-runtime-unavailable') {
           setMultiRuntimeStatus('unavailable')
           setMultiRuntimeError(msg.error || null)

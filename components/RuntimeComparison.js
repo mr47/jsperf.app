@@ -1,20 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Cpu, Trophy } from 'lucide-react'
-
-const BASE_RUNTIME_META = {
-  node: { label: 'Node.js', engine: 'V8',  text: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
-  deno: { label: 'Deno',    engine: 'V8',  text: 'text-sky-600 dark:text-sky-400',         bar: 'bg-sky-500',     dot: 'bg-sky-500' },
-  bun:  { label: 'Bun',     engine: 'JSC', text: 'text-pink-600 dark:text-pink-400',       bar: 'bg-pink-500',    dot: 'bg-pink-500' },
-}
-
-const RUNTIME_ORDER = ['node', 'deno', 'bun']
-const FALLBACK_META = {
-  label: 'Runtime',
-  engine: 'JS',
-  text: 'text-violet-600 dark:text-violet-400',
-  bar: 'bg-violet-500',
-  dot: 'bg-violet-500',
-}
+import { BASE_RUNTIME_KEYS, compareRuntimePalette, runtimePalette } from '../lib/runtimePalette'
 
 function formatOps(n) {
   if (!n) return '0'
@@ -94,8 +80,8 @@ export default function RuntimeComparison({ results }) {
 function RuntimeLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
-      {RUNTIME_ORDER.map((rt) => {
-        const meta = BASE_RUNTIME_META[rt]
+      {BASE_RUNTIME_KEYS.map((rt) => {
+        const meta = runtimePalette(rt)
         return (
           <span key={rt} className="inline-flex items-center gap-1.5">
             <span className={`inline-block h-2 w-2 rounded-full ${meta.dot}`} />
@@ -247,13 +233,8 @@ function TestRuntimePanel({ title, comparison }) {
 }
 
 function compareRuntimeEntries(a, b) {
-  const baseA = runtimeBase(a)
-  const baseB = runtimeBase(b)
-  const orderA = RUNTIME_ORDER.indexOf(baseA)
-  const orderB = RUNTIME_ORDER.indexOf(baseB)
-  const normalizedA = orderA === -1 ? Number.MAX_SAFE_INTEGER : orderA
-  const normalizedB = orderB === -1 ? Number.MAX_SAFE_INTEGER : orderB
-  if (normalizedA !== normalizedB) return normalizedA - normalizedB
+  const runtimeOrder = compareRuntimePalette(runtimeId(a), runtimeId(b))
+  if (runtimeOrder !== 0) return runtimeOrder
   return runtimeLabel(a).localeCompare(runtimeLabel(b), undefined, { numeric: true })
 }
 
@@ -263,9 +244,8 @@ function metaForRuntimeId(comparison, runtimeId) {
 }
 
 function runtimeMeta(entry) {
-  const base = runtimeBase(entry)
+  const baseMeta = runtimePalette(runtimeId(entry))
   const version = entry?.version || runtimeVersion(entry?.runtime)
-  const baseMeta = BASE_RUNTIME_META[base] || FALLBACK_META
   return {
     ...baseMeta,
     label: entry?.label || (version ? `${baseMeta.label} ${version}` : baseMeta.label || entry?.runtime),
@@ -276,8 +256,8 @@ function runtimeLabel(entry) {
   return runtimeMeta(entry).label
 }
 
-function runtimeBase(entry) {
-  return (entry?.runtimeName || entry?.runtime || '').split('@')[0]
+function runtimeId(entry) {
+  return entry?.runtime || entry?.runtimeName || ''
 }
 
 function runtimeVersion(runtimeId) {

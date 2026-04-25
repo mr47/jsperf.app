@@ -116,7 +116,12 @@ export default async function handler(req, res) {
     // QuickJS+V8 here. By the time we finish those phases the worker is
     // typically already done, so the client's first poll gets results.
     const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
-    if (mrInfo?.jobs) {
+    if (mrInfo?.cached) {
+      sendLine({
+        type: 'multi-runtime-cached',
+        results: mrInfo.results,
+      })
+    } else if (mrInfo?.jobs) {
       sendLine({
         type: 'multi-runtime-enqueued',
         jobs: mrInfo.jobs,
@@ -182,6 +187,9 @@ export default async function handler(req, res) {
 async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, options = {}) {
   if (!process.env.BENCHMARK_WORKER_URL) return null
 
+  const cached = await loadCachedMultiRuntime(tests, cacheKey)
+  if (cached) return cached
+
   const enqueues = await Promise.all(tests.map((t, i) =>
     enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, ...options })
       .then(res => ({ testIndex: i, res }))
@@ -214,12 +222,43 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, option
 
 function mergeMultiRuntimeMeta(analysis, mrInfo) {
   if (!mrInfo) return analysis
+  let multiRuntime
+  if (mrInfo.jobs) {
+    multiRuntime = { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs, cacheKey: mrInfo.cacheKey }
+  } else if (mrInfo.cached) {
+    multiRuntime = { results: mrInfo.results, fromCache: true }
+  } else {
+    multiRuntime = { unavailable: true, error: mrInfo.error }
+  }
   return {
     ...analysis,
-    multiRuntime: mrInfo.jobs
-      ? { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs, cacheKey: mrInfo.cacheKey }
-      : { unavailable: true, error: mrInfo.error },
+    multiRuntime,
   }
+}
+
+async function loadCachedMultiRuntime(tests, cacheKey) {
+  if (!cacheKey) return null
+
+  try {
+    const entries = await Promise.all(tests.map(async (_test, testIndex) => {
+      const cached = await redis.get(`mr_v1:${cacheKey}:${testIndex}`)
+      if (!cached) return null
+      const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
+      if (!parsed?.runtimeComparison?.available) return null
+      return {
+        testIndex,
+        state: 'done',
+        runtimes: parsed.runtimes,
+        runtimeComparison: parsed.runtimeComparison,
+      }
+    }))
+
+    if (entries.every(Boolean)) {
+      return { cached: true, results: entries, cacheKey }
+    }
+  } catch (_) { /* non-fatal */ }
+
+  return null
 }
 
 function computeCodeHash(tests, setup, teardown) {

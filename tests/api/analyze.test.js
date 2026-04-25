@@ -277,4 +277,25 @@ describe('POST /api/benchmark/analyze', () => {
     const [, init] = globalThis.fetch.mock.calls[0]
     expect(JSON.parse(init.body).runtimes).toEqual(['node@lts', 'node@24.11.1', 'bun@1.3.0'])
   })
+
+  it('uses cached multi-runtime results without enqueueing worker jobs', async () => {
+    const { redis } = await import('../../lib/redis')
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
+    globalThis.fetch = vi.fn()
+    redis.get
+      .mockResolvedValueOnce(null) // base analysis cache miss
+      .mockResolvedValueOnce(JSON.stringify({
+        runtimes: { node: { profiles: [], avgOpsPerSec: 1000 } },
+        runtimeComparison: { available: true, runtimes: [], ranking: [] },
+      }))
+
+    const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    const messages = parseNdjsonLines(res)
+    expect(messages.some(m => m.type === 'multi-runtime-cached')).toBe(true)
+  })
 })

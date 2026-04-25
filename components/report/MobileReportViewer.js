@@ -37,8 +37,10 @@ import {
   speedColor,
   rankEntries,
   aggregateStats,
+  aggregateRuntimeSources,
   flattenRuntimes,
 } from './slideUtils'
+import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
 
 /* --------------------------------- atoms --------------------------------- */
@@ -286,22 +288,6 @@ function HeadToHeadSection({ report }) {
   )
 }
 
-const RUNTIME_COLORS = {
-  node: '#10b981',
-  deno: '#3b82f6',
-  bun: '#f59e0b',
-  quickjs: '#8b5cf6',
-  v8: '#06b6d4',
-}
-function runtimeColor(name) {
-  if (!name) return '#94a3b8'
-  const lower = name.toLowerCase()
-  for (const [k, v] of Object.entries(RUNTIME_COLORS)) {
-    if (lower.includes(k)) return v
-  }
-  return '#94a3b8'
-}
-
 function RuntimesSection({ report }) {
   const grouped = useMemo(() => {
     const flat = flattenRuntimes(report)
@@ -339,7 +325,7 @@ function RuntimesSection({ report }) {
                     <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
                       <div
                         className="h-full rounded-full"
-                        style={{ width: `${Math.max(3, pct)}%`, background: runtimeColor(runtime) }}
+                        style={{ width: `${Math.max(3, pct)}%`, background: runtimeHexColor(runtime) }}
                       />
                     </div>
                   </div>
@@ -428,7 +414,17 @@ function InsightSection({ report }) {
 
 function MethodologySection({ report }) {
   const agg = useMemo(() => aggregateStats(report?.stats), [report])
-  if (agg.totalRuns <= 0) return null
+  const runtimeSources = useMemo(() => aggregateRuntimeSources(report), [report])
+  if (agg.totalRuns <= 0 && runtimeSources.runtimes.length === 0) return null
+
+  const runtimeLabel = (runtime) => {
+    const meta = runtimePalette(runtime)
+    const version = typeof runtime === 'string' && runtime.includes('@')
+      ? runtime.slice(runtime.indexOf('@') + 1)
+      : null
+    return version ? `${meta.label} ${version}` : meta.label
+  }
+
   const topBrowsers = agg.browsers.slice(0, 4)
   const topOSes = agg.oses.slice(0, 4)
 
@@ -455,9 +451,45 @@ function MethodologySection({ report }) {
   return (
     <SectionCard icon={Monitor} eyebrow="Methodology" title="Where the data came from" accent="sky">
       <div className="rounded-xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50 dark:bg-sky-950/30 p-4">
-        <div className="text-[11px] uppercase tracking-wider text-sky-700 dark:text-sky-300 font-semibold">Total runs</div>
+        <div className="text-[11px] uppercase tracking-wider text-sky-700 dark:text-sky-300 font-semibold">Browser runs</div>
         <div className="mt-0.5 text-3xl font-bold text-sky-900 dark:text-sky-100">{agg.totalRuns.toLocaleString('en')}</div>
+        <p className="mt-1.5 text-xs text-foreground/75">
+          Public benchmark executions used for leaderboard and environment breakdowns.
+        </p>
       </div>
+
+      {runtimeSources.runtimes.length > 0 && (
+        <div className="mt-4 rounded-xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/30 p-4">
+          <div className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-semibold">Controlled runtimes</div>
+          <div className="mt-0.5 text-3xl font-bold text-emerald-900 dark:text-emerald-100">
+            {runtimeSources.runtimes.length} engine{runtimeSources.runtimes.length === 1 ? '' : 's'}
+          </div>
+          <p className="mt-1.5 text-xs text-foreground/75">
+            Node / Deno / Bun worker data across {runtimeSources.totalRuntimeSlots} test-runtime pairs
+            {runtimeSources.totalProfiles > 0 ? ` and ${runtimeSources.totalProfiles} resource profiles` : ''}.
+          </p>
+          <div className="mt-3 space-y-2">
+            {runtimeSources.runtimes.map(rt => (
+              <div key={rt.runtime}>
+                <div className="flex items-center justify-between text-[11px] mb-1">
+                  <span className="inline-flex items-center gap-1.5 font-semibold">
+                    <span
+                      className="inline-block h-2 w-2 rounded-full"
+                      style={{ background: runtimeHexColor(rt.runtime) }}
+                    />
+                    {runtimeLabel(rt.runtime)}
+                  </span>
+                  <span className="text-muted-foreground tabular-nums">{formatOps(rt.avgOpsPerSec)}</span>
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  {rt.tests} test{rt.tests === 1 ? '' : 's'} · {rt.profiles} profile{rt.profiles === 1 ? '' : 's'}
+                  {rt.hasPerfCounters ? ' · perf counters' : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {topBrowsers.length > 0 && (
         <div className="mt-4">

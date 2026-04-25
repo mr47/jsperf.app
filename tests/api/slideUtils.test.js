@@ -5,6 +5,7 @@ import {
   speedColor,
   rankEntries,
   aggregateStats,
+  aggregateRuntimeSources,
   buildDeck,
   flattenRuntimes,
   collectPerfSamples,
@@ -130,6 +131,25 @@ describe('slideUtils.buildDeck', () => {
     expect(deck).toContain('methodology')
   })
 
+  it('includes methodology when only controlled runtime data is present', () => {
+    const deck = buildDeck({
+      summary: {},
+      analysis: {
+        results: [{
+          testIndex: 0,
+          title: 'runtime-only',
+          multiRuntime: {
+            byRuntime: {
+              node: { avgOpsPerSec: 100, profiles: [{ opsPerSec: 100 }] },
+              deno: { avgOpsPerSec: 90, profiles: [{ opsPerSec: 90 }] },
+            },
+          },
+        }],
+      },
+    })
+    expect(deck).toContain('methodology')
+  })
+
   it('skips head-to-head when leader and lagger are the same test', () => {
     const same = { title: 'a', opsPerSec: 10 }
     const deck = buildDeck({
@@ -140,6 +160,59 @@ describe('slideUtils.buildDeck', () => {
       },
     })
     expect(deck).not.toContain('headToHead')
+  })
+})
+
+describe('slideUtils.aggregateRuntimeSources', () => {
+  it('summarises runtime worker measurements by engine', () => {
+    const summary = aggregateRuntimeSources({
+      analysis: {
+        results: [
+          {
+            testIndex: 0,
+            title: 'fast',
+            multiRuntime: {
+              byRuntime: {
+                node: {
+                  avgOpsPerSec: 1000,
+                  profiles: [{ opsPerSec: 1000, perfCounters: { cycles: 10 } }],
+                },
+                bun: {
+                  avgOpsPerSec: 1500,
+                  profiles: [{ opsPerSec: 1500 }],
+                },
+              },
+            },
+          },
+          {
+            testIndex: 1,
+            title: 'slow',
+            multiRuntime: {
+              byRuntime: {
+                node: {
+                  avgOpsPerSec: 500,
+                  profiles: [{ opsPerSec: 500 }],
+                },
+              },
+            },
+          },
+        ],
+      },
+    })
+
+    expect(summary.totalRuntimeSlots).toBe(3)
+    expect(summary.totalProfiles).toBe(3)
+    expect(summary.runtimes.find(r => r.runtime === 'node')).toMatchObject({
+      tests: 2,
+      profiles: 2,
+      avgOpsPerSec: 750,
+      hasPerfCounters: true,
+    })
+    expect(summary.runtimes.find(r => r.runtime === 'bun')).toMatchObject({
+      tests: 1,
+      profiles: 1,
+      avgOpsPerSec: 1500,
+    })
   })
 })
 

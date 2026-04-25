@@ -45,9 +45,11 @@ import {
   speedColor,
   rankEntries,
   aggregateStats,
+  aggregateRuntimeSources,
   flattenRuntimes,
   collectPerfSamples,
 } from './slideUtils'
+import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
 
 /* ------------------------------------------------------------------ */
@@ -381,23 +383,6 @@ function HeadToHeadSlide({ report }) {
 /*  Slide: Cross-runtime comparison                                    */
 /* ------------------------------------------------------------------ */
 
-const RUNTIME_COLORS = {
-  node: '#10b981',
-  deno: '#3b82f6',
-  bun: '#f59e0b',
-  quickjs: '#8b5cf6',
-  v8: '#06b6d4',
-}
-
-function runtimeColor(name) {
-  if (!name) return '#94a3b8'
-  const lower = name.toLowerCase()
-  for (const [k, v] of Object.entries(RUNTIME_COLORS)) {
-    if (lower.includes(k)) return v
-  }
-  return '#94a3b8'
-}
-
 function RuntimesSlide({ report }) {
   const data = useMemo(() => {
     const flat = flattenRuntimes(report)
@@ -432,7 +417,7 @@ function RuntimesSlide({ report }) {
             />
             <Legend wrapperStyle={{ fontSize: 12 }} />
             {data.runtimes.map(rt => (
-              <Bar key={rt} dataKey={rt} fill={runtimeColor(rt)} radius={[6, 6, 0, 0]} />
+              <Bar key={rt} dataKey={rt} fill={runtimeHexColor(rt)} radius={[6, 6, 0, 0]} />
             ))}
           </BarChart>
         </ResponsiveContainer>
@@ -706,8 +691,16 @@ function InsightSlide({ report }) {
 
 function MethodologySlide({ report }) {
   const agg = useMemo(() => aggregateStats(report?.stats), [report])
+  const runtimeSources = useMemo(() => aggregateRuntimeSources(report), [report])
   const topBrowsers = agg.browsers.slice(0, 5)
   const topOSes = agg.oses.slice(0, 5)
+  const runtimeLabel = (runtime) => {
+    const meta = runtimePalette(runtime)
+    const version = typeof runtime === 'string' && runtime.includes('@')
+      ? runtime.slice(runtime.indexOf('@') + 1)
+      : null
+    return version ? `${meta.label} ${version}` : meta.label
+  }
 
   const Bar = ({ items }) => {
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
@@ -737,14 +730,44 @@ function MethodologySlide({ report }) {
       className="bg-gradient-to-br from-sky-50 via-white to-indigo-50 dark:from-sky-950/40 dark:via-slate-950 dark:to-indigo-950/40"
     >
       <SlideHeader icon={Monitor} eyebrow="Methodology" title="Where these numbers came from" />
-      <div className="grid grid-cols-1 lg:grid-cols-3 print:grid-cols-3 gap-6 flex-1 min-h-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-5 flex-1 min-h-0">
         <div className="rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/80 dark:bg-sky-950/30 p-6 flex flex-col">
-          <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-1 font-semibold">Total runs</div>
+          <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-1 font-semibold">Browser runs</div>
           <div className="text-5xl font-bold text-sky-900 dark:text-sky-100">{agg.totalRuns.toLocaleString('en')}</div>
           <p className="mt-3 text-sm text-foreground/80">
-            Independent benchmark executions aggregated for this snapshot — the
-            sample size behind every chart in this deck.
+            Public benchmark executions aggregated for this snapshot. These
+            runs power the leaderboard and browser / operating-system breakdowns.
           </p>
+        </div>
+        <div className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-6 flex flex-col">
+          <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1 font-semibold">Controlled runtimes</div>
+          <div className="text-5xl font-bold text-emerald-900 dark:text-emerald-100">{runtimeSources.runtimes.length}</div>
+          <p className="mt-3 text-sm text-foreground/80">
+            Node / Deno / Bun worker measurements captured across{' '}
+            <span className="font-semibold">{runtimeSources.totalRuntimeSlots}</span>{' '}
+            test-runtime pairs
+            {runtimeSources.totalProfiles > 0 && (
+              <> and <span className="font-semibold">{runtimeSources.totalProfiles}</span> resource profiles</>
+            )}.
+          </p>
+          {runtimeSources.runtimes.length > 0 && (
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              {runtimeSources.runtimes.map(rt => (
+                <div key={rt.runtime} className="rounded-lg bg-white/70 dark:bg-slate-950/40 border border-white/60 dark:border-white/10 p-2">
+                  <div className="flex items-center gap-1.5 font-semibold">
+                    <span
+                      className="inline-block h-2 w-2 rounded-full"
+                      style={{ background: runtimeHexColor(rt.runtime) }}
+                    />
+                    <span>{runtimeLabel(rt.runtime)}</span>
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    {rt.tests} test{rt.tests === 1 ? '' : 's'} · {formatOps(rt.avgOpsPerSec)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-6 flex flex-col">
           <div className="text-xs uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-3 font-semibold">Top browsers</div>
