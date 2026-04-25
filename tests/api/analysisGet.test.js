@@ -109,6 +109,7 @@ describe('GET /api/benchmark/analysis', () => {
     const { redis } = await import('../../lib/redis')
     findOneMock.mockResolvedValueOnce({
       slug: 'foo', revision: 2, codeHash: 'abc123',
+      multiRuntimeCacheKey: 'mr456',
       results: [{ testIndex: 0, title: 'test' }],
       comparison: {}, hasErrors: false, createdAt: new Date(),
     })
@@ -120,6 +121,7 @@ describe('GET /api/benchmark/analysis', () => {
     const res = createMockRes()
     await handler(createMockReq({ slug: 'foo', revision: '2' }), res)
 
+    expect(redis.get).toHaveBeenCalledWith('mr_v2:mr456:0')
     expect(res._status).toBe(200)
     expect(res._json.multiRuntime?.results).toHaveLength(1)
     expect(res._json.multiRuntime.results[0].state).toBe('done')

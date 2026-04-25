@@ -61,10 +61,13 @@ export default async function handler(req, res) {
     }
 
     // Opportunistically pick up any per-test multi-runtime data that's
-    // still in Redis from the original run. MR has its own short TTL so
-    // this is best-effort — when missing, the page just won't show MR
-    // until the user re-runs.
-    const multiRuntime = await loadMultiRuntimeCache(doc.codeHash, doc.results)
+    // still in Redis from the original run. MR uses a separate cache key
+    // because selected Node/Deno/Bun versions affect the result independently
+    // from the base QuickJS/V8 analysis hash.
+    const multiRuntime = await loadMultiRuntimeCache(
+      doc.multiRuntimeCacheKey || doc.codeHash,
+      doc.results,
+    )
 
     res.setHeader('Cache-Control', 'no-store')
     return res.status(200).json({

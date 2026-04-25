@@ -142,6 +142,7 @@ export default async function handler(req, res) {
     const analyses = await analysesCollection()
     const doc = {
       codeHash,
+      multiRuntimeCacheKey,
       slug: slug ? String(slug) : null,
       revision: revision ? parseInt(revision, 10) : null,
       results: analysis.results,

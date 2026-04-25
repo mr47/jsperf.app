@@ -1,9 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
+const insertOneMock = vi.hoisted(() => vi.fn(async () => ({ insertedId: 'mock_id' })))
+
 // Mock external dependencies
 vi.mock('../../lib/mongodb', () => ({
   analysesCollection: vi.fn(async () => ({
-    insertOne: vi.fn(async () => ({ insertedId: 'mock_id' })),
+    insertOne: insertOneMock,
   })),
 }))
 
@@ -195,6 +197,10 @@ describe('POST /api/benchmark/analyze', () => {
     expect(resultMsgs[0].data.results[0].quickjs).toBeDefined()
     expect(resultMsgs[0].data.results[0].v8).toBeDefined()
     expect(resultMsgs[0].data.results[0].prediction).toBeDefined()
+    expect(insertOneMock).toHaveBeenCalledWith(expect.objectContaining({
+      codeHash: expect.any(String),
+      multiRuntimeCacheKey: expect.any(String),
+    }))
   })
 
   it('returns cached result as standard JSON', async () => {
