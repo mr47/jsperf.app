@@ -35,6 +35,16 @@ describe('runInQuickJS', () => {
     expect(result.opsPerSec).toBeGreaterThan(0)
   })
 
+  it('provides a no-op console shim', async () => {
+    const result = await runInQuickJS(
+      'console.log("debug"); console.warn("warn");',
+      { timeMs: 500 }
+    )
+
+    expect(result.state).toBe('completed')
+    expect(result.opsPerSec).toBeGreaterThan(0)
+  })
+
   it('returns deterministic relative results for same code', async () => {
     const code = 'var s = 0; for (var i = 0; i < 50; i++) s += i;'
 
