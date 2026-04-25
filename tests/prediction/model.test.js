@@ -47,6 +47,23 @@ describe('buildPrediction', () => {
     expect(result.jitBenefit).toBe(50)
   })
 
+  it('computes JIT benefit from matched successful resource levels', () => {
+    const result = buildPrediction({
+      quickjsProfiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 100 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 0 },
+        { label: '4x', resourceLevel: 4, opsPerSec: 200 },
+      ],
+      v8Profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 1000 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 0 },
+        { label: '4x', resourceLevel: 4, opsPerSec: 8000 },
+      ],
+    })
+
+    expect(result.jitBenefit).toBe(20)
+  })
+
   it('classifies CPU-bound characteristics', () => {
     const result = buildPrediction({
       quickjsProfiles: [
@@ -104,6 +121,35 @@ describe('buildPrediction', () => {
     expect(result.predictedAt).toHaveProperty('4x')
     expect(result.predictedAt).toHaveProperty('8x')
     expect(result.predictedAt['8x']).toBeGreaterThan(result.predictedAt['4x'])
+  })
+
+  it('uses measured values for in-sample predictions', () => {
+    const result = buildPrediction({
+      quickjsProfiles: [],
+      v8Profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 1000 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 2050 },
+        { label: '4x', resourceLevel: 4, opsPerSec: 3900 },
+      ],
+    })
+
+    expect(result.predictedAt['2x']).toBe(2050)
+    expect(result.predictedAt['4x']).toBe(3900)
+  })
+
+  it('sorts memory points before computing allocation pressure', () => {
+    const result = buildPrediction({
+      quickjsProfiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 100 },
+      ],
+      v8Profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 700, heapUsed: 300 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 1000, heapUsed: 100 },
+      ],
+    })
+
+    expect(result.memSensitivity).toBeLessThan(-0.3)
+    expect(result.characteristics.allocationHeavy).toBe(true)
   })
 
   it('handles empty profiles gracefully', () => {

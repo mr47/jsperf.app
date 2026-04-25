@@ -29,7 +29,7 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { randomUUID } from 'node:crypto'
-import { runInContainer, checkImages } from './docker.js'
+import { runInContainer, checkImages, prepareRuntimeImages } from './docker.js'
 import { buildNodeScript } from './runtimes/node.js'
 import { buildDenoScript } from './runtimes/deno.js'
 import { buildBunScript } from './runtimes/bun.js'
@@ -43,10 +43,13 @@ const COLLECT_PERF = process.env.COLLECT_PERF !== '0'
 // browser to poll it once or twice but not so long that we leak memory.
 const JOB_RESULT_TTL_MS = 10 * 60 * 1000
 
-// Hard ceiling on how long a single job can run before we give up. Default
-// 30s is comfortably above our typical 1-profile / 3-runtime workload (~5s)
-// while still well under the proxy timeouts most reverse proxies impose.
-const JOB_DEADLINE_MS = Number(process.env.JOB_DEADLINE_MS) || 30_000
+// Hard ceiling on how long a single async job can run before we give up.
+// When JOB_DEADLINE_MS is unset we size it from the requested runtime/profile
+// matrix so first-time Docker pulls do not fail otherwise healthy jobs.
+const FIXED_JOB_DEADLINE_MS = Number(process.env.JOB_DEADLINE_MS) || null
+const MIN_JOB_DEADLINE_MS = 30_000
+const MAX_JOB_DEADLINE_MS = Number(process.env.MAX_JOB_DEADLINE_MS) || 180_000
+const VERSIONED_IMAGE_PULL_GRACE_MS = 20_000
 
 const SCRIPT_BUILDERS = {
   node: buildNodeScript,
@@ -150,11 +153,15 @@ app.post('/api/jobs', async (c) => {
   if (params.error) return c.json({ error: params.error }, 400)
 
   const jobId = randomUUID()
+  const executionDeadlineMs = computeExecutionDeadlineMs(params)
+  const pollDeadlineMs = computePollDeadlineMs(params, executionDeadlineMs)
   const job = {
     jobId,
     state: 'pending',
     createdAt: Date.now(),
-    deadline: Date.now() + JOB_DEADLINE_MS,
+    deadline: null,
+    deadlineMs: executionDeadlineMs,
+    pollDeadlineMs,
     completedAt: null,
     params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs },
     partial: emptyAccumulator(params.runtimeTargets),
@@ -168,20 +175,21 @@ app.post('/api/jobs', async (c) => {
     runtimes: runtimeIds(params.runtimeTargets),
     profiles: profileLabels(params.profiles),
     timeMs: params.timeMs,
-    deadlineMs: JOB_DEADLINE_MS,
+    executionDeadlineMs,
+    pollDeadlineMs,
   })
 
   // Fire-and-forget. We deliberately don't await — the response is sent
   // immediately so the caller (jsperf.net's /api/analyze) doesn't burn its
   // own request budget waiting on us.
   void executeJob(job, params).catch(() => { /* errors captured on job */ })
-  scheduleDeadline(job)
 
   return c.json({
     jobId,
     state: 'pending',
     statusUrl: `/api/jobs/${jobId}`,
-    deadlineMs: JOB_DEADLINE_MS,
+    deadlineMs: pollDeadlineMs,
+    executionDeadlineMs,
   }, 202)
 })
 
@@ -317,11 +325,37 @@ async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimeTargets
 }
 
 async function executeJob(job, params) {
+  const prepareStart = Date.now()
+  console.info('[worker] preparing job images', {
+    jobId: job.jobId,
+    runtimes: runtimeIds(params.runtimeTargets),
+  })
+
+  try {
+    await prepareRuntimeImages(params.runtimeTargets)
+    if (job.completedAt || job.abortCtrl.signal.aborted) return
+    console.info('[worker] job images ready', {
+      jobId: job.jobId,
+      durationMs: Date.now() - prepareStart,
+    })
+  } catch (err) {
+    if (job.state === 'errored' || job.completedAt) return
+    console.error('[worker] job image preparation failed', {
+      jobId: job.jobId,
+      error: err.message || String(err),
+    })
+    finalizeJob(job, { state: 'errored', error: err.message || String(err) })
+    return
+  }
+
   job.state = 'running'
+  job.deadline = Date.now() + job.deadlineMs
+  scheduleDeadline(job)
   console.info('[worker] started job', {
     jobId: job.jobId,
     runtimes: runtimeIds(params.runtimeTargets),
     profiles: profileLabels(params.profiles),
+    executionDeadlineMs: job.deadlineMs,
   })
 
   try {
@@ -363,12 +397,12 @@ function scheduleDeadline(job) {
     if (!job.completedAt) {
       console.warn('[worker] job exceeded deadline', {
         jobId: job.jobId,
-        deadlineMs: JOB_DEADLINE_MS,
+        deadlineMs: job.deadlineMs,
       })
       job.abortCtrl.abort()
-      finalizeJob(job, { state: 'errored', error: `job exceeded deadline of ${JOB_DEADLINE_MS}ms` })
+      finalizeJob(job, { state: 'errored', error: `job exceeded deadline of ${job.deadlineMs}ms` })
     }
-  }, JOB_DEADLINE_MS).unref?.()
+  }, job.deadlineMs).unref?.()
 }
 
 function serializeJob(job) {
@@ -378,6 +412,8 @@ function serializeJob(job) {
     createdAt: job.createdAt,
     completedAt: job.completedAt,
     deadline: job.deadline,
+    deadlineMs: job.deadlineMs,
+    pollDeadlineMs: job.pollDeadlineMs,
     partial: job.state === 'running' ? job.partial : undefined,
     result: job.result,
     error: job.error,
@@ -396,6 +432,25 @@ function runtimeIds(runtimeTargets) {
 
 function profileLabels(profiles) {
   return (profiles || []).map(profile => `${profile.label}:${profile.cpus}cpu/${profile.memMb}mb`)
+}
+
+function computeExecutionDeadlineMs({ runtimeTargets, profiles, timeMs }) {
+  if (FIXED_JOB_DEADLINE_MS) return FIXED_JOB_DEADLINE_MS
+
+  const runCount = Math.max(1, (runtimeTargets || []).length * (profiles || []).length)
+  const runBudgetMs = runCount * (Math.min(Number(timeMs) || 1500, MAX_TIME_MS) + 8_000)
+  const computed = MIN_JOB_DEADLINE_MS + runBudgetMs
+
+  return Math.min(MAX_JOB_DEADLINE_MS, Math.max(MIN_JOB_DEADLINE_MS, computed))
+}
+
+function computePollDeadlineMs({ runtimeTargets }, executionDeadlineMs) {
+  const versionedImages = new Set(
+    (runtimeTargets || [])
+      .filter(target => target.pull)
+      .map(target => target.image),
+  )
+  return executionDeadlineMs + (versionedImages.size * VERSIONED_IMAGE_PULL_GRACE_MS)
 }
 
 function sanitizeProfiles(input) {

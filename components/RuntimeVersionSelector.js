@@ -4,7 +4,7 @@ import { ChevronDown, Loader2, SlidersHorizontal } from 'lucide-react'
 
 const STORAGE_KEY = 'jsperf.runtimeTargets.v1'
 
-export default function RuntimeVersionSelector({ value, onChange, disabled = false }) {
+export default function RuntimeVersionSelector({ value, onChange, disabled = false, compact = true }) {
   const [data, setData] = useState(null)
   const [status, setStatus] = useState('idle')
   const [error, setError] = useState(null)
@@ -65,6 +65,7 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
   const summary = selectedCount > 0
     ? summarizeSelection(value, optionByTarget)
     : 'Default Node/Deno/Bun images with perf counters'
+  const isExpanded = compact ? expanded : true
 
   const toggleTarget = (target) => {
     if (disabled) return
@@ -79,7 +80,7 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
   }
 
   return (
-    <div className="w-full rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+    <div className={`w-full rounded-lg border border-border/60 bg-muted/20 ${compact ? 'px-3 py-2' : 'p-4'}`}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
@@ -92,18 +93,20 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
           </p>
         </div>
 
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={disabled}
-          className="h-7 justify-between px-2 text-[11px] sm:w-auto"
-          onClick={() => setExpanded(open => !open)}
-          aria-expanded={expanded}
-        >
-          Configure
-          <ChevronDown className={`ml-1 h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-        </Button>
+        {compact && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            className="h-7 justify-between px-2 text-[11px] sm:w-auto"
+            onClick={() => setExpanded(open => !open)}
+            aria-expanded={expanded}
+          >
+            Configure
+            <ChevronDown className={`ml-1 h-3 w-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+          </Button>
+        )}
       </div>
 
       {status === 'error' && (
@@ -112,7 +115,7 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
         </p>
       )}
 
-      {expanded && (
+      {isExpanded && (
         <div className="mt-3 border-t border-border/60 pt-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <Button

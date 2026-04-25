@@ -10,7 +10,7 @@ import RuntimeVersionSelector from './RuntimeVersionSelector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber } from '../utils/ArrayUtils'
-import { ChevronDown, Microscope, Loader2 } from 'lucide-react'
+import { ChevronDown, Microscope, Loader2, X } from 'lucide-react'
 
 // Simple SVG logos
 const ClaudeLogo = ({ className }) => (
@@ -131,6 +131,96 @@ function runtimeVersionForPrompt(runtimeId) {
   return marker === -1 ? null : runtimeId.slice(marker + 1)
 }
 
+function RuntimeAnalysisModal({
+  open,
+  force,
+  loading,
+  runtimeTargets,
+  onRuntimeTargetsChange,
+  onClose,
+  onConfirm,
+}) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="runtime-analysis-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-border/60 p-5">
+          <div>
+            <h2 id="runtime-analysis-title" className="text-lg font-semibold text-foreground">
+              {force ? 'Re-run deep analysis' : 'Deep analysis setup'}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Choose which Node, Deno, and Bun versions the container worker should benchmark.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0"
+            onClick={onClose}
+            disabled={loading}
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="p-5">
+          <RuntimeVersionSelector
+            value={runtimeTargets}
+            onChange={onRuntimeTargetsChange}
+            disabled={loading}
+            compact={false}
+          />
+        </div>
+
+        <div className="flex flex-col-reverse gap-2 border-t border-border/60 p-5 sm:flex-row sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={loading}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className="font-bold"
+            onClick={onConfirm}
+            disabled={loading}
+          >
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Microscope className="h-4 w-4" />
+            )}
+            {loading ? 'Starting...' : force ? 'Re-run analysis' : 'Start analysis'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Tests(props) {
   const {id, slug, revision, setup, teardown} = props
 
@@ -163,6 +253,8 @@ export default function Tests(props) {
   const [multiRuntimeData, setMultiRuntimeData] = useState(null)
   const [multiRuntimeError, setMultiRuntimeError] = useState(null)
   const [runtimeTargets, setRuntimeTargets] = useState(null)
+  const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
+  const [runtimeModalForce, setRuntimeModalForce] = useState(false)
   const multiRuntimeAbortRef = useRef(null)
 
   const windowRef = useRef(null)
@@ -427,6 +519,22 @@ export default function Tests(props) {
       setAnalysisStatus('error')
     }
   }, [tests, setup, teardown, slug, revision, runtimeTargets, pollMultiRuntime])
+
+  const openRuntimeAnalysisModal = useCallback((force = false) => {
+    setRuntimeModalForce(force)
+    setRuntimeModalOpen(true)
+  }, [])
+
+  const closeRuntimeAnalysisModal = useCallback(() => {
+    if (analysisStatus === 'loading') return
+    setRuntimeModalOpen(false)
+  }, [analysisStatus])
+
+  const confirmRuntimeAnalysis = useCallback(() => {
+    const force = runtimeModalForce
+    setRuntimeModalOpen(false)
+    runDeepAnalysis({ force })
+  }, [runtimeModalForce, runDeepAnalysis])
 
   useEffect(() => {
     return () => {
@@ -813,7 +921,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
                   variant="outline"
                   disabled={analysisStatus === 'loading'}
                   className="h-9 font-bold shadow-sm border-violet-500/30 bg-violet-50/50 hover:bg-violet-100/50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:hover:bg-violet-500/20 dark:text-violet-400"
-                  onClick={() => runDeepAnalysis({ force: analysisStatus === 'done' })}
+                  onClick={() => openRuntimeAnalysisModal(analysisStatus === 'done')}
                 >
                   {analysisStatus === 'loading' ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -880,17 +988,19 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
               }
             </div>
           </div>
-
-          {benchStatus === 'complete' && (
-            <RuntimeVersionSelector
-              value={runtimeTargets}
-              onChange={setRuntimeTargets}
-              disabled={analysisStatus === 'loading'}
-            />
-          )}
           </div>
         </CardContent>
       </Card>
+
+      <RuntimeAnalysisModal
+        open={runtimeModalOpen}
+        force={runtimeModalForce}
+        loading={analysisStatus === 'loading'}
+        runtimeTargets={runtimeTargets}
+        onRuntimeTargetsChange={setRuntimeTargets}
+        onClose={closeRuntimeAnalysisModal}
+        onConfirm={confirmRuntimeAnalysis}
+      />
       
       <iframe
         key={iframeKey}
@@ -939,7 +1049,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
           status={analysisStatus}
           analysis={analysis}
           error={analysisError}
-          onRetry={() => runDeepAnalysis({ force: true })}
+          onRetry={() => openRuntimeAnalysisModal(true)}
           progress={analysisProgress}
           pipeline={analysisPipeline}
           testCount={tests.length}

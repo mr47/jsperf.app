@@ -35,6 +35,7 @@ const ENTRYPOINT_BY_RUNTIME = {
 // In dev (no compose mount) this falls back to /tmp, which works as long
 // as the orchestrator is running directly on the host.
 const WORK_DIR_BASE = process.env.WORK_DIR_BASE || '/tmp/jsperf-worker'
+const imageReadyPromises = new Map()
 
 let workDirReady = null
 async function ensureWorkDirBase() {
@@ -43,6 +44,15 @@ async function ensureWorkDirBase() {
       .catch(() => {}) // tolerate EEXIST and read-only fs in tests
   }
   return workDirReady
+}
+
+export async function prepareRuntimeImages(runtimeTargets) {
+  const uniqueTargets = new Map()
+  for (const runtime of runtimeTargets || []) {
+    const target = resolveRuntimeTarget(runtime)
+    if (target?.pull) uniqueTargets.set(target.image, target)
+  }
+  await Promise.all([...uniqueTargets.values()].map(ensureImageReady))
 }
 
 /**
@@ -78,6 +88,7 @@ export async function runInContainer({
   const runtimeId = target.id
   const usePerf = collectPerf && target.supportsPerf
 
+  await ensureImageReady(target)
   await ensureWorkDirBase()
   const workDir = await mkdtemp(join(WORK_DIR_BASE, `bench-${safeName(runtimeId)}-`))
   const scriptPath = join(workDir, 'bench.js')
@@ -127,10 +138,6 @@ export async function runInContainer({
     '--security-opt', 'no-new-privileges',
   ]
 
-  if (target.pull) {
-    dockerArgs.push('--pull', 'missing')
-  }
-
   if (usePerf) {
     dockerArgs.push('--cap-add', 'SYS_PTRACE', '--cap-add', 'PERFMON')
   }
@@ -150,7 +157,7 @@ export async function runInContainer({
     profile: profile.label,
     cpus: profile.cpus,
     memMb: profile.memMb,
-    pull: target.pull ? 'missing' : false,
+    pull: target.pull ? 'preflight' : false,
     perf: usePerf,
     timeoutMs,
   })
@@ -290,6 +297,64 @@ export async function checkImages() {
     status[target.id] = await imageExists(target.image)
   }
   return status
+}
+
+async function ensureImageReady(target) {
+  if (!target.pull) return
+
+  let ready = imageReadyPromises.get(target.image)
+  if (!ready) {
+    ready = ensurePulledImage(target)
+      .finally(() => imageReadyPromises.delete(target.image))
+    imageReadyPromises.set(target.image, ready)
+  }
+  return ready
+}
+
+async function ensurePulledImage(target) {
+  if (await imageExists(target.image)) {
+    console.info('[docker] image already present', {
+      runtime: target.id,
+      image: target.image,
+    })
+    return
+  }
+
+  const start = Date.now()
+  console.info('[docker] pulling image', {
+    runtime: target.id,
+    image: target.image,
+  })
+
+  const { code, stderr } = await runDockerCommand(['pull', target.image])
+  const durationMs = Date.now() - start
+  if (code !== 0) {
+    console.error('[docker] image pull failed', {
+      runtime: target.id,
+      image: target.image,
+      durationMs,
+      stderrTail: stderr.slice(-500) || null,
+    })
+    throw new Error(`failed to pull image ${target.image}`)
+  }
+
+  console.info('[docker] image pull complete', {
+    runtime: target.id,
+    image: target.image,
+    durationMs,
+  })
+}
+
+function runDockerCommand(args) {
+  return new Promise((resolve) => {
+    let stdout = ''
+    let stderr = ''
+    const child = spawn('docker', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    child.stdout.on('data', d => { stdout += d.toString() })
+    child.stderr.on('data', d => { stderr += d.toString() })
+    child.once('close', (code) => resolve({ code: code ?? -1, stdout, stderr }))
+    child.once('error', (err) => resolve({ code: -1, stdout, stderr: stderr || err.message || String(err) }))
+  })
 }
 
 function imageExists(image) {

@@ -27,21 +27,16 @@ const STEP_META = {
   prediction: { label: 'Building prediction model', desc: 'Scaling analysis & regression' },
 }
 
-const DEFAULT_PIPELINE = ['quickjs', 'v8', 'prediction']
+const DEFAULT_PIPELINE = ['quickjs', 'v8', 'multi-runtime', 'prediction']
 
-// Build the step list. Prefer the explicit pipeline the server announces
-// at the start of streaming (so we can render all four steps from t=0,
-// including multi-runtime). If the server hasn't told us yet, fall back
-// to the legacy "detect when we see the engine in a progress event" path
-// so older API responses still render reasonably.
+// Build the step list. The fallback includes multi-runtime so the loading
+// panel doesn't reflow when the server's first pipeline event arrives.
 function buildSteps(pipeline, seenMultiRuntime) {
   let keys
   if (Array.isArray(pipeline) && pipeline.length > 0) {
     keys = pipeline.filter(k => STEP_META[k])
   } else {
-    keys = seenMultiRuntime
-      ? ['quickjs', 'v8', 'multi-runtime', 'prediction']
-      : DEFAULT_PIPELINE
+    keys = DEFAULT_PIPELINE
   }
   return keys.map(key => ({ key, ...STEP_META[key] }))
 }
