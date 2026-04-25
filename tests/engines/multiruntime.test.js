@@ -48,6 +48,18 @@ describe('enqueueMultiRuntimeJob', () => {
     expect(globalThis.fetch).not.toHaveBeenCalled()
   })
 
+  it('does not enqueue browser API snippets', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test/'
+    globalThis.fetch = vi.fn()
+
+    const result = await enqueueMultiRuntimeJob('document.createElement("div")')
+
+    expect(result.unavailable).toBe(true)
+    expect(result.error).toContain('browser APIs')
+    expect(result.error).toContain('document')
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+  })
+
   it('POSTs to /api/jobs and returns the jobId', async () => {
     process.env.BENCHMARK_WORKER_URL = 'http://worker.test/'
     globalThis.fetch = vi.fn(() => jsonResponse(

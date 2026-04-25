@@ -312,6 +312,52 @@ describe('POST /api/benchmark/analyze', () => {
     expect(JSON.parse(init.body).runtimes).toEqual(['node@lts', 'node@24.11.1', 'bun@1.3.0'])
   })
 
+  it('skips multi-runtime jobs for browser API snippets', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
+    globalThis.fetch = vi.fn()
+
+    const req = createMockReq({
+      tests: [{ code: 'document.createElement("div")', title: 'browser test' }],
+    })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    const messages = parseNdjsonLines(res)
+    const unavailable = messages.find(m => m.type === 'multi-runtime-unavailable')
+    expect(unavailable.error).toContain('browser APIs')
+    expect(unavailable.error).toContain('document')
+  })
+
+  it('only enqueues non-browser tests for multi-runtime analysis', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({ jobId: 'job-1', deadlineMs: 30000 }),
+      text: async () => JSON.stringify({ jobId: 'job-1' }),
+    }))
+
+    const req = createMockReq({
+      tests: [
+        { code: 'document.body.appendChild(el)', title: 'browser test' },
+        { code: 'x + 1', title: 'server-safe test' },
+      ],
+    })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+    const [, init] = globalThis.fetch.mock.calls[0]
+    expect(JSON.parse(init.body).code).toBe('x + 1')
+
+    const messages = parseNdjsonLines(res)
+    const enqueued = messages.find(m => m.type === 'multi-runtime-enqueued')
+    expect(enqueued.jobs).toEqual([{ testIndex: 1, jobId: 'job-1' }])
+  })
+
   it('uses stored multi-runtime results without enqueueing worker jobs', async () => {
     const { redis } = await import('../../lib/redis')
     process.env.BENCHMARK_WORKER_URL = 'http://worker.test'

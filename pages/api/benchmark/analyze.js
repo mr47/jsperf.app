@@ -5,6 +5,7 @@ import { estimateComplexitiesOnWorker } from '../../../lib/engines/complexity'
 import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
 import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
+import { findBrowserApiUsage, isAsyncTest } from '../../../lib/benchmark/detection'
 import crypto from 'crypto'
 
 // Deep analysis boots V8/QuickJS sandboxes (~25-30s of CPU per call), so a
@@ -187,12 +188,29 @@ export default async function handler(req, res) {
  *                                                         is not configured
  */
 async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, options = {}) {
-  const stored = await loadStoredMultiRuntimeResults(cacheKey, tests, { requireAll: true })
+  const runnableTests = tests
+    .map((test, index) => ({
+      test,
+      index,
+      browserApis: findBrowserApiUsage(test, { setup, teardown }),
+    }))
+    .filter(entry => entry.browserApis.length === 0)
+
+  if (runnableTests.length === 0) {
+    if (!process.env.BENCHMARK_WORKER_URL) return null
+    return { error: formatBrowserApiSkip(tests, setup, teardown) }
+  }
+
+  const stored = await loadStoredMultiRuntimeResults(
+    cacheKey,
+    runnableTests.map(({ index }) => ({ testIndex: index })),
+    { requireAll: true }
+  )
   if (stored) return { stored: true, ...stored }
 
   if (!process.env.BENCHMARK_WORKER_URL) return null
 
-  const enqueues = await Promise.all(tests.map((t, i) =>
+  const enqueues = await Promise.all(runnableTests.map(({ test: t, index: i }) =>
     enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, isAsync: isAsyncTest(t), ...options })
       .then(res => ({ testIndex: i, res }))
       .catch(err => ({ testIndex: i, res: { unavailable: true, error: err.message || String(err) } }))
@@ -246,12 +264,18 @@ function computeMultiRuntimeCacheKey(tests, setup, teardown, options) {
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
 
-function isAsyncTest(test) {
-  if (test?.async === true) return true
-  const code = typeof test?.code === 'string' ? test.code : ''
-  return code.includes('deferred.resolve') ||
-    code.includes('await ') ||
-    code.includes('return new Promise')
+function formatBrowserApiSkip(tests, setup, teardown) {
+  const apiNames = new Set()
+  for (const test of tests) {
+    for (const apiName of findBrowserApiUsage(test, { setup, teardown })) {
+      apiNames.add(apiName)
+    }
+  }
+
+  const names = [...apiNames].slice(0, 5).join(', ')
+  return names
+    ? `Skipped Node / Deno / Bun comparison because browser APIs were detected (${names}).`
+    : 'Skipped Node / Deno / Bun comparison because browser APIs were detected.'
 }
 
 function parseMultiRuntimeOptions(body) {

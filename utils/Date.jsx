@@ -4,7 +4,7 @@ function parseDate(date) {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-/** Valid ISO string for `<time dateTime={…}>`; omit if unparseable. */
+/** Valid ISO string for `<time dateTime={...}>`; omit if unparseable. */
 export function toIsoDateTimeAttr(date) {
   const d = parseDate(date)
   return d ? d.toISOString() : undefined
@@ -13,7 +13,7 @@ export function toIsoDateTimeAttr(date) {
 export const DateTimeLong = ({ date }) => {
   const d = parseDate(date)
   if (!d) {
-    return <>—</>
+    return <>&mdash;</>
   }
   const dateString = d.toLocaleDateString('en-US', {
     year: 'numeric',
