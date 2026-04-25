@@ -22,9 +22,9 @@ import { DEFAULT_RUNTIME_TARGETS, resolveRuntimeTarget } from './runtime-targets
 
 const ENTRYPOINT_BY_RUNTIME = {
   // --allow-hrtime was removed in Deno 2 (always-on), so we don't pass it.
-  node: ['node', '--expose-gc', '/work/bench.js'],
-  deno: ['deno', 'run', '--v8-flags=--expose-gc', '/work/bench.js'],
-  bun: ['bun', 'run', '/work/bench.js'],
+  node: (file) => ['node', '--expose-gc', file],
+  deno: (file) => ['deno', 'run', '--v8-flags=--expose-gc', file],
+  bun: (file) => ['bun', 'run', file],
 }
 
 // Host-visible work directory. We MUST write benchmark scripts here (not
@@ -91,15 +91,17 @@ export async function runInContainer({
   await ensureImageReady(target)
   await ensureWorkDirBase()
   const workDir = await mkdtemp(join(WORK_DIR_BASE, `bench-${safeName(runtimeId)}-`))
-  const scriptPath = join(workDir, 'bench.js')
-  await writeFile(scriptPath, script, 'utf8')
+  const generatedScript = normalizeGeneratedScript(script)
+  const scriptFile = `bench.${generatedScript.extension}`
+  const scriptPath = join(workDir, scriptFile)
+  await writeFile(scriptPath, generatedScript.source, 'utf8')
 
   const containerName = `bench-${safeName(runtimeId)}-${safeName(profile.label)}-${randomUUID().slice(0, 8)}`
 
   // Build the runtime invocation, optionally wrapped with `perf stat`.
   // Perf events are written to a known path inside the container so we can
   // mount it back out as part of the bind-mount.
-  const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtimeName]
+  const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtimeName](`/work/${scriptFile}`)
   const innerCmd = usePerf
     ? [
         'perf', 'stat',
@@ -129,7 +131,7 @@ export async function runInContainer({
     '--pids-limit', '256',
     '--ulimit', 'nofile=256:256',
     // Filesystem: root is read-only; only /tmp and /work are writable, both
-    // size-bounded. /work is the per-run bind mount holding bench.js.
+    // size-bounded. /work is the per-run bind mount holding bench.js/bench.ts.
     '--read-only',
     '--tmpfs', '/tmp:size=64m,exec',
     '-v', `${workDir}:/work:rw`,
@@ -233,6 +235,15 @@ export async function runInContainer({
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+function normalizeGeneratedScript(script) {
+  if (typeof script === 'string') {
+    return { source: script, extension: 'js' }
+  }
+  const source = typeof script?.source === 'string' ? script.source : ''
+  const extension = script?.extension === 'ts' ? 'ts' : 'js'
+  return { source, extension }
 }
 
 /**

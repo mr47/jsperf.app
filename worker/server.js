@@ -164,7 +164,7 @@ app.post('/api/jobs', async (c) => {
     deadlineMs: executionDeadlineMs,
     pollDeadlineMs,
     completedAt: null,
-    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs, isAsync: params.isAsync },
+    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs, isAsync: params.isAsync, language: params.language },
     partial: emptyAccumulator(params.runtimeTargets),
     result: null,
     error: null,
@@ -211,16 +211,26 @@ app.post('/api/complexity', async (c) => {
   }
 
   const setup = typeof body.setup === 'string' ? body.setup : ''
+  const language = body.language === 'typescript' ? 'typescript' : 'javascript'
+  const sourceMode = typeof body.sourceMode === 'string' ? body.sourceMode : 'source'
   const results = []
   for (let i = 0; i < tests.length; i++) {
     const test = tests[i]
     if (!test?.code || typeof test.code !== 'string') {
       return c.json({ error: 'Each test must have a non-empty code string' }, 400)
     }
+    const complexity = estimateComplexity(test.code, { setup })
+    if (language === 'typescript' && sourceMode === 'compiled-js') {
+      complexity.signals = [...new Set([...(complexity.signals || []), 'compiled-source'])]
+      complexity.explanation = [
+        complexity.explanation,
+        'TypeScript complexity was estimated from compiled JavaScript because a native TypeScript parser is not enabled on the worker.',
+      ].filter(Boolean).join(' ')
+    }
     results.push({
       testIndex: Number.isInteger(test.testIndex) ? test.testIndex : i,
       title: test.title || `Test ${i + 1}`,
-      complexity: estimateComplexity(test.code, { setup }),
+      complexity,
     })
   }
 
@@ -261,11 +271,31 @@ function parseRunParams(body) {
   if (!code || typeof code !== 'string') {
     return { error: 'code (string) is required' }
   }
+  const language = body.language === 'typescript' ? 'typescript' : 'javascript'
+  const languageOptions = sanitizeLanguageOptions(body.languageOptions)
+  const runtimeCode = typeof body.runtimeCode === 'string' ? body.runtimeCode : code
+  const runtimeSetup = typeof body.runtimeSetup === 'string' ? body.runtimeSetup : setup
+  const runtimeTeardown = typeof body.runtimeTeardown === 'string' ? body.runtimeTeardown : teardown
   const timeMs = Math.min(Number(body.timeMs) || 1500, MAX_TIME_MS)
   const runtimeTargets = normalizeRuntimeTargets(body.runtimes) || DEFAULT_RUNTIME_TARGETS
   const profiles = sanitizeProfiles(body.profiles) || DEFAULT_PROFILES
-  const isAsync = body.isAsync === true || detectAsyncCode(code)
-  return { code, setup, teardown, timeMs, isAsync, runtimeTargets, profiles }
+  const isAsync = body.isAsync === true || detectAsyncCode(code) || detectAsyncCode(runtimeCode)
+  return {
+    code,
+    runtimeCode,
+    setup,
+    runtimeSetup,
+    teardown,
+    runtimeTeardown,
+    language,
+    languageOptions,
+    compilerVersion: typeof body.compilerVersion === 'string' ? body.compilerVersion : null,
+    sourcePrepVersion: Number.isFinite(Number(body.sourcePrepVersion)) ? Number(body.sourcePrepVersion) : null,
+    timeMs,
+    isAsync,
+    runtimeTargets,
+    profiles,
+  }
 }
 
 function emptyAccumulator(runtimeTargets) {
@@ -283,7 +313,8 @@ function emptyAccumulator(runtimeTargets) {
   return acc
 }
 
-async function runBenchmarkBatch({ code, setup, teardown, timeMs, isAsync, runtimeTargets, profiles }, { signal, onProgress, accum } = {}) {
+async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
+  const { code, setup, teardown, runtimeCode, runtimeSetup, runtimeTeardown, language, languageOptions, timeMs, isAsync, runtimeTargets, profiles } = params
   const accumulator = accum || emptyAccumulator(runtimeTargets)
 
   for (const target of runtimeTargets) {
@@ -300,7 +331,16 @@ async function runBenchmarkBatch({ code, setup, teardown, timeMs, isAsync, runti
       })
 
       const builder = SCRIPT_BUILDERS[target.runtime]
-      const script = builder({ code, setup, teardown, timeMs, isAsync })
+      const nativeTypeScript = shouldUseNativeTypeScript(target, { language, languageOptions })
+      const script = builder({
+        code: nativeTypeScript ? code : runtimeCode,
+        setup: nativeTypeScript ? setup : runtimeSetup,
+        teardown: nativeTypeScript ? teardown : runtimeTeardown,
+        timeMs,
+        isAsync,
+        language,
+        nativeTypeScript,
+      })
 
       let outcome
       try {
@@ -484,6 +524,25 @@ function detectAsyncCode(code) {
     code.includes('await ') ||
     code.includes('return new Promise')
   )
+}
+
+function shouldUseNativeTypeScript(target, { language, languageOptions }) {
+  if (language !== 'typescript') return false
+  if (languageOptions?.runtimeMode === 'compiled-everywhere') return false
+  return target?.runtime === 'deno' || target?.runtime === 'bun'
+}
+
+function sanitizeLanguageOptions(input) {
+  if (!input || typeof input !== 'object') return null
+  return {
+    runtimeMode: input.runtimeMode === 'compiled-everywhere'
+      ? 'compiled-everywhere'
+      : 'native-where-available',
+    target: typeof input.target === 'string' ? input.target : 'es2020',
+    jsx: input.jsx === true,
+    typeCheck: false,
+    imports: false,
+  }
 }
 
 function computeExecutionDeadlineMs({ runtimeTargets, profiles, timeMs }) {

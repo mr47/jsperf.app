@@ -181,6 +181,7 @@ export default function DeepAnalysis({
   const enrichedResults = mergeMultiRuntime(analysis.results, mrData)
 
   const cachedLabel = formatRelativeTime(cachedAt)
+  const sourcePrepLabel = formatSourcePrepMeta(analysis.meta)
 
   return (
     <div className="mt-8 space-y-4 animate-in fade-in duration-500">
@@ -219,6 +220,12 @@ export default function DeepAnalysis({
         </div>
       )}
 
+      {sourcePrepLabel && (
+        <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          {sourcePrepLabel}
+        </div>
+      )}
+
       {hasErrors && (
         <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
           <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
@@ -252,6 +259,21 @@ export default function DeepAnalysis({
       />
     </div>
   )
+}
+
+function formatSourcePrepMeta(meta) {
+  if (!meta || meta.language !== 'typescript') return null
+  const ms = typeof meta.sourcePrepMs === 'number' ? `${meta.sourcePrepMs}ms` : null
+  const compiler = meta.compiler?.version ? `TypeScript ${meta.compiler.version}` : 'TypeScript'
+  const target = meta.languageOptions?.target ? `target ${meta.languageOptions.target.toUpperCase()}` : null
+  const mode = meta.languageOptions?.runtimeMode === 'compiled-everywhere'
+    ? 'compiled for all runtimes'
+    : 'native TypeScript on Deno/Bun'
+  return [
+    `${compiler} prepared benchmark source`,
+    ms ? `in ${ms}` : null,
+    target ? `(${target}, ${mode})` : `(${mode})`,
+  ].filter(Boolean).join(' ')
 }
 
 function collectEngineErrors(results) {

@@ -35,6 +35,8 @@ export default function Preview(props) {
     uuid,
     visible,
     githubID,
+    language,
+    languageOptions,
   } = props.pageData
 
   const userID = UUID()
@@ -112,16 +114,16 @@ export default function Preview(props) {
         }
         {setup &&
           <section>
-            <Setup setup={setup} />
+            <Setup setup={setup} language={language} />
           </section>
         }
         {teardown &&
           <section>
-            <Teardown teardown={teardown} />
+            <Teardown teardown={teardown} language={language} />
           </section>
         }
         <section>
-          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} setup={setup} teardown={teardown} />
+          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} setup={setup} teardown={teardown} language={language} languageOptions={languageOptions} />
         </section>
         <hr className="my-5" />
         {publishError && (

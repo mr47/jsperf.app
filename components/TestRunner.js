@@ -223,7 +223,7 @@ function RuntimeAnalysisModal({
 }
 
 export default function Tests(props) {
-  const {id, slug, revision, setup, teardown} = props
+  const {id, slug, revision, setup, teardown, language = 'javascript', languageOptions = null} = props
 
   const [statusMessage, setStatusMessage] = useState('')
   const [benchStatus, setBenchStatus] = useState('notready')
@@ -420,6 +420,8 @@ export default function Tests(props) {
           tests: tests.map(t => ({ code: t.code, title: t.title, async: !!t.async })),
           setup,
           teardown,
+          language,
+          languageOptions,
           slug,
           revision,
           force,
@@ -532,7 +534,7 @@ export default function Tests(props) {
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
     }
-  }, [tests, setup, teardown, slug, revision, runtimeTargets, pollMultiRuntime])
+  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, pollMultiRuntime])
 
   const openRuntimeAnalysisModal = useCallback((force = false) => {
     setRuntimeModalForce(force)
@@ -868,7 +870,8 @@ ${divergenceNote}`
       promptHints.push('cross-runtime variation (Node/Deno/Bun) and hardware perf counters where available')
     }
 
-    const prompt = `I ran a JavaScript performance benchmark. Please analyze the results and explain why the fastest snippet is faster, focusing on V8/browser engine optimizations.
+    const sourceLanguageLabel = language === 'typescript' ? 'TypeScript' : 'JavaScript'
+    const prompt = `I ran a ${sourceLanguageLabel} performance benchmark. Please analyze the results and explain why the fastest snippet is faster, focusing on V8/browser engine optimizations.
 
 ### Browser Benchmark Results:
 ${resultsText}
@@ -876,7 +879,7 @@ ${resultsText}
 ### Code Snippets:
 ${codeText}${analysisSection}
 
-Why is the fastest snippet performing better in modern JavaScript engines?${promptHints.length > 0 ? ` Use the deep analysis data (${promptHints.join('; ')}) to give a more precise explanation.` : ''}`
+Why is the fastest snippet performing better in modern JavaScript engines?${language === 'typescript' ? ' Note that some engines may run JavaScript compiled from the original TypeScript source.' : ''}${promptHints.length > 0 ? ` Use the deep analysis data (${promptHints.join('; ')}) to give a more precise explanation.` : ''}`
 
     return encodeURIComponent(prompt)
   }
@@ -1078,6 +1081,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
               <Test
                 key={`${i}-${test.status}-${String(test.hz ?? '')}-${String(test.percent ?? '')}-${String(test.tied ?? '')}`}
                 test={test}
+                language={language}
                 stats={stats ? stats[i] : null}
               />
             ))}

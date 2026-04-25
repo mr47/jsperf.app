@@ -10,22 +10,23 @@
  * Run with: node --expose-gc /bench.js
  */
 
-import { benchmarkLoopSource, teardownSource, errorTrapSource } from './common.js'
+import {
+  benchmarkLoopSource,
+  teardownSource,
+  errorTrapSource,
+  benchmarkFunctionParts,
+  evalBenchmarkFunctionSource,
+} from './common.js'
 
 export function buildNodeScript({ code, setup, teardown, timeMs, isAsync }) {
-  const isLegacyAsync = code.includes('deferred.resolve')
-  const isModernAsync = code.includes('await ') || code.includes('return new Promise')
-  const shouldAwait = Boolean(isAsync || isLegacyAsync || isModernAsync)
-  const testBody = isLegacyAsync
-    ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
-    : code
+  const fnParts = benchmarkFunctionParts({ code, isAsync })
 
   return `'use strict';
 const v8 = require('v8');
 const { performance } = require('perf_hooks');
 
 const TIME_LIMIT = ${timeMs};
-const IS_ASYNC = ${shouldAwait ? 'true' : 'false'};
+const IS_ASYNC = ${fnParts.shouldAwait ? 'true' : 'false'};
 
 function emitResult(obj) {
   process.stdout.write(JSON.stringify(obj) + '\\n');
@@ -54,9 +55,7 @@ ${errorTrapSource()}
 async function main() {
   ${setup ? setup : ''}
 
-  const __benchCode = ${JSON.stringify(testBody)};
-  const __benchPrefix = ${shouldAwait && !isLegacyAsync ? JSON.stringify('async ') : JSON.stringify('')};
-  const __benchFn = eval('(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})');
+  ${evalBenchmarkFunctionSource(fnParts)}
 
   ${benchmarkLoopSource()}
 

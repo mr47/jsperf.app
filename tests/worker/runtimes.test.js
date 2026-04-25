@@ -94,4 +94,30 @@ describe('runtime script builders', () => {
     expect(src).toContain('Bun.gc(true)')
     expect(src).toContain("import('bun:jsc')")
   })
+
+  it('deno can emit a native TypeScript script', () => {
+    const script = buildDenoScript({
+      ...baseInput,
+      code: 'const value: number = 1\nreturn value',
+      nativeTypeScript: true,
+    })
+
+    expect(script.extension).toBe('ts')
+    expect(script.source).toContain('const __benchFn = function()')
+    expect(script.source).toContain('const value: number = 1')
+    expect(script.source).not.toContain('eval(')
+  })
+
+  it('bun can emit a native TypeScript script', () => {
+    const script = buildBunScript({
+      ...baseInput,
+      code: 'const value: number = 1\nreturn value',
+      nativeTypeScript: true,
+    })
+
+    expect(script.extension).toBe('ts')
+    expect(script.source).toContain('const __benchFn = function()')
+    expect(script.source).toContain('const value: number = 1')
+    expect(script.source).not.toContain('eval(')
+  })
 })

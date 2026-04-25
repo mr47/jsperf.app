@@ -58,7 +58,7 @@ import {
   collectMemoryResponseSeries,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
-import { highlightSanitizedJS } from '../../utils/hljs'
+import { highlightSanitizedCode } from '../../utils/hljs'
 import SafeResponsiveContainer from '../SafeResponsiveContainer'
 import MathNotation from '../MathNotation'
 
@@ -137,14 +137,14 @@ function Tag({ children, color = 'slate' }) {
  * leaving the code panel blank in the PDF. The maxLines clipping
  * already guarantees the snippet fits, so a hard clip is safe.
  */
-function CodeBlock({ code, maxLines = 12 }) {
+function CodeBlock({ code, maxLines = 12, language = 'javascript' }) {
   const lines = (code || '').split('\n')
   const truncated = lines.length > maxLines
   const shown = truncated ? lines.slice(0, maxLines).join('\n') + '\n…' : (code || '')
   const html = useMemo(() => {
-    try { return highlightSanitizedJS(shown) }
+    try { return highlightSanitizedCode(shown, language) }
     catch (_) { return null }
-  }, [shown])
+  }, [shown, language])
 
   if (!shown.trim()) {
     return (
@@ -322,7 +322,7 @@ function WinnerSlide({ report }) {
         <div className="lg:col-span-3 print:col-span-3 min-h-0 flex flex-col">
           <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2 mt-[-24px]">Code</div>
           <div className="flex-1 min-h-0 print:min-h-[420px]">
-            <CodeBlock code={leader.code} maxLines={18} />
+            <CodeBlock code={leader.code} maxLines={18} language={report?.benchmark?.language} />
           </div>
         </div>
       </div>
@@ -368,7 +368,7 @@ function HeadToHeadSlide({ report }) {
         <span className="ml-2 text-sm font-medium text-muted-foreground">ops/sec</span>
       </div>
       <div className="flex-1 min-h-0">
-        <CodeBlock code={entry.code} maxLines={10} />
+        <CodeBlock code={entry.code} maxLines={10} language={report?.benchmark?.language} />
       </div>
     </div>
   )

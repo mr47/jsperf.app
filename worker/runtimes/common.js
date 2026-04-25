@@ -15,6 +15,39 @@ import { benchmarkStatsSource } from './stats.js'
 
 export const SLICE_MS = 200
 
+export function benchmarkFunctionParts({ code, isAsync }) {
+  const source = typeof code === 'string' ? code : ''
+  const isLegacyAsync = source.includes('deferred.resolve')
+  const isModernAsync = source.includes('await ') || source.includes('return new Promise')
+  const shouldAwait = Boolean(isAsync || isLegacyAsync || isModernAsync)
+  const testBody = isLegacyAsync
+    ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${source}\n})`
+    : source
+
+  return {
+    isLegacyAsync,
+    shouldAwait,
+    testBody,
+    prefix: shouldAwait && !isLegacyAsync ? 'async ' : '',
+  }
+}
+
+export function evalBenchmarkFunctionSource(parts) {
+  return `
+const __benchCode = ${JSON.stringify(parts.testBody)};
+const __benchPrefix = ${JSON.stringify(parts.prefix)};
+const __benchFn = eval('(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})');
+`
+}
+
+export function inlineBenchmarkFunctionSource(parts) {
+  return `
+const __benchFn = ${parts.prefix}function() {
+${parts.testBody}
+};
+`
+}
+
 /**
  * Returns a JS source string containing the shared benchmark loop body.
  * The wrapping runtime provides:

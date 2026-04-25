@@ -3,6 +3,11 @@ import DOMPurify from 'isomorphic-dompurify'
 
 import javascript from 'highlight.js/lib/languages/javascript'
 hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('js', javascript);
+
+import typescript from 'highlight.js/lib/languages/typescript'
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('ts', typescript);
 
 import xml from 'highlight.js/lib/languages/xml'
 hljs.registerLanguage('xml', xml);
@@ -12,6 +17,13 @@ hljs.configure({ ignoreUnescapedHTML: true })
 export const highlightSanitizedJS = js => {
   return DOMPurify.sanitize(hljs.highlight(js, {
     language: 'js', ignoreIllegals: true
+  }).value)
+}
+
+export const highlightSanitizedCode = (code, language = 'javascript') => {
+  const normalized = language === 'typescript' || language === 'ts' ? 'ts' : 'js'
+  return DOMPurify.sanitize(hljs.highlight(code, {
+    language: normalized, ignoreIllegals: true
   }).value)
 }
 

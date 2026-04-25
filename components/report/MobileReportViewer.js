@@ -48,7 +48,7 @@ import {
   formatPercent,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
-import { highlightSanitizedJS } from '../../utils/hljs'
+import { highlightSanitizedCode } from '../../utils/hljs'
 import MathNotation from '../MathNotation'
 
 /* --------------------------------- atoms --------------------------------- */
@@ -113,15 +113,15 @@ function formatBig(n) {
  * the page stays scannable; tapping reveals the full body with
  * horizontal scroll preserved for long lines.
  */
-function MobileCode({ code, defaultOpen = false }) {
+function MobileCode({ code, defaultOpen = false, language = 'javascript' }) {
   const [open, setOpen] = useState(defaultOpen)
   const trimmed = (code || '').trim()
   const lineCount = trimmed ? trimmed.split('\n').length : 0
   const html = useMemo(() => {
     if (!open || !trimmed) return null
-    try { return highlightSanitizedJS(trimmed) }
+    try { return highlightSanitizedCode(trimmed, language) }
     catch (_) { return null }
-  }, [open, trimmed])
+  }, [open, trimmed, language])
 
   if (!trimmed) {
     return (
@@ -256,7 +256,7 @@ function WinnerSection({ report }) {
         )}
       </div>
       <div className="mt-3">
-        <MobileCode code={leader.code} />
+        <MobileCode code={leader.code} language={report?.benchmark?.language} />
       </div>
     </SectionCard>
   )
@@ -285,7 +285,7 @@ function HeadToHeadSection({ report }) {
           <span className="ml-1.5 text-xs font-medium text-muted-foreground">ops/sec</span>
         </div>
         <div className="mt-3">
-          <MobileCode code={entry.code} />
+          <MobileCode code={entry.code} language={report?.benchmark?.language} />
         </div>
       </div>
     )

@@ -4,6 +4,12 @@ import { pagesCollection } from '../../lib/mongodb'
 import { ObjectId } from 'mongodb'
 import dynamic from 'next/dynamic'
 import SandboxBanner from '../../components/SandboxBanner'
+import {
+  prepareBenchmarkSources,
+  normalizeBenchmarkLanguage,
+  normalizeLanguageOptions,
+  SourcePreparationError,
+} from '../../lib/benchmark/source'
 
 const UI = dynamic(() => import('../../components/UI'), { ssr: false })
 
@@ -35,6 +41,43 @@ export async function getServerSideProps({params, res}) {
   if (!pageData) {
     return {
       notFound: true
+    }
+  }
+
+  const language = normalizeBenchmarkLanguage(pageData.language)
+  const languageOptions = normalizeLanguageOptions(language, pageData.languageOptions)
+  pageData.language = language
+  pageData.languageOptions = languageOptions
+
+  try {
+    const prepared = prepareBenchmarkSources({
+      tests: pageData.tests || [],
+      setup: pageData.setup,
+      teardown: pageData.teardown,
+      language,
+      languageOptions,
+    })
+    pageData.runtime = {
+      tests: prepared.runtime.tests,
+      setup: prepared.runtime.setup,
+      teardown: prepared.runtime.teardown,
+      meta: {
+        sourcePrepMs: prepared.conversionMs,
+        compiler: prepared.compilerVersion
+          ? { name: 'typescript', version: prepared.compilerVersion }
+          : null,
+        language: prepared.language,
+        languageOptions: prepared.languageOptions,
+      },
+    }
+  } catch (err) {
+    if (err instanceof SourcePreparationError) {
+      pageData.runtimeCompileError = {
+        message: err.message,
+        details: err.details || null,
+      }
+    } else {
+      throw err
     }
   }
 

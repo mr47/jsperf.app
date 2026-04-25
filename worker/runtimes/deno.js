@@ -7,19 +7,25 @@
  * Run with: deno run --allow-hrtime --v8-flags=--expose-gc /bench.js
  */
 
-import { benchmarkLoopSource, teardownSource, errorTrapSource } from './common.js'
+import {
+  benchmarkLoopSource,
+  teardownSource,
+  errorTrapSource,
+  benchmarkFunctionParts,
+  evalBenchmarkFunctionSource,
+  inlineBenchmarkFunctionSource,
+} from './common.js'
 
-export function buildDenoScript({ code, setup, teardown, timeMs, isAsync }) {
-  const isLegacyAsync = code.includes('deferred.resolve')
-  const isModernAsync = code.includes('await ') || code.includes('return new Promise')
-  const shouldAwait = Boolean(isAsync || isLegacyAsync || isModernAsync)
-  const testBody = isLegacyAsync
-    ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
-    : code
+export function buildDenoScript({ code, setup, teardown, timeMs, isAsync, nativeTypeScript = false }) {
+  const fnParts = benchmarkFunctionParts({ code, isAsync })
+  const source = buildDenoSource({ setup, teardown, timeMs, fnParts, nativeTypeScript })
+  return nativeTypeScript ? { source, extension: 'ts' } : source
+}
 
+function buildDenoSource({ setup, teardown, timeMs, fnParts, nativeTypeScript }) {
   return `
 const TIME_LIMIT = ${timeMs};
-const IS_ASYNC = ${shouldAwait ? 'true' : 'false'};
+const IS_ASYNC = ${fnParts.shouldAwait ? 'true' : 'false'};
 
 function emitResult(obj) {
   const line = JSON.stringify(obj) + '\\n';
@@ -48,9 +54,7 @@ ${errorTrapSource()}
 async function main() {
   ${setup ? setup : ''}
 
-  const __benchCode = ${JSON.stringify(testBody)};
-  const __benchPrefix = ${shouldAwait && !isLegacyAsync ? JSON.stringify('async ') : JSON.stringify('')};
-  const __benchFn = eval('(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})');
+  ${nativeTypeScript ? inlineBenchmarkFunctionSource(fnParts) : evalBenchmarkFunctionSource(fnParts)}
 
   ${benchmarkLoopSource()}
 

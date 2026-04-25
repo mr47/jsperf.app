@@ -32,6 +32,8 @@ export default function Slug(props) {
     tests,
     title,
     mirror,
+    language,
+    languageOptions,
   } = props.pageData
 
   const {revisions} = props
@@ -74,16 +76,16 @@ export default function Slug(props) {
         }
         {setup &&
           <section>
-            <Setup setup={setup} />
+            <Setup setup={setup} language={language} />
           </section>
         }
         {teardown &&
           <section>
-            <Teardown teardown={teardown} />
+            <Teardown teardown={teardown} language={language} />
           </section>
         }
         <section>
-          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} setup={setup} teardown={teardown} />
+          <TestRunner id={_id} slug={slug} revision={revision} tests={tests} setup={setup} teardown={teardown} language={language} languageOptions={languageOptions} />
         </section>
         <Separator className="my-6" />
         <section>

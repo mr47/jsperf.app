@@ -1,4 +1,4 @@
-import {highlightSanitizedJS} from '../utils/hljs'
+import {highlightSanitizedCode} from '../utils/hljs'
 import { formatNumber, formatLatency } from '../utils/ArrayUtils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -22,6 +22,7 @@ export default function Test(props) {
     elapsed, total, opsPerSec,
     samples, meanLatency, p99Latency, p50Latency,
   } = props.test
+  const language = props.language || 'javascript'
 
   const progressPct = total > 0 ? Math.min(100, Math.round((elapsed / total) * 100)) : 0
 
@@ -91,7 +92,7 @@ export default function Test(props) {
       <td className="py-4 px-4 border-r border-border align-top">
         <pre className="w-full whitespace-pre-wrap break-words">
           <code className="text-sm font-mono text-muted-foreground" dangerouslySetInnerHTML={
-            {__html: highlightSanitizedJS(code)}} />
+            {__html: highlightSanitizedCode(code, language)}} />
         </pre>
         {status === 'error' && error && (
           <div className="mt-3 p-3 bg-destructive/10 border border-destructive/20 rounded text-xs font-mono text-destructive whitespace-pre-wrap break-words">

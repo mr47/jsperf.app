@@ -7,7 +7,7 @@ export default function Create(props) {
     <>
       <SEO 
         title="Create Test Case - jsPerf" 
-        description="Create a new JavaScript performance benchmark test case on jsPerf.net" 
+        description="Create a new JavaScript or TypeScript performance benchmark test case on jsPerf.net" 
       />
       <Layout>
         <h1 className="font-bold text-3xl mb-6">Create a test case</h1>

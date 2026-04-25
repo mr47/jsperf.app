@@ -6,6 +6,12 @@ import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
 import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
 import { findBrowserApiUsage, isAsyncTest } from '../../../lib/benchmark/detection'
+import {
+  prepareBenchmarkSources,
+  normalizeBenchmarkLanguage,
+  normalizeLanguageOptions,
+  SourcePreparationError,
+} from '../../../lib/benchmark/source'
 import crypto from 'crypto'
 
 // Deep analysis boots V8/QuickJS sandboxes (~25-30s of CPU per call), so a
@@ -49,6 +55,8 @@ export default async function handler(req, res) {
     }
 
     const { tests, setup, teardown, slug, revision, force } = req.body
+    const language = normalizeBenchmarkLanguage(req.body?.language)
+    const languageOptions = normalizeLanguageOptions(language, req.body?.languageOptions)
     const multiRuntimeOptions = parseMultiRuntimeOptions(req.body)
 
     if (!tests || !Array.isArray(tests) || tests.length === 0) {
@@ -65,11 +73,24 @@ export default async function handler(req, res) {
       }
     }
 
+    let prepared
+    try {
+      prepared = prepareBenchmarkSources({ tests, setup, teardown, language, languageOptions })
+    } catch (err) {
+      if (err instanceof SourcePreparationError) {
+        return res.status(400).json({
+          error: err.message,
+          details: err.details || null,
+        })
+      }
+      throw err
+    }
+
     // Cache by content hash for the base QuickJS + V8 analysis only.
     // Multi-runtime results use their own key and are stored durably in MongoDB
     // because selected Node/Deno/Bun versions affect the result independently.
-    const codeHash = computeCodeHash(tests, setup, teardown)
-    const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(tests, setup, teardown, multiRuntimeOptions)
+    const codeHash = computeCodeHash(prepared)
+    const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(prepared, multiRuntimeOptions)
     const cacheKey = `analysis_v8:${codeHash}`
 
     // `force: true` from the "Re-analyze" button busts the Redis cache
@@ -85,7 +106,7 @@ export default async function handler(req, res) {
       const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached
       // On cache HIT we still attach durable MR results when available, or
       // give the client fresh MR jobIds so it can poll for missing data.
-      const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
+      const mrInfo = await maybeEnqueueMultiRuntime(prepared, multiRuntimeCacheKey, multiRuntimeOptions)
       const merged = { ...mergeMultiRuntimeMeta(cachedData, mrInfo), codeHash, multiRuntimeCacheKey }
       res.setHeader('X-Analysis-Cache', 'HIT')
       return res.status(200).json(merged)
@@ -116,7 +137,7 @@ export default async function handler(req, res) {
     // Kick off MR jobs FIRST so they run on the worker concurrently with
     // QuickJS+V8 here. By the time we finish those phases the worker is
     // typically already done, so the client's first poll gets results.
-    const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
+    const mrInfo = await maybeEnqueueMultiRuntime(prepared, multiRuntimeCacheKey, multiRuntimeOptions)
     if (mrInfo?.stored) {
       sendLine({
         type: 'multi-runtime-stored',
@@ -133,13 +154,33 @@ export default async function handler(req, res) {
       sendLine({ type: 'multi-runtime-unavailable', error: mrInfo.error })
     }
 
-    const analysis = await runAnalysis(tests, {
-      setup: setup || undefined,
-      teardown: teardown || undefined,
+    const analysis = await runAnalysis(prepared.runtime.tests, {
+      setup: prepared.runtime.setup || undefined,
+      teardown: prepared.runtime.teardown || undefined,
       timeMs: 2000,
       onProgress: (step) => sendLine({ type: 'progress', ...step }),
-      estimateComplexities: process.env.BENCHMARK_WORKER_URL ? estimateComplexitiesOnWorker : undefined,
+      estimateComplexities: process.env.BENCHMARK_WORKER_URL
+        ? (runtimeTests, opts) => estimateComplexitiesOnWorker(runtimeTests, {
+            ...opts,
+            language: prepared.language,
+            languageOptions: prepared.languageOptions,
+            sourceMode: prepared.language === 'typescript' ? 'compiled-js' : 'source',
+          })
+        : undefined,
     })
+    const analysisWithMeta = {
+      ...analysis,
+      meta: {
+        ...(analysis.meta || {}),
+        sourcePrepMs: prepared.conversionMs,
+        compiler: prepared.compilerVersion
+          ? { name: 'typescript', version: prepared.compilerVersion }
+          : null,
+        language: prepared.language,
+        languageOptions: prepared.languageOptions,
+        sourcePrepVersion: prepared.sourcePrepVersion,
+      },
+    }
 
     const analyses = await analysesCollection()
     const doc = {
@@ -147,18 +188,19 @@ export default async function handler(req, res) {
       multiRuntimeCacheKey,
       slug: slug ? String(slug) : null,
       revision: revision ? parseInt(revision, 10) : null,
-      results: analysis.results,
-      comparison: analysis.comparison,
-      hasErrors: analysis.hasErrors || false,
+      results: analysisWithMeta.results,
+      comparison: analysisWithMeta.comparison,
+      hasErrors: analysisWithMeta.hasErrors || false,
+      meta: analysisWithMeta.meta,
       createdAt: new Date(),
     }
     await analyses.insertOne(doc)
 
-    if (!analysis.hasErrors) {
-      await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
+    if (!analysisWithMeta.hasErrors) {
+      await redis.setex(cacheKey, 3600, JSON.stringify(analysisWithMeta))
     }
 
-    const final = { ...mergeMultiRuntimeMeta(analysis, mrInfo), codeHash, multiRuntimeCacheKey }
+    const final = { ...mergeMultiRuntimeMeta(analysisWithMeta, mrInfo), codeHash, multiRuntimeCacheKey }
     sendLine({ type: 'result', data: final })
     return res.end()
   } catch (error) {
@@ -187,10 +229,13 @@ export default async function handler(req, res) {
  *   null                                                  when the worker
  *                                                         is not configured
  */
-async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, options = {}) {
-  const runnableTests = tests
+async function maybeEnqueueMultiRuntime(prepared, cacheKey, options = {}) {
+  const setup = prepared.original.setup
+  const teardown = prepared.original.teardown
+  const runnableTests = prepared.original.tests
     .map((test, index) => ({
-      test,
+      originalTest: test,
+      runtimeTest: prepared.runtime.tests[index],
       index,
       browserApis: findBrowserApiUsage(test, { setup, teardown }),
     }))
@@ -198,7 +243,7 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, option
 
   if (runnableTests.length === 0) {
     if (!process.env.BENCHMARK_WORKER_URL) return null
-    return { error: formatBrowserApiSkip(tests, setup, teardown) }
+    return { error: formatBrowserApiSkip(prepared.original.tests, setup, teardown) }
   }
 
   const stored = await loadStoredMultiRuntimeResults(
@@ -210,8 +255,21 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, option
 
   if (!process.env.BENCHMARK_WORKER_URL) return null
 
-  const enqueues = await Promise.all(runnableTests.map(({ test: t, index: i }) =>
-    enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, isAsync: isAsyncTest(t), ...options })
+  const enqueues = await Promise.all(runnableTests.map(({ originalTest, runtimeTest, index: i }) =>
+    enqueueMultiRuntimeJob(originalTest.code, {
+      runtimeCode: runtimeTest.code,
+      setup: prepared.original.setup,
+      runtimeSetup: prepared.runtime.setup,
+      teardown: prepared.original.teardown,
+      runtimeTeardown: prepared.runtime.teardown,
+      language: prepared.language,
+      languageOptions: prepared.languageOptions,
+      compilerVersion: prepared.compilerVersion,
+      sourcePrepVersion: prepared.sourcePrepVersion,
+      timeMs: 1500,
+      isAsync: isPreparedAsync(originalTest, runtimeTest),
+      ...options,
+    })
       .then(res => ({ testIndex: i, res }))
       .catch(err => ({ testIndex: i, res: { unavailable: true, error: err.message || String(err) } }))
   ))
@@ -245,23 +303,47 @@ function mergeMultiRuntimeMeta(analysis, mrInfo) {
   }
 }
 
-function computeCodeHash(tests, setup, teardown) {
+function computeCodeHash(prepared) {
   const content = JSON.stringify({
-    tests: tests.map(t => ({ code: t.code.trim(), async: isAsyncTest(t) })),
-    setup: (setup || '').trim(),
-    teardown: (teardown || '').trim(),
+    language: prepared.language,
+    languageOptions: prepared.languageOptions,
+    compilerVersion: prepared.compilerVersion,
+    sourcePrepVersion: prepared.sourcePrepVersion,
+    tests: prepared.original.tests.map((t, i) => ({
+      code: t.code.trim(),
+      runtimeCode: prepared.runtime.tests[i]?.code?.trim() || '',
+      async: isPreparedAsync(t, prepared.runtime.tests[i]),
+    })),
+    setup: prepared.original.setup.trim(),
+    runtimeSetup: prepared.runtime.setup.trim(),
+    teardown: prepared.original.teardown.trim(),
+    runtimeTeardown: prepared.runtime.teardown.trim(),
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
 
-function computeMultiRuntimeCacheKey(tests, setup, teardown, options) {
+function computeMultiRuntimeCacheKey(prepared, options) {
   const content = JSON.stringify({
-    tests: tests.map(t => ({ code: t.code.trim(), async: isAsyncTest(t) })),
-    setup: (setup || '').trim(),
-    teardown: (teardown || '').trim(),
+    language: prepared.language,
+    languageOptions: prepared.languageOptions,
+    compilerVersion: prepared.compilerVersion,
+    sourcePrepVersion: prepared.sourcePrepVersion,
+    tests: prepared.original.tests.map((t, i) => ({
+      code: t.code.trim(),
+      runtimeCode: prepared.runtime.tests[i]?.code?.trim() || '',
+      async: isPreparedAsync(t, prepared.runtime.tests[i]),
+    })),
+    setup: prepared.original.setup.trim(),
+    runtimeSetup: prepared.runtime.setup.trim(),
+    teardown: prepared.original.teardown.trim(),
+    runtimeTeardown: prepared.runtime.teardown.trim(),
     runtimes: options.runtimes || null,
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+function isPreparedAsync(originalTest, runtimeTest) {
+  return isAsyncTest(originalTest) || isAsyncTest(runtimeTest)
 }
 
 function formatBrowserApiSkip(tests, setup, teardown) {

@@ -38,7 +38,7 @@ ${teardown || ''}
 
 export default (props) => {
   const {
-    pageData: { tests, initHTML, setup, teardown },
+    pageData: { tests, initHTML, setup, teardown, runtime, runtimeCompileError },
   } = props
   const prepRef = useRef(null)
 
@@ -270,11 +270,18 @@ export default (props) => {
 
       if (cancelled) return
 
-      const factories = tests.map((test) =>
-        prepError
-          ? { factory: null, error: prepError, actuallyAsync: false }
-          : compileFactory(test.code, setup, teardown, test.async)
-      )
+      const runtimeTests = runtime?.tests || tests
+      const runtimeSetup = runtime?.setup ?? setup
+      const runtimeTeardown = runtime?.teardown ?? teardown
+      const compileError = runtimeCompileError
+        ? new Error(runtimeCompileError.message || 'Failed to compile benchmark source')
+        : null
+      const factories = tests.map((test, index) => {
+        const error = prepError || compileError
+        if (error) return { factory: null, error, actuallyAsync: false }
+        const runtimeTest = runtimeTests[index] || test
+        return compileFactory(runtimeTest.code, runtimeSetup, runtimeTeardown, test.async)
+      })
 
       registerRunner(factories)
       broker.emit('ready', {})

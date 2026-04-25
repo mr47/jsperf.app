@@ -74,6 +74,7 @@ export default async function handler(req, res) {
         results: doc.results,
         comparison: doc.comparison,
         hasErrors: doc.hasErrors || false,
+        meta: doc.meta || null,
       },
       codeHash: doc.codeHash || null,
       multiRuntimeCacheKey: doc.multiRuntimeCacheKey || null,

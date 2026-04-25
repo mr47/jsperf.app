@@ -8,8 +8,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import UUID from '../UUID'
 import { Trash2, Loader2, RotateCcw } from 'lucide-react'
 import Editor from '../Editor'
+import { TYPESCRIPT_SEED_BENCHMARKS, getTypeScriptSeedBenchmark } from '../../lib/benchmark/typescriptSeeds'
 
 const STORAGE_KEY = 'jsperf-draft'
+const DEFAULT_TS_OPTIONS = {
+  runtimeMode: 'native-where-available',
+  target: 'es2020',
+  jsx: false,
+  typeCheck: false,
+  imports: false,
+}
+
+function normalizeLanguage(value) {
+  return value === 'typescript' ? 'typescript' : 'javascript'
+}
+
+function normalizeTypeScriptOptions(value) {
+  const input = value && typeof value === 'object' ? value : {}
+  return {
+    ...DEFAULT_TS_OPTIONS,
+    runtimeMode: input.runtimeMode === 'compiled-everywhere'
+      ? 'compiled-everywhere'
+      : DEFAULT_TS_OPTIONS.runtimeMode,
+    target: ['es2020', 'es2022', 'esnext'].includes(input.target)
+      ? input.target
+      : DEFAULT_TS_OPTIONS.target,
+  }
+}
+
+function languageLabel(language) {
+  return language === 'typescript' ? 'TypeScript' : 'JavaScript'
+}
+
+function editorClassFor(language) {
+  return language === 'typescript' ? 'typescript' : 'javascript'
+}
 
 function loadDraft() {
   try {
@@ -32,7 +65,9 @@ function clearDraft() {
   } catch {}
 }
 
-const TestCaseFieldset = ({index, remove, test, update}) => {
+const TestCaseFieldset = ({index, remove, test, update, language}) => {
+  const label = languageLabel(language)
+  const editorClass = editorClassFor(language)
   return (
     <Card className="mb-6 overflow-hidden border-border/60 shadow-sm bg-card/40 backdrop-blur-sm group">
       
@@ -66,12 +101,12 @@ const TestCaseFieldset = ({index, remove, test, update}) => {
         {/* Editor Area */}
         <div className="w-full bg-background relative group/editor">
           <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">
-            JavaScript
+            {label}
           </div>
           <Editor 
             code={test && test.code} 
             onUpdate={code => update({code}, test.id)} 
-            className="javascript w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+            className={`${editorClass} w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors`} 
             style={{minHeight: "200px"}} 
           />
         </div>
@@ -85,16 +120,11 @@ export default function EditForm({pageData}) {
   const isEditing = !!pageData
   const formRef = useRef(null)
 
-  function getInitialState() {
-    if (isEditing) return null
-    return loadDraft()
-  }
-
-  const draft = useRef(getInitialState()).current
-
-  const [codeBlockInitHTML, setCodeBlockInitHTML] = useState(pageData?.initHTML ?? draft?.initHTML ?? '')
-  const [codeBlockSetup, setCodeBlockSetup] = useState(pageData?.setup ?? draft?.setup ?? '')
-  const [codeBlockTeardown, setCodeBlockTeardown] = useState(pageData?.teardown ?? draft?.teardown ?? '')
+  const [codeBlockInitHTML, setCodeBlockInitHTML] = useState(pageData?.initHTML ?? '')
+  const [codeBlockSetup, setCodeBlockSetup] = useState(pageData?.setup ?? '')
+  const [codeBlockTeardown, setCodeBlockTeardown] = useState(pageData?.teardown ?? '')
+  const [languageState, setLanguageState] = useState(normalizeLanguage(pageData?.language))
+  const [tsOptionsState, setTsOptionsState] = useState(normalizeTypeScriptOptions(pageData?.languageOptions))
 
   let defaultTestsState = [
     {id: 0, title: '', code: ''},
@@ -103,14 +133,30 @@ export default function EditForm({pageData}) {
 
   if (pageData?.tests) {
     defaultTestsState = pageData.tests.map((test, index) => ({id: index, ...test}))
-  } else if (draft?.tests?.length) {
-    defaultTestsState = draft.tests
   }
 
   const [testsState, setTestsState] = useState(defaultTestsState)
   const [isSaving, setIsSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  useEffect(() => {
+    if (isEditing) return
+    const draft = loadDraft()
+    if (!draft) return
+
+    setCodeBlockInitHTML(draft.initHTML ?? '')
+    setCodeBlockSetup(draft.setup ?? '')
+    setCodeBlockTeardown(draft.teardown ?? '')
+    setLanguageState(normalizeLanguage(draft.language))
+    setTsOptionsState(normalizeTypeScriptOptions(draft.languageOptions))
+    if (draft.tests?.length) setTestsState(draft.tests)
+
+    if (formRef.current) {
+      formRef.current.title.value = draft.title ?? ''
+      formRef.current.info.value = draft.info ?? ''
+    }
+  }, [isEditing])
 
   const persistDraft = useCallback(() => {
     if (isEditing) return
@@ -122,9 +168,11 @@ export default function EditForm({pageData}) {
       initHTML: codeBlockInitHTML,
       setup: codeBlockSetup,
       teardown: codeBlockTeardown,
+      language: languageState,
+      languageOptions: languageState === 'typescript' ? tsOptionsState : null,
       tests: testsState,
     })
-  }, [isEditing, codeBlockInitHTML, codeBlockSetup, codeBlockTeardown, testsState])
+  }, [isEditing, codeBlockInitHTML, codeBlockSetup, codeBlockTeardown, languageState, tsOptionsState, testsState])
 
   useEffect(() => {
     if (isEditing) return
@@ -146,6 +194,19 @@ export default function EditForm({pageData}) {
     setTestsState(tests => [...tests, {id: lastId+1, title: '', code: ''}])
   }
 
+  const applyTypeScriptSeed = (seedId) => {
+    const seed = getTypeScriptSeedBenchmark(seedId)
+    setLanguageState('typescript')
+    setTsOptionsState(DEFAULT_TS_OPTIONS)
+    setCodeBlockSetup(seed.setup)
+    setCodeBlockTeardown('')
+    setTestsState(seed.tests.map((test, index) => ({ id: index, ...test })))
+    if (formRef.current) {
+      if (!formRef.current.title.value) formRef.current.title.value = seed.title
+      if (!formRef.current.info.value) formRef.current.info.value = seed.description
+    }
+  }
+
   const testsUpdate = (test, id) => {
     const testIndex = testsState.findIndex(test => test.id === id)
     setTestsState(tests => {
@@ -159,6 +220,8 @@ export default function EditForm({pageData}) {
     setCodeBlockInitHTML('')
     setCodeBlockSetup('')
     setCodeBlockTeardown('')
+    setLanguageState('javascript')
+    setTsOptionsState(DEFAULT_TS_OPTIONS)
     setTestsState([
       {id: 0, title: '', code: ''},
       {id: 1, title: '', code: ''},
@@ -178,11 +241,6 @@ export default function EditForm({pageData}) {
     visible: false
   }, pageData)
 
-  if (!isEditing && draft) {
-    formDefaults.title = draft.title ?? formDefaults.title
-    formDefaults.info = draft.info ?? formDefaults.info
-  }
-
   const submitFormHandler = async event => {
     event.preventDefault()
     setIsSaving(true)
@@ -197,6 +255,8 @@ export default function EditForm({pageData}) {
     formData.initHTML = codeBlockInitHTML
     formData.setup = codeBlockSetup
     formData.teardown = codeBlockTeardown
+    formData.language = languageState
+    formData.languageOptions = languageState === 'typescript' ? tsOptionsState : null
 
     formData.tests = testsState.map(test => ({...test}))
       .map(test => { delete test.id; return test })
@@ -273,6 +333,115 @@ export default function EditForm({pageData}) {
       </Card>
     </div>
 
+      <div className="pt-2">
+        <Card className="border-border/60 shadow-sm bg-card/40 backdrop-blur-sm overflow-hidden">
+          <CardHeader>
+            <CardTitle className="text-xl">Code Language</CardTitle>
+            <CardDescription>
+              Choose how setup, teardown, and test snippets are written. JavaScript stays the default; TypeScript is compiled where engines need JavaScript.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className={`rounded-xl border p-4 cursor-pointer transition-colors ${languageState === 'javascript' ? 'border-primary/60 bg-primary/5' : 'border-border/60 bg-background/40 hover:bg-muted/30'}`}>
+                <input
+                  type="radio"
+                  name="language"
+                  value="javascript"
+                  checked={languageState === 'javascript'}
+                  onChange={() => setLanguageState('javascript')}
+                  className="sr-only"
+                />
+                <span className="block text-sm font-semibold">JavaScript</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Fastest setup and compatible with every existing benchmark.</span>
+              </label>
+              <label className={`rounded-xl border p-4 cursor-pointer transition-colors ${languageState === 'typescript' ? 'border-primary/60 bg-primary/5' : 'border-border/60 bg-background/40 hover:bg-muted/30'}`}>
+                <input
+                  type="radio"
+                  name="language"
+                  value="typescript"
+                  checked={languageState === 'typescript'}
+                  onChange={() => setLanguageState('typescript')}
+                  className="sr-only"
+                />
+                <span className="block text-sm font-semibold">TypeScript</span>
+                <span className="mt-1 block text-xs text-muted-foreground">Write typed snippets. Browser, Node, QuickJS and V8 run compiled JS; Deno/Bun can run native TS.</span>
+              </label>
+            </div>
+
+            {languageState === 'typescript' && (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-sm font-semibold text-sky-800 dark:text-sky-200">Try TypeScript seed benchmarks</h4>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Load typed examples with discriminated unions, generic helpers, and runtime-friendly data setup.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {TYPESCRIPT_SEED_BENCHMARKS.map(seed => (
+                        <Button
+                          key={seed.id}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="bg-background/60"
+                          onClick={() => applyTypeScriptSeed(seed.id)}
+                        >
+                          {seed.title}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <details className="rounded-xl border border-border/60 bg-background/40 p-4">
+                  <summary className="cursor-pointer text-sm font-semibold">
+                    TypeScript options
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">
+                      Target: {tsOptionsState.target.toUpperCase()}, {tsOptionsState.runtimeMode === 'compiled-everywhere' ? 'compiled everywhere' : 'Deno/Bun native TS'}
+                    </span>
+                  </summary>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="tsTarget">Compile target</Label>
+                      <select
+                        id="tsTarget"
+                        value={tsOptionsState.target}
+                        onChange={(event) => setTsOptionsState(opts => ({ ...opts, target: event.target.value }))}
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="es2020">ES2020</option>
+                        <option value="es2022">ES2022</option>
+                        <option value="esnext">ESNext</option>
+                      </select>
+                      <p className="text-xs text-muted-foreground">ES2020 is the safest default for QuickJS and older engine features.</p>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="tsRuntimeMode">Runtime mode</Label>
+                      <select
+                        id="tsRuntimeMode"
+                        value={tsOptionsState.runtimeMode}
+                        onChange={(event) => setTsOptionsState(opts => ({ ...opts, runtimeMode: event.target.value }))}
+                        className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="native-where-available">Native TypeScript on Deno/Bun</option>
+                        <option value="compiled-everywhere">Compiled JavaScript everywhere</option>
+                      </select>
+                      <p className="text-xs text-muted-foreground">Node, browser, QuickJS and V8 always use compiled JavaScript.</p>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    Snippets are still function bodies. Top-level import/export, JSX and type-checking are not enabled in benchmark runs yet.
+                  </p>
+                </details>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="pt-4">
         <div className="mb-6">
           <h3 className="text-3xl font-extrabold tracking-tight">Preparation & Teardown</h3>
@@ -284,8 +453,8 @@ export default function EditForm({pageData}) {
             <Tabs defaultValue="setup" className="w-full">
               <div className="flex items-center justify-between px-4 py-2 bg-muted/10 border-b border-border/50">
                 <TabsList className="bg-muted/50 border border-border/50">
-                  <TabsTrigger value="setup" className="text-xs uppercase tracking-wider font-semibold">Setup JS</TabsTrigger>
-                  <TabsTrigger value="teardown" className="text-xs uppercase tracking-wider font-semibold">Teardown JS</TabsTrigger>
+                  <TabsTrigger value="setup" className="text-xs uppercase tracking-wider font-semibold">Setup {languageState === 'typescript' ? 'TS' : 'JS'}</TabsTrigger>
+                  <TabsTrigger value="teardown" className="text-xs uppercase tracking-wider font-semibold">Teardown {languageState === 'typescript' ? 'TS' : 'JS'}</TabsTrigger>
                   <TabsTrigger value="html" className="text-xs uppercase tracking-wider font-semibold">Prep HTML</TabsTrigger>
                 </TabsList>
               </div>
@@ -304,11 +473,11 @@ export default function EditForm({pageData}) {
 
               <TabsContent value="setup" className="m-0 border-none outline-none">
                 <div className="w-full bg-background relative group/editor">
-                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">JavaScript</div>
+                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">{languageLabel(languageState)}</div>
                   <Editor 
                     code={codeBlockSetup} 
                     onUpdate={setCodeBlockSetup} 
-                    className="javascript w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+                    className={`${editorClassFor(languageState)} w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors`} 
                     style={{minHeight: "200px"}} 
                   />
                 </div>
@@ -316,11 +485,11 @@ export default function EditForm({pageData}) {
 
               <TabsContent value="teardown" className="m-0 border-none outline-none">
                 <div className="w-full bg-background relative group/editor">
-                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">JavaScript</div>
+                  <div className="absolute top-2 right-4 text-[10px] uppercase tracking-widest font-bold text-muted-foreground/30 group-hover/editor:text-muted-foreground/60 transition-colors pointer-events-none z-10">{languageLabel(languageState)}</div>
                   <Editor 
                     code={codeBlockTeardown} 
                     onUpdate={setCodeBlockTeardown} 
-                    className="javascript w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors" 
+                    className={`${editorClassFor(languageState)} w-full p-4 pt-6 font-mono text-sm outline-none focus:bg-primary/[0.02] transition-colors`} 
                     style={{minHeight: "200px"}} 
                   />
                 </div>
@@ -334,7 +503,7 @@ export default function EditForm({pageData}) {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-6">
           <div>
             <h3 className="text-3xl font-extrabold tracking-tight">Test Snippets</h3>
-            <p className="text-muted-foreground mt-2 text-sm">Write the JavaScript code you want to benchmark. Each snippet runs in isolation.</p>
+            <p className="text-muted-foreground mt-2 text-sm">Write the {languageLabel(languageState)} code you want to benchmark. Each snippet runs as a function body.</p>
           </div>
           <Button type="button" variant="outline" onClick={testsAdd} className="font-semibold shadow-sm hover:shadow transition-all bg-background border-border hover:bg-muted shrink-0">
             + Add Snippet
@@ -346,7 +515,7 @@ export default function EditForm({pageData}) {
             if (testsState.length > 2) {
               optionalProps.remove = testsRemove
             }
-            return <TestCaseFieldset {...optionalProps} key={test.id} index={index} test={test} update={(e, id) => testsUpdate(e, id)} />
+            return <TestCaseFieldset {...optionalProps} key={test.id} index={index} test={test} language={languageState} update={(e, id) => testsUpdate(e, id)} />
           })}
         </div>
       </div>

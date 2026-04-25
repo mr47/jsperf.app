@@ -11,6 +11,8 @@ describe('benchmark detection', () => {
     expect(isAsyncTest({ code: 'await Promise.resolve(1)' })).toBe(true)
     expect(isAsyncTest({ code: 'deferred.resolve(value)' })).toBe(true)
     expect(isAsyncTest({ code: 'return new Promise(resolve => resolve())' })).toBe(true)
+    expect(isAsyncTest({ code: 'x + 1', runtimeCode: 'await Promise.resolve(1)' })).toBe(true)
+    expect(isAsyncTest({ code: 'x + 1', originalCode: 'await Promise.resolve(1)' })).toBe(true)
     expect(isAsyncTest({ code: 'x + 1' })).toBe(false)
   })
 
@@ -21,6 +23,7 @@ describe('benchmark detection', () => {
 
     expect(usage).toEqual(expect.arrayContaining(['document', 'window']))
     expect(testUsesBrowserApis({ code: 'localStorage.getItem("key")' })).toBe(true)
+    expect(testUsesBrowserApis({ code: 'x + 1', originalCode: 'document.body' })).toBe(true)
   })
 
   it('detects browser globals in shared setup and teardown', () => {

@@ -378,4 +378,64 @@ describe('POST /api/benchmark/analyze', () => {
     const messages = parseNdjsonLines(res)
     expect(messages.some(m => m.type === 'multi-runtime-stored')).toBe(true)
   })
+
+  it('returns 400 for unsupported TypeScript module syntax before streaming', async () => {
+    const req = createMockReq({
+      language: 'typescript',
+      tests: [{ code: 'import { x } from "pkg"\nreturn x', title: 'test' }],
+    })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(res._status).toBe(400)
+    expect(res._json.error).toContain('import/export')
+    expect(res.write).not.toHaveBeenCalled()
+  })
+
+  it('compiles TypeScript for QuickJS/V8 while forwarding original and runtime sources to the worker', async () => {
+    const { runAnalysis } = await import('../../lib/engines/runner')
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({ jobId: 'job-1', deadlineMs: 30000 }),
+      text: async () => JSON.stringify({ jobId: 'job-1' }),
+    }))
+
+    const req = createMockReq({
+      language: 'typescript',
+      languageOptions: { target: 'es2022', runtimeMode: 'native-where-available' },
+      setup: 'const seed: number = 1',
+      teardown: 'const done: boolean = true',
+      tests: [{ code: 'const value: number = seed + 1\nreturn value as number', title: 'typed' }],
+    })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    const [workerUrl, init] = globalThis.fetch.mock.calls[0]
+    expect(workerUrl).toBe('http://worker.test/api/jobs')
+    const body = JSON.parse(init.body)
+    expect(body.language).toBe('typescript')
+    expect(body.languageOptions).toMatchObject({ target: 'es2022', runtimeMode: 'native-where-available' })
+    expect(body.code).toContain('value: number')
+    expect(body.runtimeCode).toContain('const value = seed + 1')
+    expect(body.runtimeSetup).toContain('const seed = 1')
+    expect(body.runtimeTeardown).toContain('const done = true')
+
+    expect(runAnalysis).toHaveBeenCalledWith(
+      [expect.objectContaining({ code: expect.stringContaining('const value = seed + 1') })],
+      expect.objectContaining({
+        setup: expect.stringContaining('const seed = 1'),
+        teardown: expect.stringContaining('const done = true'),
+      }),
+    )
+
+    const messages = parseNdjsonLines(res)
+    const result = messages.find(m => m.type === 'result')?.data
+    expect(result.meta.language).toBe('typescript')
+    expect(result.meta.sourcePrepMs).toEqual(expect.any(Number))
+    expect(result.meta.compiler.version).toEqual(expect.any(String))
+  })
 })

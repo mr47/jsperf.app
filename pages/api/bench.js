@@ -2,6 +2,7 @@ import { pagesCollection } from '../../lib/mongodb'
 import { getSession } from "next-auth/react"
 import { shortcode } from "../../utils/Url"
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
+import { normalizeBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benchmark/source'
 
 // Free: 10/min by IP. Donor: 60/min by donor identity (see lib/rateLimit.js).
 // Page create/update is a write to MongoDB — keep it modest to honor server resources.
@@ -83,6 +84,8 @@ const addPage = async (req, res) => {
     const pages = await pagesCollection()
 
     const payload = JSON.parse(req.body)
+    payload.language = normalizeBenchmarkLanguage(payload.language)
+    payload.languageOptions = normalizeLanguageOptions(payload.language, payload.languageOptions)
 
     // Could be a revision of an existing page.
     // In which case use the same slug.
@@ -211,6 +214,8 @@ const updatePage = async (req, res) => {
       setup: payload.setup,
       teardown: payload.teardown,
       tests: payload.tests,
+      language: normalizeBenchmarkLanguage(payload.language),
+      languageOptions: normalizeLanguageOptions(payload.language, payload.languageOptions),
       authorName: payload.authorName,
       visible: payload.visible,
     }

@@ -6,15 +6,31 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Zap, Share2, Code2, Sparkles, TrendingUp, Users, Microscope, Cpu, BarChart3, ArrowRight, Presentation, Heart, Coffee, Rocket, Check, GitBranch } from 'lucide-react'
 import GitHubIcon from '../components/GitHubIcon'
 import dynamic from 'next/dynamic'
+import { highlightSanitizedCode } from '../utils/hljs'
 
 const HeroBackground = dynamic(() => import('../components/HeroBackground'), { ssr: false })
+const TYPESCRIPT_PREVIEW_CODE = `type Product = {
+  category: 'book' | 'tool' | 'game'
+  price: number
+  stock: number
+}
+
+function sumBy<T, K extends string>(
+  items: T[],
+  keyOf: (item: T) => K,
+  valueOf: (item: T) => number
+) {
+  // benchmark typed helpers
+}`
 
 export default function Home(props) {
+  const highlightedTypeScriptPreview = highlightSanitizedCode(TYPESCRIPT_PREVIEW_CODE, 'typescript')
+
   return (
     <>
       <SEO 
-        title="jsPerf - Online JavaScript performance benchmark" 
-        description="jsPerf.net is an online JavaScript performance benchmark test runner" 
+        title="jsPerf - Online JavaScript and TypeScript performance benchmark" 
+        description="jsPerf.net is an online JavaScript and TypeScript performance benchmark test runner" 
       />
       <Layout>
         {/* Animated 3D ASCII Background */}
@@ -32,6 +48,14 @@ export default function Home(props) {
               <Sparkles className="mr-2 h-4 w-4 text-amber-500" />
               <span className="text-muted-foreground">A modern full rewrite of jsPerf</span>
             </div>
+            <Link
+              href="/yepawu"
+              className="group inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-500/20 transition-colors"
+            >
+              <Code2 className="mr-2 h-4 w-4 text-blue-500" />
+              <span>New: TypeScript benchmarks</span>
+              <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
             <Link
               href="#presentation-reports"
               className="group inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-sm font-medium text-violet-700 dark:text-violet-300 hover:bg-violet-500/20 transition-colors"
@@ -54,11 +78,11 @@ export default function Home(props) {
             <h1 className="text-5xl sm:text-6xl md:text-7xl font-extrabold tracking-tight drop-shadow-sm">
               Benchmark JavaScript <br className="hidden sm:block" />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-violet-600 dark:from-blue-400 dark:to-violet-400">
-                Performance Instantly
+                and TypeScript Instantly
               </span>
             </h1>
             <p className="text-xl sm:text-2xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Write, share, and compare the execution speed of your JavaScript code snippets right in the browser.
+              Write, share, and compare JavaScript or TypeScript snippets in the browser, then inspect QuickJS, V8, Node, Deno, and Bun behavior with Deep Analysis.
             </p>
           </div>
           
@@ -138,9 +162,9 @@ export default function Home(props) {
                 <div className="h-12 w-12 rounded-lg bg-blue-500/10 flex items-center justify-center mb-4">
                   <Code2 className="h-6 w-6 text-blue-600 dark:text-blue-500" />
                 </div>
-                <CardTitle className="text-xl">Modern IDE Experience</CardTitle>
+                <CardTitle className="text-xl">JavaScript + TypeScript Snippets</CardTitle>
                 <CardDescription className="text-base mt-2 leading-relaxed">
-                  Enjoy syntax highlighting and code editing tailored for writing accurate benchmark setup and teardown code right in the browser.
+                  Write plain JavaScript or TypeScript with typed setup data, generic helpers, and discriminated unions. TypeScript is compiled where engines need JavaScript, while Deno and Bun can run native `.ts`.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -188,6 +212,88 @@ export default function Home(props) {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+        </section>
+
+        {/* TypeScript Spotlight */}
+        <section id="typescript" className="py-24 border-t border-border/50">
+          <div className="max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+              <div className="space-y-6">
+                <div className="inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-sm font-medium">
+                  <Code2 className="mr-2 h-4 w-4 text-blue-500" />
+                  <span className="text-blue-700 dark:text-blue-300">TypeScript support</span>
+                </div>
+                <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+                  Benchmark typed code without rewriting it to JavaScript first
+                </h2>
+                <p className="text-lg text-muted-foreground leading-relaxed">
+                  Write TypeScript setup, teardown, and test bodies directly. jsPerf keeps the original typed source for sharing and reports, then prepares the right runtime form for each engine.
+                </p>
+                <div className="grid gap-3 text-sm">
+                  <div className="rounded-xl border border-border/60 bg-card/50 p-4">
+                    <div className="font-semibold">Typed snippets in the editor</div>
+                    <p className="mt-1 text-muted-foreground">Use interfaces, discriminated unions, generics, typed arrays, and type annotations in benchmark cases.</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-card/50 p-4">
+                    <div className="font-semibold">Comparable runtime behavior</div>
+                    <p className="mt-1 text-muted-foreground">Browser, QuickJS, V8, and Node run compiled JavaScript. Deno and Bun can run native TypeScript for cross-runtime comparison.</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-card/50 p-4">
+                    <div className="font-semibold">Seed benchmarks included</div>
+                    <p className="mt-1 text-muted-foreground">Start from examples like typed event routing and generic indexing helpers, then adapt them to your real workload.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <Button asChild size="lg" className="rounded-full px-6">
+                    <Link href="/yepawu" className="flex items-center gap-2">
+                      Open TypeScript example
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" size="lg" className="rounded-full px-6">
+                    <Link href="/create" className="flex items-center gap-2">
+                      Create TypeScript benchmark
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+
+              <Link href="/yepawu" className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 rounded-2xl">
+                <div className="absolute -inset-4 bg-gradient-to-tr from-blue-500/20 via-cyan-500/10 to-violet-500/20 rounded-2xl blur-2xl transition-opacity group-hover:opacity-80" aria-hidden="true" />
+                <div className="relative rounded-xl border border-border/60 bg-card/80 backdrop-blur-sm shadow-xl overflow-hidden transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
+                  <div className="flex items-center gap-1.5 border-b border-border/50 px-4 py-2.5 bg-muted/40">
+                    <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
+                    <span className="ml-3 text-xs text-muted-foreground font-mono truncate">jsperf.net/yepawu</span>
+                  </div>
+                  <div className="p-6 sm:p-8 bg-gradient-to-br from-blue-50 via-white to-violet-50/40 dark:from-slate-900 dark:via-slate-950 dark:to-blue-950/30">
+                    <div className="flex items-center justify-between mb-5">
+                      <span className="text-[10px] uppercase tracking-widest text-blue-700 dark:text-blue-300 font-semibold">TypeScript benchmark</span>
+                      <span className="text-[10px] rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-blue-700 dark:text-blue-300">TS</span>
+                    </div>
+                    <pre className="text-left rounded-xl border border-border/60 bg-slate-950 p-4 overflow-hidden text-xs leading-relaxed shadow-inner">
+                      <code className="language-typescript hljs" dangerouslySetInnerHTML={{ __html: highlightedTypeScriptPreview }} />
+                    </pre>
+                    <div className="grid grid-cols-3 gap-2 pt-5">
+                      <div className="rounded-md border border-border/50 bg-card/60 p-2">
+                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Browser</p>
+                        <p className="text-sm font-bold">compiled JS</p>
+                      </div>
+                      <div className="rounded-md border border-border/50 bg-card/60 p-2">
+                        <p className="text-[9px] uppercase tracking-wider text-muted-foreground">Node/V8</p>
+                        <p className="text-sm font-bold">compiled JS</p>
+                      </div>
+                      <div className="rounded-md border border-blue-500/40 bg-blue-500/5 p-2">
+                        <p className="text-[9px] uppercase tracking-wider text-blue-700 dark:text-blue-300">Deno/Bun</p>
+                        <p className="text-sm font-bold">native TS</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            </div>
           </div>
         </section>
 
