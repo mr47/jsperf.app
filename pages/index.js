@@ -3,7 +3,7 @@ import Layout from '../components/Layout'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
-import { Zap, Share2, Code2, Sparkles, TrendingUp, Users, Microscope, Cpu, BarChart3, ArrowRight, Presentation, Heart, Coffee, Rocket, Check } from 'lucide-react'
+import { Zap, Share2, Code2, Sparkles, TrendingUp, Users, Microscope, Cpu, BarChart3, ArrowRight, Presentation, Heart, Coffee, Rocket, Check, GitBranch } from 'lucide-react'
 import GitHubIcon from '../components/GitHubIcon'
 import dynamic from 'next/dynamic'
 
@@ -27,7 +27,7 @@ export default function Home(props) {
 
         {/* Hero Section */}
         <section className="relative py-24 sm:py-32 flex flex-col items-center justify-center text-center space-y-10">
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-center justify-center gap-3">
             <div className="inline-flex items-center rounded-full border border-border px-3 py-1 text-sm font-medium">
               <Sparkles className="mr-2 h-4 w-4 text-amber-500" />
               <span className="text-muted-foreground">A modern full rewrite of jsPerf</span>
@@ -38,6 +38,14 @@ export default function Home(props) {
             >
               <Rocket className="mr-2 h-4 w-4 text-violet-500" />
               <span>New: Shareable presentation reports</span>
+              <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
+            <Link
+              href="#deep-analysis"
+              className="group inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-sm font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-500/20 transition-colors"
+            >
+              <GitBranch className="mr-2 h-4 w-4 text-sky-500" />
+              <span>New: Static complexity estimates</span>
               <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
           </div>
@@ -184,8 +192,8 @@ export default function Home(props) {
         </section>
 
         {/* Deep Analysis Spotlight */}
-        <section className="py-24 border-t border-border/50">
-          <div className="max-w-5xl mx-auto">
+        <section id="deep-analysis" className="py-24 border-t border-border/50">
+          <div className="max-w-6xl mx-auto">
             <div className="text-center mb-16 space-y-4">
               <div className="inline-flex items-center rounded-full border border-violet-500/30 bg-violet-500/5 px-3 py-1 text-sm font-medium">
                 <Microscope className="mr-2 h-4 w-4 text-violet-500" />
@@ -199,7 +207,7 @@ export default function Home(props) {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="relative rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-6 space-y-4">
                 <div className="h-10 w-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
                   <Cpu className="h-5 w-5 text-amber-600 dark:text-amber-500" />
@@ -225,6 +233,20 @@ export default function Home(props) {
                 <div className="flex flex-wrap gap-2 pt-2">
                   <span className="text-xs rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-0.5 font-medium">JIT Profiling</span>
                   <span className="text-xs rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-400 px-2.5 py-0.5 font-medium">Isolated</span>
+                </div>
+              </div>
+
+              <div className="relative rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm p-6 space-y-4">
+                <div className="h-10 w-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                  <GitBranch className="h-5 w-5 text-violet-600 dark:text-violet-500" />
+                </div>
+                <h3 className="font-semibold text-lg">Static Complexity</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Estimates time and space complexity for each benchmark, including loops, collection helpers, allocations, and async scheduling signals.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <span className="text-xs rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-400 px-2.5 py-0.5 font-medium">Big-O</span>
+                  <span className="text-xs rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-400 px-2.5 py-0.5 font-medium">Time + space</span>
                 </div>
               </div>
 
@@ -291,7 +313,7 @@ export default function Home(props) {
                 </ul>
                 <div className="flex flex-wrap gap-3 pt-2">
                   <Button asChild size="lg" className="rounded-full px-6">
-                    <Link href="/r/vfbvvfed" className="flex items-center gap-2">
+                    <Link href="/r/rvtu7jfm" className="flex items-center gap-2">
                       <Presentation className="h-4 w-4" />
                       See an example report
                     </Link>
@@ -303,14 +325,14 @@ export default function Home(props) {
                 </div>
               </div>
 
-              <Link href="/r/vfbvvfed" className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 rounded-2xl">
+              <Link href="/r/rvtu7jfm" className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/60 rounded-2xl">
                 <div className="absolute -inset-4 bg-gradient-to-tr from-violet-500/20 via-fuchsia-500/10 to-blue-500/20 rounded-2xl blur-2xl transition-opacity group-hover:opacity-80" aria-hidden="true" />
                 <div className="relative rounded-xl border border-border/60 bg-card/80 backdrop-blur-sm shadow-xl overflow-hidden transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
                   <div className="flex items-center gap-1.5 border-b border-border/50 px-4 py-2.5 bg-muted/40">
                     <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
-                    <span className="ml-3 text-xs text-muted-foreground font-mono truncate">jsperf.net/r/vfbvvfed</span>
+                    <span className="ml-3 text-xs text-muted-foreground font-mono truncate">jsperf.net/r/rvtu7jfm</span>
                   </div>
                   <div className="aspect-[16/10] p-6 sm:p-8 flex flex-col bg-gradient-to-br from-slate-50 via-white to-violet-50/40 dark:from-slate-900 dark:via-slate-950 dark:to-violet-950/40">
                     <div className="flex items-center justify-between mb-4">
