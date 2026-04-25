@@ -60,6 +60,7 @@ import {
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
 import SafeResponsiveContainer from '../SafeResponsiveContainer'
+import MathNotation from '../MathNotation'
 
 /* ------------------------------------------------------------------ */
 /*  Building blocks                                                    */
@@ -833,13 +834,15 @@ function ComplexitySlide({ report }) {
       <div className="mb-6 grid grid-cols-3 gap-4">
         <div className="rounded-3xl border-2 border-violet-200 dark:border-violet-800/60 bg-violet-50/70 dark:bg-violet-950/30 p-5">
           <div className="text-xs uppercase tracking-wider text-violet-700 dark:text-violet-300 font-semibold">Peak time</div>
-          <div className="mt-2 text-4xl font-black tracking-tight">{peak?.complexity?.time?.notation || 'unknown'}</div>
+          <div className="mt-2 text-4xl font-black tracking-tight">
+            <MathNotation value={peak?.complexity?.time?.notation} />
+          </div>
           <div className="mt-2 text-sm text-muted-foreground truncate">{peak?.title || 'No test'}</div>
         </div>
         <div className="rounded-3xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/70 dark:bg-sky-950/30 p-5">
           <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 font-semibold">Space</div>
           <div className="mt-2 text-4xl font-black tracking-tight">{constantSpace}/{results.length}</div>
-          <div className="mt-2 text-sm text-muted-foreground">tests estimated as O(1)</div>
+          <div className="mt-2 text-sm text-muted-foreground">tests estimated as <MathNotation value="O(1)" /></div>
         </div>
         <div className="rounded-3xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/30 p-5">
           <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-semibold">Shape</div>
@@ -874,13 +877,17 @@ function ComplexitySlide({ report }) {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-lg font-black tabular-nums">{c.time?.notation || 'unknown'}</div>
+                    <div className="text-lg font-black tabular-nums">
+                      <MathNotation value={c.time?.notation} />
+                    </div>
                     {Number.isFinite(Number(c.time?.confidence)) && (
                       <div className="text-xs text-muted-foreground">{formatPercent(Number(c.time.confidence) * 100, 0)}</div>
                     )}
                   </div>
                   <div className="text-right">
-                    <div className="text-lg font-black tabular-nums">{c.space?.notation || 'unknown'}</div>
+                    <div className="text-lg font-black tabular-nums">
+                      <MathNotation value={c.space?.notation} />
+                    </div>
                     <div className="text-xs text-muted-foreground">{c.space?.label || 'space'}</div>
                   </div>
                 </div>

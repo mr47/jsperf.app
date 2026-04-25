@@ -1,4 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card'
+import MathNotation from '@/components/MathNotation'
 import { Boxes, GitBranch, Gauge, Zap } from 'lucide-react'
 
 const TIME_STEPS = [
@@ -196,8 +197,8 @@ export default function ComplexityInsight({ results }) {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <SummaryStat icon={Gauge} label="Peak" value={highest?.time?.notation || 'unknown'} detail={peakTitle} />
-            <SummaryStat icon={Boxes} label="Space" value={`${constantSpaceCount}/${rows.length}`} detail="estimated as O(1)" />
+            <SummaryStat icon={Gauge} label="Peak" value={<MathNotation value={highest?.time?.notation} />} detail={peakTitle} />
+            <SummaryStat icon={Boxes} label="Space" value={`${constantSpaceCount}/${rows.length}`} detail={<>estimated as <MathNotation value="O(1)" /></>} />
             <SummaryStat icon={Zap} label="Async" value={asyncCount ? `${asyncCount}` : 'none'} detail={asyncCount ? 'tests flagged' : 'no scheduling flags'} />
             <SummaryStat icon={GitBranch} label="Shape" value={`${linearOrBetter}/${rows.length}`} detail="linear or better" />
           </div>
@@ -220,10 +221,10 @@ export default function ComplexityInsight({ results }) {
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <span className={`rounded-2xl px-5 py-2.5 text-base font-black tabular-nums ${palette.bg} ${palette.text}`}>
-                      Time {c.time?.notation || 'unknown'}
+                      Time <MathNotation value={c.time?.notation} />
                     </span>
                     <span className="rounded-2xl bg-sky-100 px-5 py-2.5 text-base font-black tabular-nums text-sky-800 dark:bg-sky-900/30 dark:text-sky-200">
-                      Space {c.space?.notation || 'unknown'}
+                      Space <MathNotation value={c.space?.notation} />
                     </span>
                     {async && (
                       <span className="rounded-2xl bg-amber-100 px-5 py-2.5 text-base font-bold text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">

@@ -49,6 +49,7 @@ import {
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
+import MathNotation from '../MathNotation'
 
 /* --------------------------------- atoms --------------------------------- */
 
@@ -580,8 +581,8 @@ function ComplexitySection({ report }) {
                   )}
                 </div>
                 <div className="flex shrink-0 gap-1.5">
-                  <Pill color="violet">{c.time?.notation || 'unknown'}</Pill>
-                  <Pill color="sky">{c.space?.notation || 'unknown'}</Pill>
+                  <Pill color="violet"><MathNotation value={c.time?.notation} /></Pill>
+                  <Pill color="sky"><MathNotation value={c.space?.notation} /></Pill>
                 </div>
               </div>
               {c.explanation && (
