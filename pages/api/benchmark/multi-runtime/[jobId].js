@@ -5,8 +5,8 @@
  * returns. We proxy through to the worker (using the server-side shared
  * secret which never leaves the Vercel function) and:
  *   - Shape the response to the runtimeComparison schema the UI expects
- *   - Cache successful results in Redis keyed by codeHash so repeat
- *     visits from the same code don't re-hit the worker
+ *   - Store successful results in MongoDB keyed by the multi-runtime
+ *     cache key so repeat visits don't re-hit the worker
  *
  * Returns:
  *   200 { state: 'pending' | 'running', partial?: {...} }
@@ -16,9 +16,12 @@
  *   503 { error: 'Worker unreachable' }
  */
 
-import { redis } from '../../../../lib/redis'
 import { getMultiRuntimeJob } from '../../../../lib/engines/multiruntime'
 import { buildRuntimeComparison } from '../../../../lib/prediction/model'
+import {
+  loadStoredMultiRuntimeResults,
+  persistMultiRuntimeResult,
+} from '../../../../lib/multiRuntimeResults'
 
 // Polling endpoint is intentionally tiny — it should always finish well
 // inside any timeout. Hobby's 60s default is fine.
@@ -37,22 +40,29 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'jobId is required' })
   }
 
-  const codeHash = typeof req.query.codeHash === 'string' ? req.query.codeHash : null
+  // Kept as `codeHash` in the public query string for compatibility with the
+  // existing client, but the value is the multi-runtime cache key emitted by
+  // /api/benchmark/analyze.
+  const cacheKey = typeof req.query.codeHash === 'string' ? req.query.codeHash : null
 
-  // Fast path: if we've cached a "done" MR result for this codeHash,
-  // serve it without bothering the worker. The cache key is per-test
-  // (testIndex is in the body) — we cache the whole bundle keyed by
-  // codeHash + testIndex.
+  // Fast path: if we've already stored a "done" MR result for this key,
+  // serve it without bothering the worker.
   const testIndex = Number.parseInt(req.query.testIndex, 10)
-  if (codeHash && Number.isFinite(testIndex)) {
+  if (cacheKey && Number.isFinite(testIndex)) {
     try {
-      const cached = await redis.get(`mr_v2:${codeHash}:${testIndex}`)
-      if (cached) {
-        const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
-        res.setHeader('X-MR-Cache', 'HIT')
-        return res.status(200).json({ state: 'done', ...parsed })
+      const stored = await loadStoredMultiRuntimeResults(cacheKey, [{ testIndex }], { requireAll: true })
+      const storedResult = stored?.results?.[0]
+      if (storedResult) {
+        res.setHeader('X-MR-Store', 'HIT')
+        return res.status(200).json({
+          state: 'done',
+          runtimes: storedResult.runtimes,
+          runtimeComparison: storedResult.runtimeComparison,
+        })
       }
-    } catch (_) { /* non-fatal */ }
+    } catch (err) {
+      console.warn('multi-runtime store read failed:', err?.message || err)
+    }
   }
 
   let job
@@ -82,10 +92,17 @@ export default async function handler(req, res) {
   const runtimeComparison = buildRuntimeComparison(runtimes)
   const payload = { runtimes, runtimeComparison }
 
-  if (codeHash && Number.isFinite(testIndex) && runtimeComparison?.available) {
+  if (cacheKey && Number.isFinite(testIndex) && runtimeComparison?.available) {
     try {
-      await redis.setex(`mr_v2:${codeHash}:${testIndex}`, 3600, JSON.stringify(payload))
-    } catch (_) { /* non-fatal */ }
+      await persistMultiRuntimeResult({
+        cacheKey,
+        testIndex,
+        runtimes,
+        runtimeComparison,
+      })
+    } catch (err) {
+      console.warn('multi-runtime store write failed:', err?.message || err)
+    }
   }
 
   return res.status(200).json({ state: 'done', ...payload })

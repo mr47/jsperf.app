@@ -2,6 +2,7 @@ import { analysesCollection } from '../../../lib/mongodb'
 import { redis } from '../../../lib/redis'
 import { runAnalysis } from '../../../lib/engines/runner'
 import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
+import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
 import crypto from 'crypto'
 
@@ -61,14 +62,9 @@ export default async function handler(req, res) {
       }
     }
 
-    // Cache by content hash. Two separate cache scopes:
-    //   - analysis_v7:<hash>     base analysis (QuickJS + canonical V8 + prediction)
-    //   - mr_v2:<hash>           per-test multi-runtime results, fetched
-    //                            and embedded by the polling client through
-    //                            /api/benchmark/multi-runtime/[jobId]
-    // We keep them separate because base and MR have very different
-    // refresh cadences (base is deterministic; MR can vary with worker
-    // host load) and so a stale cache in one shouldn't shadow the other.
+    // Cache by content hash for the base QuickJS + V8 analysis only.
+    // Multi-runtime results use their own key and are stored durably in MongoDB
+    // because selected Node/Deno/Bun versions affect the result independently.
     const codeHash = computeCodeHash(tests, setup, teardown)
     const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(tests, setup, teardown, multiRuntimeOptions)
     const cacheKey = `analysis_v7:${codeHash}`
@@ -84,11 +80,10 @@ export default async function handler(req, res) {
     const cached = !force ? await redis.get(cacheKey) : null
     if (cached) {
       const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached
-      // On cache HIT we still need to give the client fresh MR jobIds so
-      // it can poll for new MR data (or pick up cached MR from the proxy
-      // endpoint, which has its own per-hash cache).
+      // On cache HIT we still attach durable MR results when available, or
+      // give the client fresh MR jobIds so it can poll for missing data.
       const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
-      const merged = { ...mergeMultiRuntimeMeta(cachedData, mrInfo), codeHash }
+      const merged = { ...mergeMultiRuntimeMeta(cachedData, mrInfo), codeHash, multiRuntimeCacheKey }
       res.setHeader('X-Analysis-Cache', 'HIT')
       return res.status(200).json(merged)
     }
@@ -116,9 +111,9 @@ export default async function handler(req, res) {
     // QuickJS+V8 here. By the time we finish those phases the worker is
     // typically already done, so the client's first poll gets results.
     const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
-    if (mrInfo?.cached) {
+    if (mrInfo?.stored) {
       sendLine({
-        type: 'multi-runtime-cached',
+        type: 'multi-runtime-stored',
         results: mrInfo.results,
       })
     } else if (mrInfo?.jobs) {
@@ -156,7 +151,7 @@ export default async function handler(req, res) {
       await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
     }
 
-    const final = { ...mergeMultiRuntimeMeta(analysis, mrInfo), codeHash }
+    const final = { ...mergeMultiRuntimeMeta(analysis, mrInfo), codeHash, multiRuntimeCacheKey }
     sendLine({ type: 'result', data: final })
     return res.end()
   } catch (error) {
@@ -186,10 +181,10 @@ export default async function handler(req, res) {
  *                                                         is not configured
  */
 async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, options = {}) {
-  if (!process.env.BENCHMARK_WORKER_URL) return null
+  const stored = await loadStoredMultiRuntimeResults(cacheKey, tests, { requireAll: true })
+  if (stored) return { stored: true, ...stored }
 
-  const cached = await loadCachedMultiRuntime(tests, cacheKey)
-  if (cached) return cached
+  if (!process.env.BENCHMARK_WORKER_URL) return null
 
   const enqueues = await Promise.all(tests.map((t, i) =>
     enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, isAsync: isAsyncTest(t), ...options })
@@ -203,17 +198,6 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, option
     return { error: firstError || 'Failed to enqueue multi-runtime jobs' }
   }
 
-  // Cache the testIndex → jobId map so the polling proxy endpoint can
-  // surface the most-recent run for this runtime selection if a user refreshes
-  // before the MR job completes.
-  try {
-    await redis.setex(
-      `mr_jobs_v1:${cacheKey}`,
-      300,
-      JSON.stringify(successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId }))),
-    )
-  } catch (_) { /* non-fatal */ }
-
   return {
     jobs: successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId })),
     deadlineMs: successes[0].res.deadlineMs,
@@ -226,8 +210,8 @@ function mergeMultiRuntimeMeta(analysis, mrInfo) {
   let multiRuntime
   if (mrInfo.jobs) {
     multiRuntime = { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs, cacheKey: mrInfo.cacheKey }
-  } else if (mrInfo.cached) {
-    multiRuntime = { results: mrInfo.results, fromCache: true }
+  } else if (mrInfo.stored) {
+    multiRuntime = { results: mrInfo.results, fromStore: true, cacheKey: mrInfo.cacheKey }
   } else {
     multiRuntime = { unavailable: true, error: mrInfo.error }
   }
@@ -235,31 +219,6 @@ function mergeMultiRuntimeMeta(analysis, mrInfo) {
     ...analysis,
     multiRuntime,
   }
-}
-
-async function loadCachedMultiRuntime(tests, cacheKey) {
-  if (!cacheKey) return null
-
-  try {
-    const entries = await Promise.all(tests.map(async (_test, testIndex) => {
-      const cached = await redis.get(`mr_v2:${cacheKey}:${testIndex}`)
-      if (!cached) return null
-      const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
-      if (!parsed?.runtimeComparison?.available) return null
-      return {
-        testIndex,
-        state: 'done',
-        runtimes: parsed.runtimes,
-        runtimeComparison: parsed.runtimeComparison,
-      }
-    }))
-
-    if (entries.every(Boolean)) {
-      return { cached: true, results: entries, cacheKey }
-    }
-  } catch (_) { /* non-fatal */ }
-
-  return null
 }
 
 function computeCodeHash(tests, setup, teardown) {

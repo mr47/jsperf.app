@@ -475,7 +475,7 @@ export default function Tests(props) {
           setMultiRuntimeData({
             results: (msg.jobs || []).map(j => ({ testIndex: j.testIndex, state: 'pending' })),
           })
-        } else if (msg.type === 'multi-runtime-cached') {
+        } else if (msg.type === 'multi-runtime-stored' || msg.type === 'multi-runtime-cached') {
           setMultiRuntimeData({ results: msg.results || [] })
           setMultiRuntimeStatus('done')
         } else if (msg.type === 'multi-runtime-unavailable') {

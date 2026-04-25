@@ -3,6 +3,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 const fakePages = new Map()
 const fakeReports = new Map()
 const insertedReports = []
+const storedRuntimeDocs = []
 
 vi.mock('../../lib/mongodb', () => ({
   pagesCollection: vi.fn(async () => ({
@@ -49,6 +50,14 @@ vi.mock('../../lib/mongodb', () => ({
       comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
     })),
   })),
+  multiRuntimeAnalysesCollection: vi.fn(async () => ({
+    find: vi.fn((query) => ({
+      toArray: vi.fn(async () => storedRuntimeDocs.filter(doc =>
+        doc.multiRuntimeCacheKey === query.multiRuntimeCacheKey &&
+        query.testIndex?.$in?.includes(doc.testIndex)
+      )),
+    })),
+  })),
   reportsCollection: vi.fn(async () => ({
     findOne: vi.fn(async (q) => {
       if (q?.id) return fakeReports.get(q.id) || null
@@ -75,6 +84,7 @@ describe('createReport', () => {
     fakePages.clear()
     fakeReports.clear()
     insertedReports.length = 0
+    storedRuntimeDocs.length = 0
     fakePages.set('demo:1', {
       slug: 'demo',
       revision: 1,
@@ -153,6 +163,44 @@ describe('createReport', () => {
     expect(test0.multiRuntime.byRuntime.bun.avgOpsPerSec).toBe(110000)
     expect(test0.multiRuntime.byRuntime.node.profiles[0].perfCounters.cycles).toBe(1000)
     expect(test0.runtimeComparison.fastestRuntime).toBe('bun')
+  })
+
+  it('snapshots stored multi-runtime data when client polling data is absent', async () => {
+    const clientAnalysis = {
+      codeHash: 'base123',
+      multiRuntimeCacheKey: 'mr456',
+      results: [
+        {
+          testIndex: 0,
+          title: 'Fast loop',
+          v8: { opsPerSec: 80000, profiles: [{ opsPerSec: 80000 }] },
+          quickjs: { opsPerSec: 1000, profiles: [{ opsPerSec: 1000 }] },
+        },
+      ],
+      comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
+    }
+    storedRuntimeDocs.push({
+      multiRuntimeCacheKey: 'mr456',
+      testIndex: 0,
+      runtimes: {
+        node: { avgOpsPerSec: 90000, profiles: [{ opsPerSec: 90000 }] },
+        deno: { avgOpsPerSec: 85000, profiles: [{ opsPerSec: 85000 }] },
+      },
+      runtimeComparison: { fastestRuntime: 'node', slowestRuntime: 'deno', spread: 1.06, available: true },
+    })
+
+    await createReport({
+      slug: 'demo',
+      revision: 1,
+      donor: { name: 'kyle' },
+      clientAnalysis,
+    })
+
+    const stored = insertedReports[insertedReports.length - 1]
+    const test0 = stored.analysis.results.find(r => r.testIndex === 0)
+    expect(test0.multiRuntime.byRuntime.node.avgOpsPerSec).toBe(90000)
+    expect(test0.multiRuntime.byRuntime.deno.avgOpsPerSec).toBe(85000)
+    expect(test0.runtimeComparison.fastestRuntime).toBe('node')
   })
 
   it('uses canonical deep-analysis ops/sec for report summary instead of first profile', async () => {

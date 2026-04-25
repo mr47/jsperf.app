@@ -1,17 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 const findOneMock = vi.fn()
+const multiRuntimeFindMock = vi.fn()
 
 vi.mock('../../lib/mongodb', () => ({
   analysesCollection: vi.fn(async () => ({
     findOne: (...args) => findOneMock(...args),
   })),
-}))
-
-vi.mock('../../lib/redis', () => ({
-  redis: {
-    get: vi.fn(async () => null),
-  },
+  multiRuntimeAnalysesCollection: vi.fn(async () => ({
+    find: (...args) => multiRuntimeFindMock(...args),
+  })),
 }))
 
 import handler from '../../pages/api/benchmark/analysis'
@@ -37,6 +35,7 @@ function createMockRes() {
 describe('GET /api/benchmark/analysis', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    multiRuntimeFindMock.mockReturnValue({ toArray: vi.fn(async () => []) })
   })
 
   it('returns 405 for non-GET methods', async () => {
@@ -105,26 +104,29 @@ describe('GET /api/benchmark/analysis', () => {
     expect(res._json.error).toMatch(/different code hash/)
   })
 
-  it('opportunistically attaches multi-runtime data from Redis cache', async () => {
-    const { redis } = await import('../../lib/redis')
+  it('opportunistically attaches multi-runtime data from durable storage', async () => {
     findOneMock.mockResolvedValueOnce({
       slug: 'foo', revision: 2, codeHash: 'abc123',
       multiRuntimeCacheKey: 'mr456',
       results: [{ testIndex: 0, title: 'test' }],
       comparison: {}, hasErrors: false, createdAt: new Date(),
     })
-    redis.get.mockResolvedValueOnce(JSON.stringify({
+    multiRuntimeFindMock.mockReturnValueOnce({ toArray: vi.fn(async () => [{
+      testIndex: 0,
       runtimes: { node: { avgOpsPerSec: 1000 } },
       runtimeComparison: { available: true },
-    }))
+    }]) })
 
     const res = createMockRes()
     await handler(createMockReq({ slug: 'foo', revision: '2' }), res)
 
-    expect(redis.get).toHaveBeenCalledWith('mr_v2:mr456:0')
+    expect(multiRuntimeFindMock).toHaveBeenCalledWith({
+      multiRuntimeCacheKey: 'mr456',
+      testIndex: { $in: [0] },
+    })
     expect(res._status).toBe(200)
     expect(res._json.multiRuntime?.results).toHaveLength(1)
     expect(res._json.multiRuntime.results[0].state).toBe('done')
-    expect(res._json.multiRuntime.fromCache).toBe(true)
+    expect(res._json.multiRuntime.fromStore).toBe(true)
   })
 })

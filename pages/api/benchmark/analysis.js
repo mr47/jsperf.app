@@ -18,7 +18,7 @@
  *   404 { error: 'No cached analysis' }
  */
 import { analysesCollection } from '../../../lib/mongodb'
-import { redis } from '../../../lib/redis'
+import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 
 export const config = {
   maxDuration: 10,
@@ -60,11 +60,10 @@ export default async function handler(req, res) {
       return res.status(404).json({ error: 'Stored analysis is for a different code hash' })
     }
 
-    // Opportunistically pick up any per-test multi-runtime data that's
-    // still in Redis from the original run. MR uses a separate cache key
-    // because selected Node/Deno/Bun versions affect the result independently
-    // from the base QuickJS/V8 analysis hash.
-    const multiRuntime = await loadMultiRuntimeCache(
+    // Opportunistically pick up any per-test multi-runtime data from durable
+    // storage. MR uses a separate key because selected Node/Deno/Bun versions
+    // affect the result independently from the base QuickJS/V8 analysis hash.
+    const multiRuntime = await loadStoredMultiRuntimeResults(
       doc.multiRuntimeCacheKey || doc.codeHash,
       doc.results,
     )
@@ -77,6 +76,7 @@ export default async function handler(req, res) {
         hasErrors: doc.hasErrors || false,
       },
       codeHash: doc.codeHash || null,
+      multiRuntimeCacheKey: doc.multiRuntimeCacheKey || null,
       createdAt: doc.createdAt,
       multiRuntime,
     })
@@ -86,24 +86,3 @@ export default async function handler(req, res) {
   }
 }
 
-async function loadMultiRuntimeCache(codeHash, results) {
-  if (!codeHash || !Array.isArray(results) || results.length === 0) return null
-  try {
-    const entries = await Promise.all(results.map(async (r) => {
-      const cached = await redis.get(`mr_v2:${codeHash}:${r.testIndex}`)
-      if (!cached) return null
-      const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
-      return {
-        testIndex: r.testIndex,
-        state: 'done',
-        runtimes: parsed.runtimes,
-        runtimeComparison: parsed.runtimeComparison,
-      }
-    }))
-    const ready = entries.filter(Boolean)
-    if (ready.length === 0) return null
-    return { results: ready, fromCache: true }
-  } catch (_) {
-    return null
-  }
-}

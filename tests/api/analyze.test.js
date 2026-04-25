@@ -1,11 +1,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 const insertOneMock = vi.hoisted(() => vi.fn(async () => ({ insertedId: 'mock_id' })))
+const multiRuntimeFindMock = vi.hoisted(() => vi.fn())
 
 // Mock external dependencies
 vi.mock('../../lib/mongodb', () => ({
   analysesCollection: vi.fn(async () => ({
     insertOne: insertOneMock,
+  })),
+  multiRuntimeAnalysesCollection: vi.fn(async () => ({
+    find: (...args) => multiRuntimeFindMock(...args),
   })),
 }))
 
@@ -111,6 +115,7 @@ function parseNdjsonLines(res) {
 describe('POST /api/benchmark/analyze', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    multiRuntimeFindMock.mockReturnValue({ toArray: vi.fn(async () => []) })
     delete process.env.BENCHMARK_WORKER_URL
     globalThis.fetch = ORIG_FETCH
   })
@@ -284,16 +289,16 @@ describe('POST /api/benchmark/analyze', () => {
     expect(JSON.parse(init.body).runtimes).toEqual(['node@lts', 'node@24.11.1', 'bun@1.3.0'])
   })
 
-  it('uses cached multi-runtime results without enqueueing worker jobs', async () => {
+  it('uses stored multi-runtime results without enqueueing worker jobs', async () => {
     const { redis } = await import('../../lib/redis')
     process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
     globalThis.fetch = vi.fn()
-    redis.get
-      .mockResolvedValueOnce(null) // base analysis cache miss
-      .mockResolvedValueOnce(JSON.stringify({
-        runtimes: { node: { profiles: [], avgOpsPerSec: 1000 } },
-        runtimeComparison: { available: true, runtimes: [], ranking: [] },
-      }))
+    redis.get.mockResolvedValueOnce(null) // base analysis cache miss
+    multiRuntimeFindMock.mockReturnValueOnce({ toArray: vi.fn(async () => [{
+      testIndex: 0,
+      runtimes: { node: { profiles: [], avgOpsPerSec: 1000 } },
+      runtimeComparison: { available: true, runtimes: [], ranking: [] },
+    }]) })
 
     const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
     const res = createMockRes()
@@ -302,6 +307,6 @@ describe('POST /api/benchmark/analyze', () => {
 
     expect(globalThis.fetch).not.toHaveBeenCalled()
     const messages = parseNdjsonLines(res)
-    expect(messages.some(m => m.type === 'multi-runtime-cached')).toBe(true)
+    expect(messages.some(m => m.type === 'multi-runtime-stored')).toBe(true)
   })
 })
