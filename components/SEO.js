@@ -24,7 +24,7 @@ export default function SEO({
   const canonicalUrl = canonical || `${siteUrl}${router.asPath === '/' ? '' : router.asPath}`
   
   // Default OG image or specific
-  const ogImageUrl = ogImage || `${siteUrl}/og-image.jpg` // Assuming a default OG image exists or will exist
+  const ogImageUrl = ogImage || `${siteUrl}/og-image.png`
 
   return (
     <Head>
