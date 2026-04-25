@@ -19,6 +19,7 @@ Modern JavaScript and TypeScript performance benchmarking for the web.
 
 - Next.js Pages Router
 - React
+- TypeScript
 - Tailwind CSS
 - MongoDB
 - Upstash Redis and rate limiting
@@ -30,13 +31,13 @@ Modern JavaScript and TypeScript performance benchmarking for the web.
 ## Project Structure
 
 ```text
-components/         UI components, benchmark editor, reports, and charts
-lib/                Benchmark preparation, engines, prediction, persistence, and auth helpers
-pages/              Next.js pages and API routes
+components/         TSX UI components, benchmark editor, reports, and charts
+lib/                TypeScript benchmark preparation, engines, prediction, persistence, and auth helpers
+pages/              Next.js TSX pages and TypeScript API routes
 styles/             Global styles
-tests/              App test suite
-utils/              Browser, URL, highlighting, and sandbox helpers
-worker/             Optional multi-runtime benchmark worker
+tests/              TypeScript app test suite
+utils/              TypeScript browser, URL, highlighting, and sandbox helpers
+worker/             Optional TypeScript multi-runtime benchmark worker
 ```
 
 ## Requirements
@@ -114,7 +115,15 @@ npm run build      # Build the production app
 npm run start      # Start the production server
 npm run test       # Run Vitest once
 npm run test:watch # Run Vitest in watch mode
+npm run typecheck  # Run TypeScript without emitting files
+npm run check      # Run typecheck, tests, and production build
 ```
+
+## TypeScript
+
+The app source, tests, shared libraries, Next.js pages, API routes, and worker source are TypeScript/TSX. `typescript` is a runtime dependency because the app compiles user-submitted TypeScript benchmark snippets in `lib/benchmark/source.ts`.
+
+Most JavaScript files are now intentional exceptions: config files, generated coverage assets, local scripts, or Mongo shell schema scripts. See `TYPESCRIPT_MIGRATION.md` for the current exception list and migration notes.
 
 ## Optional Multi-Runtime Worker
 
@@ -139,12 +148,23 @@ BENCHMARK_WORKER_SECRET=<same value as worker/.env>
 
 See `worker/README.md` for deployment, health checks, security notes, and worker API details.
 
+Worker scripts:
+
+```bash
+npm run dev       # Run worker source through tsx in watch mode
+npm run build     # Compile worker TypeScript to dist/
+npm run start     # Start the compiled worker from dist/server.js
+npm run typecheck # Run worker TypeScript without emitting files
+npm run check     # Run worker typecheck, tests, and build
+```
+
 ## Testing
 
 Run the app test suite:
 
 ```bash
 npm run test
+npm run typecheck
 ```
 
 Run the worker test suite:
@@ -152,6 +172,7 @@ Run the worker test suite:
 ```bash
 cd worker
 npm run test
+npm run typecheck
 ```
 
 ## Deployment Notes
