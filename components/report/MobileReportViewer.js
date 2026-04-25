@@ -23,6 +23,7 @@ import {
   Gauge,
   Brain,
   Monitor,
+  Microscope,
   Zap,
   Share2,
   Copy,
@@ -40,6 +41,10 @@ import {
   aggregateRuntimeSources,
   summarizeShareItems,
   flattenRuntimes,
+  collectPerfSamples,
+  collectPredictionResults,
+  collectMemoryResponseSeries,
+  formatPercent,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
@@ -89,6 +94,15 @@ function Pill({ children, color = 'slate' }) {
       {children}
     </span>
   )
+}
+
+function formatBig(n) {
+  if (n == null || !Number.isFinite(Number(n))) return '—'
+  const value = Number(n)
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)}B`
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`
+  return String(Math.round(value))
 }
 
 /**
@@ -343,6 +357,182 @@ function RuntimesSection({ report }) {
   )
 }
 
+function PerfCountersSection({ report }) {
+  const samples = useMemo(() => collectPerfSamples(report), [report])
+  if (!samples.length) return null
+
+  const metrics = [
+    { key: 'instructions', label: 'Instructions' },
+    { key: 'cycles', label: 'Cycles' },
+    { key: 'cacheMisses', label: 'Cache misses' },
+    { key: 'branchMisses', label: 'Branch misses' },
+    { key: 'pageFaults', label: 'Page faults' },
+    { key: 'contextSwitches', label: 'Ctx switches' },
+  ]
+  const visible = samples.slice(0, 4)
+  const hidden = Math.max(0, samples.length - visible.length)
+
+  return (
+    <SectionCard icon={Microscope} eyebrow="Perf counters" title="What the CPU saw" accent="violet">
+      <div className="space-y-3">
+        {visible.map((sample, i) => (
+          <div key={`${sample.runtime}-${sample.testIndex}-${i}`} className="rounded-xl border bg-muted/20 p-4">
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold truncate">{sample.testTitle}</div>
+                <div className="text-[11px] text-muted-foreground truncate">{sample.runtime}</div>
+              </div>
+              <Pill color="violet">profile</Pill>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {metrics.map(metric => {
+                const value = Number(sample.counters?.[metric.key])
+                if (!Number.isFinite(value) || value <= 0) return null
+                return (
+                  <div key={metric.key} className="rounded-lg bg-white dark:bg-slate-950/40 border px-3 py-2">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{metric.label}</div>
+                    <div className="mt-0.5 text-sm font-bold tabular-nums">{formatBig(value)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      {hidden > 0 && (
+        <p className="mt-3 text-[11px] text-muted-foreground">+{hidden} more profile{hidden === 1 ? '' : 's'} in the PDF deck.</p>
+      )}
+    </SectionCard>
+  )
+}
+
+const CHARACTERISTIC_LABELS = {
+  cpuBound: { label: 'CPU-bound', color: 'violet' },
+  memoryBound: { label: 'Memory-bound', color: 'amber' },
+  allocationHeavy: { label: 'Allocation-heavy', color: 'rose' },
+  jitFriendly: { label: 'JIT-friendly', color: 'emerald' },
+  v8Unavailable: { label: 'V8 unavailable', color: 'slate' },
+}
+
+function JitAmplificationSection({ report }) {
+  const results = useMemo(() => {
+    return collectPredictionResults(report)
+      .filter(r => Number(r.prediction?.jitBenefit) > 0 || r.prediction?.characteristics)
+  }, [report])
+  if (!results.length) return null
+
+  const sorted = [...results].sort((a, b) =>
+    (Number(b.prediction?.jitBenefit) || 0) - (Number(a.prediction?.jitBenefit) || 0)
+  )
+  const max = Math.max(...sorted.map(r => Number(r.prediction?.jitBenefit) || 0), 1)
+
+  return (
+    <SectionCard icon={Brain} eyebrow="JIT amplification" title="Optimizer boost" accent="violet">
+      <div className="space-y-4">
+        {sorted.map((r) => {
+          const benefit = Number(r.prediction?.jitBenefit) || 0
+          const pct = Math.max(4, (benefit / max) * 100)
+          const characteristics = r.prediction?.characteristics || {}
+          return (
+            <div key={r.testIndex ?? r.title}>
+              <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                <span className="text-sm font-semibold truncate">{r.title}</span>
+                <span className="text-sm font-bold tabular-nums">{benefit > 0 ? `${benefit}×` : '—'}</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                <div className="h-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {Object.entries(characteristics).map(([key, value]) => {
+                  if (!value || !CHARACTERISTIC_LABELS[key]) return null
+                  const meta = CHARACTERISTIC_LABELS[key]
+                  return <Pill key={key} color={meta.color}>{meta.label}</Pill>
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      {report?.analysis?.comparison?.divergence && sorted.length > 1 && (
+        <div className="mt-4 rounded-lg border-2 border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-xs">
+          <span className="font-semibold">JIT-sensitive.</span>{' '}
+          <span className="text-foreground/80">The interpreter and V8 disagree on the fastest test.</span>
+        </div>
+      )}
+    </SectionCard>
+  )
+}
+
+const SCALING_LABELS = {
+  linear: 'linear',
+  sublinear: 'diminishing returns',
+  plateau: 'plateau',
+  degrading: 'degrading',
+  noisy: 'noisy',
+  'insufficient-data': 'insufficient data',
+}
+
+function MemoryResponseSection({ report }) {
+  const response = useMemo(() => collectMemoryResponseSeries(report), [report])
+  if (!response) return null
+
+  const max = Math.max(
+    ...response.data.flatMap(point =>
+      response.series.map(s => Number(point[s.key]) || 0)
+    ),
+    1
+  )
+
+  return (
+    <SectionCard icon={Monitor} eyebrow="Memory response" title="Memory-limit sweep" accent="sky">
+      <p className="mb-4 text-xs text-muted-foreground">
+        {response.source === 'v8'
+          ? 'Using available multi-point V8 profiles.'
+          : 'Using QuickJS memory-limit profiles for allocation-pressure signals.'}
+      </p>
+      <div className="space-y-5">
+        {response.series.map((series, i) => {
+          const prediction = series.prediction || {}
+          const scaling = SCALING_LABELS[prediction.scalingType] || prediction.scalingType
+          return (
+            <div key={series.key}>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold truncate">{series.title}</span>
+                {scaling && <Pill color={i === 0 ? 'emerald' : 'violet'}>{scaling}</Pill>}
+              </div>
+              <div className="space-y-2">
+                {response.data.map(point => {
+                  const value = Number(point[series.key]) || 0
+                  if (value <= 0) return null
+                  return (
+                    <div key={`${series.key}-${point.resource}`}>
+                      <div className="flex items-center justify-between text-[11px] mb-1">
+                        <span className="font-medium text-muted-foreground">{point.resource}</span>
+                        <span className="tabular-nums">{formatOps(value)}</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${Math.max(3, (value / max) * 100)}%`, background: speedColor(i, response.series.length) }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              {Number.isFinite(Number(prediction.scalingConfidence)) && (
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Model confidence: {formatPercent(Number(prediction.scalingConfidence) * 100, 0)}
+                </p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </SectionCard>
+  )
+}
+
 function InsightSection({ report }) {
   const insight = report?.analysis?.comparison
   if (!insight) return null
@@ -574,6 +764,9 @@ export default function MobileReportViewer({
         <WinnerSection report={report} />
         <HeadToHeadSection report={report} />
         <RuntimesSection report={report} />
+        <PerfCountersSection report={report} />
+        <JitAmplificationSection report={report} />
+        <MemoryResponseSection report={report} />
         <InsightSection report={report} />
         <MethodologySection report={report} />
         <FooterSection report={report} />

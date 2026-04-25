@@ -21,10 +21,14 @@ import {
   Rocket,
   Monitor,
   Zap,
+  Activity,
+  Layers,
 } from 'lucide-react'
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -42,6 +46,7 @@ import {
   formatOps,
   formatMultiplier,
   formatDate,
+  formatPercent,
   speedColor,
   rankEntries,
   aggregateStats,
@@ -49,6 +54,8 @@ import {
   summarizeShareItems,
   flattenRuntimes,
   collectPerfSamples,
+  collectPredictionResults,
+  collectMemoryResponseSeries,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
 import { highlightSanitizedJS } from '../../utils/hljs'
@@ -563,6 +570,210 @@ function PerfCountersSlide({ report }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Slide: JIT amplification                                           */
+/* ------------------------------------------------------------------ */
+
+const CHARACTERISTIC_LABELS = {
+  cpuBound: { label: 'CPU-bound', color: 'violet' },
+  memoryBound: { label: 'Memory-bound', color: 'amber' },
+  allocationHeavy: { label: 'Allocation-heavy', color: 'rose' },
+  jitFriendly: { label: 'JIT-friendly', color: 'emerald' },
+  v8Unavailable: { label: 'V8 unavailable', color: 'slate' },
+}
+
+function JitAmplificationSlide({ report }) {
+  const results = useMemo(() => {
+    return collectPredictionResults(report)
+      .filter(r => Number(r.prediction?.jitBenefit) > 0 || r.prediction?.characteristics)
+  }, [report])
+
+  if (!results.length) return null
+
+  const sorted = [...results].sort((a, b) =>
+    (Number(b.prediction?.jitBenefit) || 0) - (Number(a.prediction?.jitBenefit) || 0)
+  )
+  const maxJitBenefit = Math.max(...sorted.map(r => Number(r.prediction?.jitBenefit) || 0), 1)
+  const top = sorted[0]
+  const visible = sorted.slice(0, 6)
+  const hidden = Math.max(0, sorted.length - visible.length)
+  const hasDivergence = report?.analysis?.comparison?.divergence && sorted.length > 1
+
+  const takeaway = maxJitBenefit > 10
+    ? 'This benchmark is highly sensitive to V8 optimization. Treat the winner as engine-dependent and re-check other runtimes before generalising.'
+    : maxJitBenefit > 3
+      ? 'V8 gives a meaningful boost, but algorithmic differences still matter.'
+      : 'JIT amplification is modest. The result is mostly driven by the underlying algorithm.'
+
+  return (
+    <SlideShell
+      accent="radial-gradient(closest-side, rgba(139,92,246,0.25), transparent)"
+      className="bg-gradient-to-br from-violet-50 via-white to-slate-50 dark:from-violet-950/40 dark:via-slate-950 dark:to-slate-950"
+    >
+      <SlideHeader icon={Layers} eyebrow="JIT amplification" title="How much the optimizer helped" />
+      <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] print:grid-cols-[1.1fr_0.9fr] gap-6 flex-1 min-h-0">
+        <div className="rounded-2xl border-2 border-violet-200 dark:border-violet-800/60 bg-violet-50/70 dark:bg-violet-950/30 p-5 flex flex-col min-h-0">
+          <div className="text-xs uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-4 font-semibold">Per-test boost</div>
+          <div className="space-y-4 overflow-hidden">
+            {visible.map((r) => {
+              const benefit = Number(r.prediction?.jitBenefit) || 0
+              const width = Math.max(4, (benefit / maxJitBenefit) * 100)
+              const characteristics = r.prediction?.characteristics || {}
+              return (
+                <div key={r.testIndex ?? r.title}>
+                  <div className="flex items-baseline justify-between gap-3 mb-1.5">
+                    <span className="font-semibold truncate">{r.title}</span>
+                    <span className="text-lg font-bold tabular-nums">{benefit > 0 ? `${benefit}×` : '—'}</span>
+                  </div>
+                  <div className="h-3 rounded-full bg-white dark:bg-slate-900/70 overflow-hidden border border-violet-100 dark:border-violet-900">
+                    <div
+                      className="h-full rounded-full bg-violet-500"
+                      style={{ width: `${width}%` }}
+                    />
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {Object.entries(characteristics).map(([key, value]) => {
+                      if (!value || !CHARACTERISTIC_LABELS[key]) return null
+                      const meta = CHARACTERISTIC_LABELS[key]
+                      return <Tag key={key} color={meta.color}>{meta.label}</Tag>
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+            {hidden > 0 && (
+              <p className="text-xs text-muted-foreground">+{hidden} more test{hidden === 1 ? '' : 's'} not shown.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/30 p-6">
+            <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1 font-semibold">Most JIT-sensitive</div>
+            <div className="text-3xl font-bold tracking-tight">{top.title}</div>
+            <p className="mt-2 text-sm text-foreground/80">
+              V8 ran this snippet <span className="font-semibold">{Number(top.prediction?.jitBenefit) || 0}×</span>{' '}
+              faster than the interpreter baseline.
+            </p>
+          </div>
+          {hasDivergence && (
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/60 p-5 text-sm">
+              <span className="font-semibold">Winner changes with the JIT.</span>{' '}
+              <span className="text-foreground/80">
+                The interpreter and V8 disagree, so optimizer behavior is part of the story.
+              </span>
+            </div>
+          )}
+          <div className="rounded-2xl border-2 border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 p-5 text-sm text-foreground/80">
+            {takeaway}
+          </div>
+        </div>
+      </div>
+    </SlideShell>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Slide: Memory response                                             */
+/* ------------------------------------------------------------------ */
+
+const SCALING_LABELS = {
+  linear: 'improves linearly with more memory headroom',
+  sublinear: 'improves with diminishing returns',
+  plateau: 'is stable across memory limits',
+  degrading: 'slows down as memory pressure changes',
+  noisy: 'is noisy across memory limits',
+  'insufficient-data': 'has insufficient data',
+}
+
+function MemoryResponseSlide({ report }) {
+  const response = useMemo(() => collectMemoryResponseSeries(report), [report])
+  if (!response) return null
+
+  const predictions = response.series
+    .filter(s => s.prediction?.scalingType)
+    .slice(0, 4)
+
+  return (
+    <SlideShell
+      accent="radial-gradient(closest-side, rgba(14,165,233,0.22), transparent)"
+      className="bg-gradient-to-br from-sky-50 via-white to-cyan-50 dark:from-sky-950/40 dark:via-slate-950 dark:to-cyan-950/30"
+    >
+      <SlideHeader icon={Activity} eyebrow="Memory response" title="Throughput under memory limits" />
+      <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr] print:grid-cols-[1.25fr_0.75fr] gap-6 flex-1 min-h-0">
+        <div className="min-h-0 rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-white/75 dark:bg-slate-900/60 p-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={response.data} margin={{ top: 8, right: 24, bottom: 20, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" className="opacity-30" />
+              <XAxis dataKey="resource" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={formatOps} />
+              <Tooltip
+                formatter={(value, name) => [formatOps(value) + ' ops/sec', response.series.find(s => s.key === name)?.title || name]}
+                contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0' }}
+              />
+              <Legend
+                formatter={(value) => response.series.find(s => s.key === value)?.title || value}
+                wrapperStyle={{ fontSize: 12 }}
+              />
+              {response.series.map((s, i) => (
+                <Line
+                  key={s.key}
+                  type="monotone"
+                  dataKey={s.key}
+                  name={s.title}
+                  stroke={speedColor(i, response.series.length)}
+                  strokeWidth={3}
+                  dot={{ r: 4 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="flex flex-col gap-4 text-sm">
+          <div className="rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/80 dark:bg-sky-950/30 p-5">
+            <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-1 font-semibold">Source</div>
+            <p className="text-foreground/80">
+              {response.source === 'v8'
+                ? 'Multi-point V8 profiles were available, so this chart uses production-like JIT measurements.'
+                : 'QuickJS memory-limit profiles power this chart, giving a deterministic view of allocation pressure.'}
+            </p>
+          </div>
+
+          {predictions.length > 0 && (
+            <div className="rounded-2xl border-2 border-cyan-200 dark:border-cyan-800/60 bg-cyan-50/70 dark:bg-cyan-950/30 p-5">
+              <div className="text-xs uppercase tracking-wider text-cyan-700 dark:text-cyan-300 mb-3 font-semibold">Model readout</div>
+              <div className="space-y-3">
+                {predictions.map((s) => {
+                  const label = SCALING_LABELS[s.prediction.scalingType] || s.prediction.scalingType
+                  const confidence = Number(s.prediction.scalingConfidence)
+                  return (
+                    <div key={s.key}>
+                      <div className="font-semibold leading-tight">{s.title}</div>
+                      <p className="text-xs leading-relaxed text-foreground/75">
+                        {label}
+                        {Number.isFinite(confidence) && (
+                          <> · {formatPercent(confidence * 100, 0)} confidence</>
+                        )}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            Useful for spotting snippets that plateau early, degrade under pressure, or keep scaling as memory headroom grows.
+          </p>
+        </div>
+      </div>
+    </SlideShell>
+  )
+}
+
+/* ------------------------------------------------------------------ */
 /*  Slide: AI insight                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -857,6 +1068,8 @@ export const SLIDE_COMPONENTS = {
   headToHead: HeadToHeadSlide,
   runtimes: RuntimesSlide,
   perfCounters: PerfCountersSlide,
+  jitAmplification: JitAmplificationSlide,
+  memoryResponse: MemoryResponseSlide,
   insight: InsightSlide,
   methodology: MethodologySlide,
   credits: CreditsSlide,
@@ -869,6 +1082,8 @@ export const SLIDE_LABELS = {
   headToHead: 'Head to head',
   runtimes: 'Runtimes',
   perfCounters: 'Perf counters',
+  jitAmplification: 'JIT boost',
+  memoryResponse: 'Memory',
   insight: 'Insight',
   methodology: 'Methodology',
   credits: 'Credits',

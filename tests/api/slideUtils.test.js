@@ -10,6 +10,10 @@ import {
   buildDeck,
   flattenRuntimes,
   collectPerfSamples,
+  collectPredictionResults,
+  collectMemoryResponseSeries,
+  hasJitMetrics,
+  hasMemoryResponse,
   hasInsightContent,
 } from '../../components/report/slideUtils'
 
@@ -156,6 +160,35 @@ describe('slideUtils.buildDeck', () => {
     expect(deck).toContain('methodology')
   })
 
+  it('includes prediction metric slides when JIT and memory-response data is present', () => {
+    const report = {
+      summary: {},
+      analysis: {
+        results: [
+          {
+            testIndex: 0,
+            title: 'alloc light',
+            quickjs: {
+              profiles: [
+                { label: '0.5x', memoryMB: 8, opsPerSec: 100 },
+                { label: '1x', memoryMB: 16, opsPerSec: 200 },
+              ],
+            },
+            prediction: {
+              jitBenefit: 12.4,
+              scalingType: 'linear',
+              scalingConfidence: 0.95,
+              characteristics: { jitFriendly: true, cpuBound: true },
+            },
+          },
+        ],
+      },
+    }
+    const deck = buildDeck(report)
+    expect(deck).toContain('jitAmplification')
+    expect(deck).toContain('memoryResponse')
+  })
+
   it('includes methodology when only controlled runtime data is present', () => {
     const deck = buildDeck({
       summary: {},
@@ -299,6 +332,55 @@ describe('slideUtils.collectPerfSamples', () => {
     })
     expect(samples).toHaveLength(1)
     expect(samples[0].counters.cycles).toBe(99)
+  })
+})
+
+describe('slideUtils prediction helpers', () => {
+  it('collects prediction results and detects JIT metrics', () => {
+    const report = {
+      analysis: {
+        results: [
+          { testIndex: 0, title: 'a', prediction: { jitBenefit: 2.5 } },
+          { testIndex: 1, title: 'b', prediction: null },
+        ],
+      },
+    }
+    expect(collectPredictionResults(report).map(r => r.title)).toEqual(['a'])
+    expect(hasJitMetrics(report)).toBe(true)
+  })
+
+  it('builds a memory response series from multi-point profiles', () => {
+    const report = {
+      analysis: {
+        results: [
+          {
+            testIndex: 0,
+            title: 'a',
+            quickjs: {
+              profiles: [
+                { label: '1x', memoryMB: 16, opsPerSec: 1000 },
+                { label: '2x', memoryMB: 32, opsPerSec: 2000 },
+              ],
+            },
+          },
+          {
+            testIndex: 1,
+            title: 'b',
+            quickjs: {
+              profiles: [
+                { label: '1x', memoryMB: 16, opsPerSec: 500 },
+                { label: '2x', memoryMB: 32, opsPerSec: 750 },
+              ],
+            },
+          },
+        ],
+      },
+    }
+    const series = collectMemoryResponseSeries(report)
+    expect(hasMemoryResponse(report)).toBe(true)
+    expect(series.source).toBe('quickjs')
+    expect(series.data[0]).toMatchObject({ resource: '16 MB', test0: 1000, test1: 500 })
+    expect(series.series.map(s => s.title)).toEqual(['a', 'b'])
   })
 })
 

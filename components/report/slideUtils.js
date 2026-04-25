@@ -221,6 +221,92 @@ export function collectPerfSamples(report) {
   return samples
 }
 
+export function collectPredictionResults(report) {
+  return (report?.analysis?.results || [])
+    .filter(r => r?.prediction && typeof r.prediction === 'object')
+    .map((r, i) => ({
+      ...r,
+      title: r.title || `Test ${Number.isInteger(r.testIndex) ? r.testIndex + 1 : i + 1}`,
+    }))
+}
+
+export function hasJitMetrics(report) {
+  return collectPredictionResults(report).some(r => {
+    const prediction = r.prediction || {}
+    const characteristics = prediction.characteristics || {}
+    return Number(prediction.jitBenefit) > 0 ||
+      Object.values(characteristics).some(Boolean)
+  })
+}
+
+function profileResourceLabel(profile, index) {
+  if (profile?.memoryMB) return `${profile.memoryMB} MB`
+  if (profile?.label) return profile.label
+  if (profile?.resourceLevel) return `${profile.resourceLevel}x`
+  return `Profile ${index + 1}`
+}
+
+function hasUsableProfile(profile) {
+  return Number(profile?.opsPerSec) > 0
+}
+
+export function collectMemoryResponseSeries(report) {
+  const results = report?.analysis?.results || []
+  if (!results.length) return null
+
+  const hasMultiPointV8 = results.some(r =>
+    Array.isArray(r?.v8?.profiles) &&
+    r.v8.profiles.length > 1 &&
+    r.v8.profiles.some(hasUsableProfile)
+  )
+  const source = hasMultiPointV8 ? 'v8' : 'quickjs'
+  const getProfiles = (r) => source === 'v8' ? r?.v8?.profiles : r?.quickjs?.profiles
+
+  const validResults = results
+    .map((result, i) => ({
+      result,
+      key: `test${Number.isInteger(result?.testIndex) ? result.testIndex : i}`,
+      title: result?.title || `Test ${Number.isInteger(result?.testIndex) ? result.testIndex + 1 : i + 1}`,
+    }))
+    .filter(({ result }) => {
+      const profiles = getProfiles(result)
+      return Array.isArray(profiles) &&
+        profiles.length > 1 &&
+        profiles.some(hasUsableProfile)
+    })
+
+  if (!validResults.length) return null
+
+  const sourceProfiles = getProfiles(validResults[0].result) || []
+  const data = sourceProfiles.map((profile, profileIndex) => {
+    const point = {
+      resource: profileResourceLabel(profile, profileIndex),
+    }
+    for (const { result, key } of validResults) {
+      const candidate = getProfiles(result)?.[profileIndex]
+      if (hasUsableProfile(candidate)) point[key] = candidate.opsPerSec
+    }
+    return point
+  })
+
+  const series = validResults.map(({ result, key, title }) => ({
+    key,
+    title,
+    prediction: result.prediction || null,
+  }))
+
+  return {
+    source,
+    data,
+    series,
+  }
+}
+
+export function hasMemoryResponse(report) {
+  const response = collectMemoryResponseSeries(report)
+  return Boolean(response?.data?.length && response?.series?.length)
+}
+
 /**
  * Pick which slides to show for this report. Slides whose data isn't
  * present (no analysis, no multi-runtime, etc.) are silently skipped
@@ -240,6 +326,8 @@ export function buildDeck(report) {
 
   if (flattenRuntimes(report).length) slides.push('runtimes')
   if (collectPerfSamples(report).length) slides.push('perfCounters')
+  if (hasJitMetrics(report)) slides.push('jitAmplification')
+  if (hasMemoryResponse(report)) slides.push('memoryResponse')
 
   if (hasInsightContent(report?.analysis?.comparison)) slides.push('insight')
 

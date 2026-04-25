@@ -331,6 +331,9 @@ export default function ReportViewer({ report }) {
           .report-print-stack [class*="dark:from-sky-950"] {
             background-image: linear-gradient(to bottom right, #f0f9ff, #ffffff, #eef2ff) !important;
           }
+          .report-print-stack [class*="dark:to-cyan-950"] {
+            background-image: linear-gradient(to bottom right, #f0f9ff, #ffffff, #ecfeff) !important;
+          }
           .report-print-stack [class*="dark:bg-amber-950"] {
             background-color: rgb(254 252 232 / 0.7) !important;
           }
@@ -350,6 +353,9 @@ export default function ReportViewer({ report }) {
           }
           .report-print-stack [class*="dark:bg-indigo-950/30"]:not([class*="from-"]) {
             background-color: rgb(238 242 255 / 0.6) !important;
+          }
+          .report-print-stack [class*="dark:bg-cyan-950/30"]:not([class*="from-"]) {
+            background-color: rgb(236 254 255 / 0.7) !important;
           }
           .report-print-stack [class*="dark:bg-rose-950/30"]:not([class*="from-"]) {
             background-color: rgb(255 241 242 / 0.8) !important;
