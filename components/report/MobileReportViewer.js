@@ -472,6 +472,16 @@ const SCALING_LABELS = {
   'insufficient-data': 'insufficient data',
 }
 
+const MIN_MODEL_READOUT_CONFIDENCE = 0.5
+
+function hasReliableScalingPrediction(prediction) {
+  const type = prediction?.scalingType
+  if (!type || type === 'noisy' || type === 'insufficient-data') return false
+
+  const confidence = Number(prediction.scalingConfidence)
+  return !Number.isFinite(confidence) || confidence >= MIN_MODEL_READOUT_CONFIDENCE
+}
+
 function MemoryResponseSection({ report }) {
   const response = useMemo(() => collectMemoryResponseSeries(report), [report])
   if (!response) return null
@@ -494,11 +504,12 @@ function MemoryResponseSection({ report }) {
         {response.series.map((series, i) => {
           const prediction = series.prediction || {}
           const scaling = SCALING_LABELS[prediction.scalingType] || prediction.scalingType
+          const showScaling = hasReliableScalingPrediction(prediction)
           return (
             <div key={series.key}>
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-sm font-semibold truncate">{series.title}</span>
-                {scaling && <Pill color={i === 0 ? 'emerald' : 'violet'}>{scaling}</Pill>}
+                {showScaling && scaling && <Pill color={i === 0 ? 'emerald' : 'violet'}>{scaling}</Pill>}
               </div>
               <div className="space-y-2">
                 {response.data.map(point => {
@@ -520,7 +531,7 @@ function MemoryResponseSection({ report }) {
                   )
                 })}
               </div>
-              {Number.isFinite(Number(prediction.scalingConfidence)) && (
+              {showScaling && Number.isFinite(Number(prediction.scalingConfidence)) && (
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Model confidence: {formatPercent(Number(prediction.scalingConfidence) * 100, 0)}
                 </p>

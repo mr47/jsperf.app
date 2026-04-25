@@ -142,6 +142,24 @@ describe('buildPrediction', () => {
     expect(result.jitBenefit).toBe(50)
   })
 
+  it('treats low-variance memory jitter as a stable plateau', () => {
+    const result = buildPrediction({
+      quickjsProfiles: [
+        { label: '0.5x', resourceLevel: 0.5, opsPerSec: 1000 },
+        { label: '1x', resourceLevel: 1, opsPerSec: 1040 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 980 },
+        { label: '4x', resourceLevel: 4, opsPerSec: 1020 },
+      ],
+      v8Profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 5000 },
+      ],
+    })
+
+    expect(result.scalingType).toBe('plateau')
+    expect(result.scalingConfidence).toBeGreaterThan(0.9)
+    expect(result.predictedAt['8x']).toBeGreaterThan(0)
+  })
+
   it('does not extrapolate noisy memory-response fits', () => {
     const result = buildPrediction({
       quickjsProfiles: [

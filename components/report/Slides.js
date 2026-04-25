@@ -685,12 +685,28 @@ const SCALING_LABELS = {
   'insufficient-data': 'has insufficient data',
 }
 
+const MIN_MODEL_READOUT_CONFIDENCE = 0.5
+
+function scalingConfidence(series) {
+  const confidence = Number(series?.prediction?.scalingConfidence)
+  return Number.isFinite(confidence) ? confidence : 0
+}
+
+function hasReliableScalingPrediction(series) {
+  const type = series?.prediction?.scalingType
+  if (!type || type === 'noisy' || type === 'insufficient-data') return false
+
+  const confidence = Number(series.prediction.scalingConfidence)
+  return !Number.isFinite(confidence) || confidence >= MIN_MODEL_READOUT_CONFIDENCE
+}
+
 function MemoryResponseSlide({ report }) {
   const response = useMemo(() => collectMemoryResponseSeries(report), [report])
   if (!response) return null
 
   const predictions = response.series
-    .filter(s => s.prediction?.scalingType)
+    .filter(hasReliableScalingPrediction)
+    .sort((a, b) => scalingConfidence(b) - scalingConfidence(a))
     .slice(0, 4)
 
   return (
