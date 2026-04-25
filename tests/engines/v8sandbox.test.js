@@ -13,6 +13,33 @@ const mockStdoutData = JSON.stringify({
   heapDelta: 2048,
 })
 
+function base64url(value) {
+  return Buffer.from(JSON.stringify(value)).toString('base64url')
+}
+
+function makeOidcToken(payload) {
+  return `${base64url({ alg: 'none' })}.${base64url(payload)}.sig`
+}
+
+function snapshotVercelEnv() {
+  return {
+    VERCEL_TOKEN: process.env.VERCEL_TOKEN,
+    VERCEL_OIDC_TOKEN: process.env.VERCEL_OIDC_TOKEN,
+    VERCEL_TEAM_ID: process.env.VERCEL_TEAM_ID,
+    VERCEL_PROJECT_ID: process.env.VERCEL_PROJECT_ID,
+  }
+}
+
+function restoreVercelEnv(snapshot) {
+  for (const key of Object.keys(snapshot)) {
+    if (snapshot[key] === undefined) {
+      delete process.env[key]
+    } else {
+      process.env[key] = snapshot[key]
+    }
+  }
+}
+
 vi.mock('@vercel/sandbox', () => ({
   Sandbox: {
     create: vi.fn(async () => ({
@@ -117,6 +144,10 @@ describe('runInV8Sandbox', () => {
 
     await runInV8Sandbox('1 + 1')
     expect(stop).toHaveBeenCalledTimes(1)
+    expect(stop).toHaveBeenCalledWith(expect.objectContaining({
+      blocking: true,
+      signal: expect.any(AbortSignal),
+    }))
   })
 
   it('stops the sandbox even when the run errors', async () => {
@@ -134,6 +165,100 @@ describe('runInV8Sandbox', () => {
 
     await runInV8Sandbox('throw new Error()')
     expect(stop).toHaveBeenCalledTimes(1)
+    expect(stop).toHaveBeenCalledWith(expect.objectContaining({
+      blocking: true,
+      signal: expect.any(AbortSignal),
+    }))
+  })
+
+  it('deletes the Vercel sandbox entity when a sandbox id and token are available', async () => {
+    const env = snapshotVercelEnv()
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: vi.fn(async () => ''),
+    }))
+
+    try {
+      delete process.env.VERCEL_TOKEN
+      delete process.env.VERCEL_TEAM_ID
+      delete process.env.VERCEL_PROJECT_ID
+      process.env.VERCEL_OIDC_TOKEN = makeOidcToken({
+        owner_id: 'team_test',
+        project_id: 'prj_test',
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      Sandbox.create.mockResolvedValueOnce({
+        sandboxId: 'sbx_delete_123',
+        writeFiles: vi.fn(async () => {}),
+        runCommand: vi.fn(async () => ({
+          exitCode: 0,
+          stdout: vi.fn(async () => mockStdoutData),
+          stderr: vi.fn(async () => ''),
+        })),
+        stop,
+      })
+
+      await runInV8Sandbox('1 + 1')
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url, options] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('https://api.vercel.com/v2/sandboxes/sbx_delete_123?projectId=prj_test&teamId=team_test')
+      expect(options).toEqual(expect.objectContaining({
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${process.env.VERCEL_OIDC_TOKEN}` },
+        signal: expect.any(AbortSignal),
+      }))
+      expect(stop).not.toHaveBeenCalled()
+    } finally {
+      vi.unstubAllGlobals()
+      restoreVercelEnv(env)
+    }
+  })
+
+  it('falls back to stopping when Vercel delete does not find the sandbox entity', async () => {
+    const env = snapshotVercelEnv()
+    const { Sandbox } = await import('@vercel/sandbox')
+    const stop = vi.fn(async () => ({}))
+
+    try {
+      delete process.env.VERCEL_TOKEN
+      delete process.env.VERCEL_TEAM_ID
+      delete process.env.VERCEL_PROJECT_ID
+      process.env.VERCEL_OIDC_TOKEN = makeOidcToken({
+        owner_id: 'team_test',
+        project_id: 'prj_test',
+      })
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        text: vi.fn(async () => ''),
+      })))
+
+      Sandbox.create.mockResolvedValueOnce({
+        sandboxId: 'sbx_missing_123',
+        writeFiles: vi.fn(async () => {}),
+        runCommand: vi.fn(async () => ({
+          exitCode: 0,
+          stdout: vi.fn(async () => mockStdoutData),
+          stderr: vi.fn(async () => ''),
+        })),
+        stop,
+      })
+
+      await runInV8Sandbox('1 + 1')
+      expect(stop).toHaveBeenCalledTimes(1)
+      expect(stop).toHaveBeenCalledWith(expect.objectContaining({
+        blocking: true,
+        signal: expect.any(AbortSignal),
+      }))
+    } finally {
+      vi.unstubAllGlobals()
+      restoreVercelEnv(env)
+    }
   })
 })
 
@@ -152,6 +277,10 @@ describe('createBenchmarkSnapshot', () => {
 
     expect(id).toBe('snap_abc')
     expect(stop).toHaveBeenCalledTimes(1)
+    expect(stop).toHaveBeenCalledWith(expect.objectContaining({
+      blocking: true,
+      signal: expect.any(AbortSignal),
+    }))
   })
 
   it('stops the sandbox when snapshot() throws', async () => {

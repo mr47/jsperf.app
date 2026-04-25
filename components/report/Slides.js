@@ -46,6 +46,7 @@ import {
   rankEntries,
   aggregateStats,
   aggregateRuntimeSources,
+  summarizeShareItems,
   flattenRuntimes,
   collectPerfSamples,
 } from './slideUtils'
@@ -692,8 +693,10 @@ function InsightSlide({ report }) {
 function MethodologySlide({ report }) {
   const agg = useMemo(() => aggregateStats(report?.stats), [report])
   const runtimeSources = useMemo(() => aggregateRuntimeSources(report), [report])
-  const topBrowsers = agg.browsers.slice(0, 5)
-  const topOSes = agg.oses.slice(0, 5)
+  const topBrowsers = summarizeShareItems(agg.browsers, 3)
+  const topOSes = summarizeShareItems(agg.oses, 3)
+  const visibleRuntimes = runtimeSources.runtimes.slice(0, 6)
+  const hiddenRuntimeCount = Math.max(0, runtimeSources.runtimes.length - visibleRuntimes.length)
   const runtimeLabel = (runtime) => {
     const meta = runtimePalette(runtime)
     const version = typeof runtime === 'string' && runtime.includes('@')
@@ -705,11 +708,11 @@ function MethodologySlide({ report }) {
   const Bar = ({ items }) => {
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
     return (
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {items.map((item, i) => (
           <div key={item.name} className="space-y-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium">{item.name}</span>
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="font-medium truncate">{item.name}</span>
               <span className="text-muted-foreground">{(item.share * 100).toFixed(0)}%</span>
             </div>
             <div className="h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
@@ -730,56 +733,64 @@ function MethodologySlide({ report }) {
       className="bg-gradient-to-br from-sky-50 via-white to-indigo-50 dark:from-sky-950/40 dark:via-slate-950 dark:to-indigo-950/40"
     >
       <SlideHeader icon={Monitor} eyebrow="Methodology" title="Where these numbers came from" />
-      <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-5 flex-1 min-h-0">
-        <div className="rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/80 dark:bg-sky-950/30 p-6 flex flex-col">
-          <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-1 font-semibold">Browser runs</div>
-          <div className="text-5xl font-bold text-sky-900 dark:text-sky-100">{agg.totalRuns.toLocaleString('en')}</div>
-          <p className="mt-3 text-sm text-foreground/80">
-            Public benchmark executions aggregated for this snapshot. These
-            runs power the leaderboard and browser / operating-system breakdowns.
-          </p>
-        </div>
-        <div className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-6 flex flex-col">
-          <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1 font-semibold">Controlled runtimes</div>
-          <div className="text-5xl font-bold text-emerald-900 dark:text-emerald-100">{runtimeSources.runtimes.length}</div>
-          <p className="mt-3 text-sm text-foreground/80">
-            Node / Deno / Bun worker measurements captured across{' '}
-            <span className="font-semibold">{runtimeSources.totalRuntimeSlots}</span>{' '}
-            test-runtime pairs
-            {runtimeSources.totalProfiles > 0 && (
-              <> and <span className="font-semibold">{runtimeSources.totalProfiles}</span> resource profiles</>
-            )}.
-          </p>
-          {runtimeSources.runtimes.length > 0 && (
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-              {runtimeSources.runtimes.map(rt => (
-                <div key={rt.runtime} className="rounded-lg bg-white/70 dark:bg-slate-950/40 border border-white/60 dark:border-white/10 p-2">
-                  <div className="flex items-center gap-1.5 font-semibold">
-                    <span
-                      className="inline-block h-2 w-2 rounded-full"
-                      style={{ background: runtimeHexColor(rt.runtime) }}
-                    />
-                    <span>{runtimeLabel(rt.runtime)}</span>
+      <div className="flex-1 min-h-0 flex flex-col justify-center gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[0.85fr_1.15fr] print:grid-cols-[0.85fr_1.15fr] gap-4">
+          <div className="rounded-2xl border-2 border-sky-200 dark:border-sky-800/60 bg-sky-50/80 dark:bg-sky-950/30 p-5">
+            <div className="text-xs uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-1 font-semibold">Browser runs</div>
+            <div className="text-5xl font-bold text-sky-900 dark:text-sky-100">{agg.totalRuns.toLocaleString('en')}</div>
+            <p className="mt-2 text-xs leading-relaxed text-foreground/80">
+              Public benchmark executions used for the leaderboard and environment breakdowns.
+            </p>
+          </div>
+          <div className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/60 dark:bg-emerald-950/30 p-5">
+            <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 mb-1 font-semibold">Controlled runtimes</div>
+            <div className="text-5xl font-bold text-emerald-900 dark:text-emerald-100">{runtimeSources.runtimes.length}</div>
+            <p className="mt-2 text-xs leading-relaxed text-foreground/80">
+              Node / Deno / Bun worker data across{' '}
+              <span className="font-semibold">{runtimeSources.totalRuntimeSlots}</span>{' '}
+              test-runtime pairs
+              {runtimeSources.totalProfiles > 0 && (
+                <> and <span className="font-semibold">{runtimeSources.totalProfiles}</span> profiles</>
+              )}.
+            </p>
+            {visibleRuntimes.length > 0 && (
+              <div className="mt-3 grid grid-cols-2 lg:grid-cols-3 print:grid-cols-3 gap-2 text-[11px]">
+                {visibleRuntimes.map(rt => (
+                  <div key={rt.runtime} className="min-w-0 rounded-lg bg-white/70 dark:bg-slate-950/40 border border-white/60 dark:border-white/10 px-2 py-1.5">
+                    <div className="flex items-center gap-1.5 font-semibold min-w-0">
+                      <span
+                        className="inline-block h-2 w-2 rounded-full shrink-0"
+                        style={{ background: runtimeHexColor(rt.runtime) }}
+                      />
+                      <span className="truncate">{runtimeLabel(rt.runtime)}</span>
+                    </div>
+                    <div className="mt-0.5 text-muted-foreground truncate">
+                      {rt.tests} test{rt.tests === 1 ? '' : 's'} · {formatOps(rt.avgOpsPerSec)} avg
+                    </div>
                   </div>
-                  <div className="mt-1 text-muted-foreground">
-                    {rt.tests} test{rt.tests === 1 ? '' : 's'} · {formatOps(rt.avgOpsPerSec)}
+                ))}
+                {hiddenRuntimeCount > 0 && (
+                  <div className="rounded-lg bg-white/50 dark:bg-slate-950/30 border border-white/60 dark:border-white/10 px-2 py-1.5 text-muted-foreground flex items-center">
+                    +{hiddenRuntimeCount} more target{hiddenRuntimeCount === 1 ? '' : 's'}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                )}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-6 flex flex-col">
-          <div className="text-xs uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-3 font-semibold">Top browsers</div>
-          {topBrowsers.length
-            ? <Bar items={topBrowsers} />
-            : <p className="text-sm text-muted-foreground">No browser breakdown available.</p>}
-        </div>
-        <div className="rounded-2xl border-2 border-violet-200 dark:border-violet-800/60 bg-violet-50/60 dark:bg-violet-950/30 p-6 flex flex-col">
-          <div className="text-xs uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-3 font-semibold">Top operating systems</div>
-          {topOSes.length
-            ? <Bar items={topOSes} />
-            : <p className="text-sm text-muted-foreground">No OS breakdown available.</p>}
+        <div className="grid grid-cols-1 lg:grid-cols-2 print:grid-cols-2 gap-4">
+          <div className="rounded-2xl border-2 border-indigo-200 dark:border-indigo-800/60 bg-indigo-50/60 dark:bg-indigo-950/30 p-5">
+            <div className="text-xs uppercase tracking-wider text-indigo-700 dark:text-indigo-300 mb-3 font-semibold">Top browsers</div>
+            {topBrowsers.length
+              ? <Bar items={topBrowsers} />
+              : <p className="text-sm text-muted-foreground">No browser breakdown available.</p>}
+          </div>
+          <div className="rounded-2xl border-2 border-violet-200 dark:border-violet-800/60 bg-violet-50/60 dark:bg-violet-950/30 p-5">
+            <div className="text-xs uppercase tracking-wider text-violet-700 dark:text-violet-300 mb-3 font-semibold">Top operating systems</div>
+            {topOSes.length
+              ? <Bar items={topOSes} />
+              : <p className="text-sm text-muted-foreground">No OS breakdown available.</p>}
+          </div>
         </div>
       </div>
     </SlideShell>

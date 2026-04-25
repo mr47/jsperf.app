@@ -38,6 +38,7 @@ import {
   rankEntries,
   aggregateStats,
   aggregateRuntimeSources,
+  summarizeShareItems,
   flattenRuntimes,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
@@ -425,8 +426,8 @@ function MethodologySection({ report }) {
     return version ? `${meta.label} ${version}` : meta.label
   }
 
-  const topBrowsers = agg.browsers.slice(0, 4)
-  const topOSes = agg.oses.slice(0, 4)
+  const topBrowsers = summarizeShareItems(agg.browsers, 4)
+  const topOSes = summarizeShareItems(agg.oses, 4)
 
   const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444']
   const Bars = ({ items }) => (

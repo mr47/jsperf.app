@@ -6,6 +6,7 @@ import {
   rankEntries,
   aggregateStats,
   aggregateRuntimeSources,
+  summarizeShareItems,
   buildDeck,
   flattenRuntimes,
   collectPerfSamples,
@@ -80,6 +81,30 @@ describe('slideUtils.aggregateStats', () => {
   })
   it('returns empty arrays when there are no runs', () => {
     expect(aggregateStats(null)).toEqual({ totalRuns: 0, browsers: [], oses: [] })
+  })
+})
+
+describe('slideUtils.summarizeShareItems', () => {
+  it('keeps the list bounded and rolls overflow into Other', () => {
+    const out = summarizeShareItems([
+      { name: 'Chrome', count: 50, share: 0.5 },
+      { name: 'Safari', count: 20, share: 0.2 },
+      { name: 'Firefox', count: 15, share: 0.15 },
+      { name: 'Edge', count: 10, share: 0.1 },
+      { name: 'Opera', count: 5, share: 0.05 },
+    ], 3)
+
+    expect(out.map(item => item.name)).toEqual(['Chrome', 'Safari', 'Firefox', 'Other (2)'])
+    expect(out[3]).toMatchObject({ count: 15 })
+    expect(out[3].share).toBeCloseTo(0.15)
+  })
+
+  it('returns the original entries when already within the limit', () => {
+    const items = [
+      { name: 'Chrome', count: 3, share: 0.75 },
+      { name: 'Firefox', count: 1, share: 0.25 },
+    ]
+    expect(summarizeShareItems(items, 3)).toEqual(items)
   })
 })
 

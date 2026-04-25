@@ -94,6 +94,26 @@ export function aggregateStats(stats) {
   return { totalRuns, browsers: toShares(browsers), oses: toShares(oses) }
 }
 
+export function summarizeShareItems(items = [], limit = 3) {
+  const safeLimit = Math.max(1, limit)
+  const valid = items.filter(item => item && item.count > 0)
+  if (valid.length <= safeLimit) return valid
+
+  const visible = valid.slice(0, safeLimit)
+  const hidden = valid.slice(safeLimit)
+  const otherCount = hidden.reduce((sum, item) => sum + item.count, 0)
+  const otherShare = hidden.reduce((sum, item) => sum + item.share, 0)
+
+  return [
+    ...visible,
+    {
+      name: `Other (${hidden.length})`,
+      count: otherCount,
+      share: otherShare,
+    },
+  ]
+}
+
 /**
  * Pick which slides to show for this report. Slides whose data isn't
  * present (no analysis, no multi-runtime, etc.) are silently skipped
