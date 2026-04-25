@@ -113,6 +113,35 @@ describe('runAnalysis', () => {
     expect(result.results[0].v8.profiles.every(profile => profile.opsPerSec > 0)).toBe(true)
   })
 
+  it('passes async metadata to V8 and leaves QuickJS as unsupported', async () => {
+    const { runInQuickJS } = await import('../../lib/engines/quickjs')
+    const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
+    runInQuickJS.mockClear()
+    runInV8Sandbox.mockClear()
+    const unsupportedQuickJS = {
+      state: 'unsupported',
+      error: 'async unsupported',
+      opsPerSec: 0,
+      latency: null,
+      memoryUsed: null,
+    }
+    runInQuickJS
+      .mockResolvedValueOnce(unsupportedQuickJS)
+      .mockResolvedValueOnce(unsupportedQuickJS)
+      .mockResolvedValueOnce(unsupportedQuickJS)
+      .mockResolvedValueOnce(unsupportedQuickJS)
+
+    const result = await runAnalysis([
+      { code: 'await Promise.resolve(1)', title: 'async test', async: true },
+    ])
+
+    expect(runInQuickJS).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ isAsync: true }))
+    expect(runInV8Sandbox).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ isAsync: true }))
+    expect(result.results[0].quickjs.opsPerSec).toBe(0)
+    expect(result.results[0].v8.opsPerSec).toBeGreaterThan(0)
+    expect(result.hasErrors).toBe(false)
+  })
+
   it('handles partial failure (one engine errors)', async () => {
     const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
     runInV8Sandbox.mockResolvedValueOnce({

@@ -408,7 +408,7 @@ export default function Tests(props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tests: tests.map(t => ({ code: t.code, title: t.title })),
+          tests: tests.map(t => ({ code: t.code, title: t.title, async: !!t.async })),
           setup,
           teardown,
           slug,

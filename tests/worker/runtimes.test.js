@@ -39,6 +39,7 @@ describe('runtime script builders', () => {
       expect(src).toContain('function runBenchmark()')
       expect(src).toContain('emitResult(')
       expect(src).toContain('TIME_LIMIT = 1000')
+      expect(src).toContain('computeBenchmarkStats(')
     })
 
     it('inlines setup and teardown when provided', () => {
@@ -65,6 +66,14 @@ describe('runtime script builders', () => {
     it('errors are routed through __emitError instead of crashing silently', () => {
       const src = build(baseInput)
       expect(src).toContain('__emitError')
+    })
+
+    it('awaits async benchmark snippets when requested', () => {
+      const src = build({ ...baseInput, code: 'await Promise.resolve(1)', isAsync: true })
+      expect(() => new vm.Script(src)).not.toThrow()
+      expect(src).toContain('const IS_ASYNC = true')
+      expect(src).toContain('const __benchPrefix = "async "')
+      expect(src).toContain('await __benchFn()')
     })
   })
 

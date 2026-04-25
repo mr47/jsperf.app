@@ -191,7 +191,7 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, option
   if (cached) return cached
 
   const enqueues = await Promise.all(tests.map((t, i) =>
-    enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, ...options })
+    enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, isAsync: isAsyncTest(t), ...options })
       .then(res => ({ testIndex: i, res }))
       .catch(err => ({ testIndex: i, res: { unavailable: true, error: err.message || String(err) } }))
   ))
@@ -263,7 +263,7 @@ async function loadCachedMultiRuntime(tests, cacheKey) {
 
 function computeCodeHash(tests, setup, teardown) {
   const content = JSON.stringify({
-    tests: tests.map(t => ({ code: t.code.trim() })),
+    tests: tests.map(t => ({ code: t.code.trim(), async: isAsyncTest(t) })),
     setup: (setup || '').trim(),
     teardown: (teardown || '').trim(),
   })
@@ -272,12 +272,20 @@ function computeCodeHash(tests, setup, teardown) {
 
 function computeMultiRuntimeCacheKey(tests, setup, teardown, options) {
   const content = JSON.stringify({
-    tests: tests.map(t => ({ code: t.code.trim() })),
+    tests: tests.map(t => ({ code: t.code.trim(), async: isAsyncTest(t) })),
     setup: (setup || '').trim(),
     teardown: (teardown || '').trim(),
     runtimes: options.runtimes || null,
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+function isAsyncTest(test) {
+  if (test?.async === true) return true
+  const code = typeof test?.code === 'string' ? test.code : ''
+  return code.includes('deferred.resolve') ||
+    code.includes('await ') ||
+    code.includes('return new Promise')
 }
 
 function parseMultiRuntimeOptions(body) {

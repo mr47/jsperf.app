@@ -105,7 +105,7 @@ app.post('/api/run', async (c) => {
       const enc = new TextEncoder()
       const send = (obj) => controller.enqueue(enc.encode(JSON.stringify(obj) + '\n'))
 
-      send({ type: 'start', runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs })
+      send({ type: 'start', runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs, isAsync: params.isAsync })
 
       const abortCtrl = new AbortController()
       c.req.raw.signal?.addEventListener('abort', () => abortCtrl.abort(), { once: true })
@@ -163,7 +163,7 @@ app.post('/api/jobs', async (c) => {
     deadlineMs: executionDeadlineMs,
     pollDeadlineMs,
     completedAt: null,
-    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs },
+    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs, isAsync: params.isAsync },
     partial: emptyAccumulator(params.runtimeTargets),
     result: null,
     error: null,
@@ -230,7 +230,8 @@ function parseRunParams(body) {
   const timeMs = Math.min(Number(body.timeMs) || 1500, MAX_TIME_MS)
   const runtimeTargets = normalizeRuntimeTargets(body.runtimes) || DEFAULT_RUNTIME_TARGETS
   const profiles = sanitizeProfiles(body.profiles) || DEFAULT_PROFILES
-  return { code, setup, teardown, timeMs, runtimeTargets, profiles }
+  const isAsync = body.isAsync === true || detectAsyncCode(code)
+  return { code, setup, teardown, timeMs, isAsync, runtimeTargets, profiles }
 }
 
 function emptyAccumulator(runtimeTargets) {
@@ -248,7 +249,7 @@ function emptyAccumulator(runtimeTargets) {
   return acc
 }
 
-async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimeTargets, profiles }, { signal, onProgress, accum } = {}) {
+async function runBenchmarkBatch({ code, setup, teardown, timeMs, isAsync, runtimeTargets, profiles }, { signal, onProgress, accum } = {}) {
   const accumulator = accum || emptyAccumulator(runtimeTargets)
 
   for (const target of runtimeTargets) {
@@ -265,7 +266,7 @@ async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimeTargets
       })
 
       const builder = SCRIPT_BUILDERS[target.runtime]
-      const script = builder({ code, setup, teardown, timeMs })
+      const script = builder({ code, setup, teardown, timeMs, isAsync })
 
       let outcome
       try {
@@ -295,8 +296,17 @@ async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimeTargets
         durationMs: outcome.durationMs,
         exitCode: outcome.exitCode,
         perfCounters: outcome.perfCounters,
-        stderrTail: outcome.result.state === 'errored' ? outcome.stderrTail : undefined,
         ...outcome.result,
+        methodology: {
+          ...(outcome.result.methodology || {}),
+          async: Boolean(isAsync),
+          repeatCount: 1,
+          workerProfile: {
+            cpus: profile.cpus,
+            memMb: profile.memMb,
+          },
+        },
+        stderrTail: outcome.result.state === 'errored' ? outcome.stderrTail : undefined,
       }
       accumulator[target.id].profiles.push(profileResult)
       if (profileResult.state === 'errored' && !accumulator[target.id].error) {
@@ -432,6 +442,14 @@ function runtimeIds(runtimeTargets) {
 
 function profileLabels(profiles) {
   return (profiles || []).map(profile => `${profile.label}:${profile.cpus}cpu/${profile.memMb}mb`)
+}
+
+function detectAsyncCode(code) {
+  return typeof code === 'string' && (
+    code.includes('deferred.resolve') ||
+    code.includes('await ') ||
+    code.includes('return new Promise')
+  )
 }
 
 function computeExecutionDeadlineMs({ runtimeTargets, profiles, timeMs }) {

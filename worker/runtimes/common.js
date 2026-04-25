@@ -11,6 +11,8 @@
  * so that results are directly comparable.
  */
 
+import { benchmarkStatsSource } from './stats.js'
+
 export const SLICE_MS = 200
 
 /**
@@ -19,6 +21,7 @@ export const SLICE_MS = 200
  *   - performance.now() (or equivalent high-res timer)
  *   - the user's setup code (already executed)
  *   - a global function __benchFn() to call
+ *   - the value IS_ASYNC, controlling whether __benchFn() is awaited
  *   - the value TIME_LIMIT (in ms)
  *   - a function emitResult(obj) that writes a single JSON line to stdout
  *   - optional gcBefore() / gcAfter() / collectMemory() helpers
@@ -27,11 +30,7 @@ export const SLICE_MS = 200
  */
 export function benchmarkLoopSource() {
   return `
-function percentile(sorted, p) {
-  if (sorted.length === 0) return 0;
-  const idx = Math.ceil(p * sorted.length) - 1;
-  return sorted[Math.max(0, idx)];
-}
+${benchmarkStatsSource()}
 
 async function runBenchmark() {
   if (typeof gcBefore === 'function') gcBefore();
@@ -47,7 +46,8 @@ async function runBenchmark() {
     let sliceIters = 0;
 
     while (performance.now() - sliceStart < ${SLICE_MS}) {
-      __benchFn();
+      if (IS_ASYNC) await __benchFn();
+      else __benchFn();
       sliceIters++;
     }
 
@@ -65,25 +65,11 @@ async function runBenchmark() {
   if (typeof gcAfter === 'function') gcAfter();
   const memAfter = typeof collectMemory === 'function' ? collectMemory() : null;
 
-  const latencies = samples.map(s => s.ms / s.iters).sort((a, b) => a - b);
-  const mean = latencies.length > 0
-    ? latencies.reduce((s, v) => s + v, 0) / latencies.length
-    : 0;
-  const opsPerSec = mean > 0 ? 1000 / mean : 0;
+  const stats = computeBenchmarkStats(samples, { iterations, totalMs, sliceMs: ${SLICE_MS} });
 
   emitResult({
     state: 'completed',
-    opsPerSec: Math.round(opsPerSec),
-    iterations,
-    totalMs,
-    latency: {
-      mean,
-      p50: percentile(latencies, 0.5),
-      p99: percentile(latencies, 0.99),
-      min: latencies.length > 0 ? latencies[0] : 0,
-      max: latencies.length > 0 ? latencies[latencies.length - 1] : 0,
-      samplesCount: samples.length,
-    },
+    ...stats,
     memory: { before: memBefore, after: memAfter },
   });
 }

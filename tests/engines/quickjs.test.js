@@ -64,6 +64,17 @@ describe('runInQuickJS', () => {
     expect(result.error).toContain('Setup error')
   })
 
+  it('marks async snippets unsupported instead of returning misleading QuickJS numbers', async () => {
+    const result = await runInQuickJS(
+      'await Promise.resolve(1)',
+      { timeMs: 500, isAsync: true }
+    )
+
+    expect(result.state).toBe('unsupported')
+    expect(result.opsPerSec).toBe(0)
+    expect(result.methodology.async).toBe(false)
+  })
+
   it('returns memory usage data', async () => {
     const result = await runInQuickJS(
       'var arr = []; for (var i = 0; i < 10; i++) arr.push(i);',

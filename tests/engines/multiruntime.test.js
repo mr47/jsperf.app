@@ -66,9 +66,20 @@ describe('enqueueMultiRuntimeJob', () => {
     const body = JSON.parse(init.body)
     expect(body.code).toBe('x+1')
     expect(body.runtimes).toEqual(['node'])
+    expect(body.isAsync).toBe(false)
     expect(body.profiles).toEqual([
       { label: '1x', resourceLevel: 1, cpus: 1, memMb: 512 },
     ])
+  })
+
+  it('forwards async benchmark metadata', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test/'
+    globalThis.fetch = vi.fn(() => jsonResponse({ jobId: 'abc-123' }, { ok: true, status: 202 }))
+
+    await enqueueMultiRuntimeJob('await Promise.resolve()', { isAsync: true })
+
+    const [, init] = globalThis.fetch.mock.calls[0]
+    expect(JSON.parse(init.body).isAsync).toBe(true)
   })
 
   it('forwards versioned runtime targets', async () => {

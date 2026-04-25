@@ -9,9 +9,17 @@
 
 import { benchmarkLoopSource, teardownSource, errorTrapSource } from './common.js'
 
-export function buildDenoScript({ code, setup, teardown, timeMs }) {
+export function buildDenoScript({ code, setup, teardown, timeMs, isAsync }) {
+  const isLegacyAsync = code.includes('deferred.resolve')
+  const isModernAsync = code.includes('await ') || code.includes('return new Promise')
+  const shouldAwait = Boolean(isAsync || isLegacyAsync || isModernAsync)
+  const testBody = isLegacyAsync
+    ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
+    : code
+
   return `
 const TIME_LIMIT = ${timeMs};
+const IS_ASYNC = ${shouldAwait ? 'true' : 'false'};
 
 function emitResult(obj) {
   const line = JSON.stringify(obj) + '\\n';
@@ -40,8 +48,9 @@ ${errorTrapSource()}
 async function main() {
   ${setup ? setup : ''}
 
-  const __benchCode = ${JSON.stringify(code)};
-  const __benchFn = eval('(function() {\\n' + __benchCode + '\\n})');
+  const __benchCode = ${JSON.stringify(testBody)};
+  const __benchPrefix = ${shouldAwait && !isLegacyAsync ? JSON.stringify('async ') : JSON.stringify('')};
+  const __benchFn = eval('(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})');
 
   ${benchmarkLoopSource()}
 
