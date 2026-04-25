@@ -141,11 +141,30 @@ export async function runInContainer({
   let exitCode = -1
   let stdout = ''
   let stderr = ''
+  let timedOut = false
+
+  console.info('[docker] starting container', {
+    container: containerName,
+    runtime: runtimeId,
+    image,
+    profile: profile.label,
+    cpus: profile.cpus,
+    memMb: profile.memMb,
+    pull: target.pull ? 'missing' : false,
+    perf: usePerf,
+    timeoutMs,
+  })
 
   try {
     const child = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
 
     const onAbort = () => {
+      console.warn('[docker] killing container', {
+        container: containerName,
+        runtime: runtimeId,
+        image,
+        timedOut,
+      })
       try { child.kill('SIGKILL') } catch (_) { /* already gone */ }
       spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => {})
     }
@@ -155,6 +174,7 @@ export async function runInContainer({
     }
 
     const timer = setTimeout(() => {
+      timedOut = true
       onAbort()
     }, timeoutMs)
 
@@ -172,13 +192,36 @@ export async function runInContainer({
     const durationMs = Date.now() - start
     const result = parseStdoutResult(stdout)
     const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
+    const stderrTail = stderr.slice(-500)
+
+    const logPayload = {
+      container: containerName,
+      runtime: runtimeId,
+      image,
+      profile: profile.label,
+      durationMs,
+      exitCode,
+      state: result.state,
+      opsPerSec: result.opsPerSec || 0,
+      perf: Boolean(perfCounters),
+    }
+
+    if (exitCode === 0 && result.state !== 'errored') {
+      console.info('[docker] finished container', logPayload)
+    } else {
+      console.warn('[docker] container failed', {
+        ...logPayload,
+        error: result.error || null,
+        stderrTail: stderrTail || null,
+      })
+    }
 
     return {
       result,
       perfCounters,
       durationMs,
       exitCode,
-      stderrTail: stderr.slice(-500),
+      stderrTail,
     }
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {})

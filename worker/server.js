@@ -91,6 +91,12 @@ app.post('/api/run', async (c) => {
   const params = parseRunParams(body)
   if (params.error) return c.json({ error: params.error }, 400)
 
+  console.info('[worker] starting sync run', {
+    runtimes: runtimeIds(params.runtimeTargets),
+    profiles: profileLabels(params.profiles),
+    timeMs: params.timeMs,
+  })
+
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder()
@@ -108,8 +114,15 @@ app.post('/api/run', async (c) => {
         })
         send({ type: 'done' })
       } catch (err) {
+        console.error('[worker] sync run failed', {
+          error: err.message || String(err),
+        })
         send({ type: 'error', error: err.message || String(err) })
       } finally {
+        console.info('[worker] sync run finished', {
+          runtimes: runtimeIds(params.runtimeTargets),
+          profiles: profileLabels(params.profiles),
+        })
         controller.close()
       }
     },
@@ -150,6 +163,13 @@ app.post('/api/jobs', async (c) => {
     abortCtrl: new AbortController(),
   }
   jobs.set(jobId, job)
+  console.info('[worker] enqueued job', {
+    jobId,
+    runtimes: runtimeIds(params.runtimeTargets),
+    profiles: profileLabels(params.profiles),
+    timeMs: params.timeMs,
+    deadlineMs: JOB_DEADLINE_MS,
+  })
 
   // Fire-and-forget. We deliberately don't await — the response is sent
   // immediately so the caller (jsperf.net's /api/analyze) doesn't burn its
@@ -181,6 +201,7 @@ app.delete('/api/jobs/:id', async (c) => {
   if (!job) return c.json({ error: 'job not found' }, 404)
 
   if (job.state === 'pending' || job.state === 'running') {
+    console.warn('[worker] cancelling job', { jobId: job.jobId })
     job.abortCtrl.abort()
     finalizeJob(job, { state: 'errored', error: 'cancelled by client' })
   }
@@ -297,6 +318,11 @@ async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimeTargets
 
 async function executeJob(job, params) {
   job.state = 'running'
+  console.info('[worker] started job', {
+    jobId: job.jobId,
+    runtimes: runtimeIds(params.runtimeTargets),
+    profiles: profileLabels(params.profiles),
+  })
 
   try {
     const result = await runBenchmarkBatch(params, {
@@ -308,6 +334,10 @@ async function executeJob(job, params) {
     finalizeJob(job, { state: 'done', result: { runtimes: result } })
   } catch (err) {
     if (job.state === 'errored') return // already finalized by deadline / cancel
+    console.error('[worker] job execution failed', {
+      jobId: job.jobId,
+      error: err.message || String(err),
+    })
     finalizeJob(job, { state: 'errored', error: err.message || String(err) })
   }
 }
@@ -318,6 +348,12 @@ function finalizeJob(job, { state, result = null, error = null }) {
   job.result = result
   job.error = error
   job.completedAt = Date.now()
+  console.info('[worker] finalized job', {
+    jobId: job.jobId,
+    state,
+    durationMs: job.completedAt - job.createdAt,
+    error,
+  })
   // Schedule TTL eviction
   setTimeout(() => jobs.delete(job.jobId), JOB_RESULT_TTL_MS).unref?.()
 }
@@ -325,6 +361,10 @@ function finalizeJob(job, { state, result = null, error = null }) {
 function scheduleDeadline(job) {
   setTimeout(() => {
     if (!job.completedAt) {
+      console.warn('[worker] job exceeded deadline', {
+        jobId: job.jobId,
+        deadlineMs: JOB_DEADLINE_MS,
+      })
       job.abortCtrl.abort()
       finalizeJob(job, { state: 'errored', error: `job exceeded deadline of ${JOB_DEADLINE_MS}ms` })
     }
@@ -348,6 +388,14 @@ function countByState(state) {
   let n = 0
   for (const j of jobs.values()) if (j.state === state) n++
   return n
+}
+
+function runtimeIds(runtimeTargets) {
+  return (runtimeTargets || []).map(target => target.id)
+}
+
+function profileLabels(profiles) {
+  return (profiles || []).map(profile => `${profile.label}:${profile.cpus}cpu/${profile.memMb}mb`)
 }
 
 function sanitizeProfiles(input) {
