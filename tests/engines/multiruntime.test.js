@@ -68,6 +68,19 @@ describe('enqueueMultiRuntimeJob', () => {
     expect(body.runtimes).toEqual(['node'])
   })
 
+  it('forwards versioned runtime targets', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test/'
+    globalThis.fetch = vi.fn(() => jsonResponse({ jobId: 'abc-123' }, { ok: true, status: 202 }))
+
+    await enqueueMultiRuntimeJob('x+1', {
+      runtimes: ['node@22', { runtime: 'bun', version: '1.3.0' }],
+    })
+
+    const [, init] = globalThis.fetch.mock.calls[0]
+    const body = JSON.parse(init.body)
+    expect(body.runtimes).toEqual(['node@22', { runtime: 'bun', version: '1.3.0' }])
+  })
+
   it('sends the bearer token when BENCHMARK_WORKER_SECRET is set', async () => {
     process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
     process.env.BENCHMARK_WORKER_SECRET = 'topsecret'

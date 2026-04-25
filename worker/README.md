@@ -12,7 +12,7 @@ For every benchmark request:
 
 1. Receives a code snippet, setup, teardown, time budget, runtime list, and resource profile list.
 2. Spawns a fresh container per `(runtime, profile)` pair with strict CPU/memory/PID limits and no network access.
-3. Wraps the runtime invocation with `perf stat` (when the host allows it) to capture hardware counters: `instructions`, `cycles`, `cache-misses`, `branch-misses`, `page-faults`, `context-switches`.
+3. Wraps the runtime invocation with `perf stat` (when the host allows it and the selected image includes `perf`) to capture hardware counters: `instructions`, `cycles`, `cache-misses`, `branch-misses`, `page-faults`, `context-switches`.
 4. Returns the result either by streaming NDJSON (`/api/run`) or by storing it in an in-memory job map for the caller to poll (`/api/jobs`).
 
 ## Endpoints
@@ -106,6 +106,21 @@ curl -sN http://localhost:8080/api/run \
 ```
 
 You should see one `{ "type": "progress", ... }` and one `{ "type": "result", ... }` line per `(runtime, profile)` pair, then a final `{ "type": "done" }`.
+
+To compare runtime versions without rebuilding local images, pass versioned runtime targets:
+
+```bash
+curl -sN http://localhost:8080/api/run \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $BENCHMARK_WORKER_SECRET" \
+  -d '{
+    "code": "Math.sqrt(Math.random() * 1000)",
+    "timeMs": 1000,
+    "runtimes": ["node@20", "node@22", "node@24", "deno@2.5.0", {"runtime":"bun","version":"1.3.0"}]
+  }'
+```
+
+Unversioned `node`, `deno`, and `bun` keep using the local `jsperf-bench-*` images built by `./scripts/build-images.sh`. Versioned targets resolve to official images (`node:<version>-bookworm-slim`, `denoland/deno:debian-<version>`, `oven/bun:<version>-debian`) and Docker pulls them on first use. Because those official images do not include `linux-perf`, versioned runs skip hardware counters and still return throughput, latency, and memory metrics.
 
 For ad-hoc async (matches what `jsperf.net` actually does):
 
@@ -226,6 +241,7 @@ The script-level limit alone is not sufficient: code like `while(true){}` *insid
 
 ## Known limitations
 
+- Versioned runtime targets use official runtime images and do not include `linux-perf`; they skip hardware counters unless you build your own perf-enabled image path.
 - `perf stat` may return `<not supported>` for some events on virtualized hosts. Those counters render as `—` in the UI; the rest of the data is unaffected.
 - Bun does not expose a `--expose-gc`-style flag; we use `Bun.gc(true)` from inside the script instead.
 - Deno and Node both run on V8 but with different built-ins, async schedulers, and TLA semantics. Comparing them tells you about the runtime overhead, not the engine itself.

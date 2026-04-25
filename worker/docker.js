@@ -18,12 +18,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-
-const IMAGE_BY_RUNTIME = {
-  node: 'jsperf-bench-node:latest',
-  deno: 'jsperf-bench-deno:latest',
-  bun: 'jsperf-bench-bun:latest',
-}
+import { DEFAULT_RUNTIME_TARGETS, resolveRuntimeTarget } from './runtime-targets.js'
 
 const ENTRYPOINT_BY_RUNTIME = {
   // --allow-hrtime was removed in Deno 2 (always-on), so we don't pass it.
@@ -54,7 +49,7 @@ async function ensureWorkDirBase() {
  * Run a generated benchmark script in a fresh Docker container.
  *
  * @param {object} opts
- * @param {'node'|'deno'|'bun'} opts.runtime
+ * @param {'node'|'deno'|'bun'|object} opts.runtime
  * @param {string} opts.script - Generated JS source to execute
  * @param {object} opts.profile - { label, cpus, memMb }
  * @param {boolean} [opts.collectPerf=false] - Wrap with `perf stat` if host allows
@@ -76,21 +71,25 @@ export async function runInContainer({
   timeoutMs = 30_000,
   signal,
 }) {
-  const image = IMAGE_BY_RUNTIME[runtime]
-  if (!image) throw new Error(`Unknown runtime: ${runtime}`)
+  const target = resolveRuntimeTarget(runtime)
+  if (!target) throw new Error(`Unknown runtime: ${runtime}`)
+  const image = target.image
+  const runtimeName = target.runtime
+  const runtimeId = target.id
+  const usePerf = collectPerf && target.supportsPerf
 
   await ensureWorkDirBase()
-  const workDir = await mkdtemp(join(WORK_DIR_BASE, `bench-${runtime}-`))
+  const workDir = await mkdtemp(join(WORK_DIR_BASE, `bench-${safeName(runtimeId)}-`))
   const scriptPath = join(workDir, 'bench.js')
   await writeFile(scriptPath, script, 'utf8')
 
-  const containerName = `bench-${runtime}-${profile.label}-${randomUUID().slice(0, 8)}`
+  const containerName = `bench-${safeName(runtimeId)}-${safeName(profile.label)}-${randomUUID().slice(0, 8)}`
 
   // Build the runtime invocation, optionally wrapped with `perf stat`.
   // Perf events are written to a known path inside the container so we can
   // mount it back out as part of the bind-mount.
-  const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtime]
-  const innerCmd = collectPerf
+  const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtimeName]
+  const innerCmd = usePerf
     ? [
         'perf', 'stat',
         '-x', ',',
@@ -128,7 +127,11 @@ export async function runInContainer({
     '--security-opt', 'no-new-privileges',
   ]
 
-  if (collectPerf) {
+  if (target.pull) {
+    dockerArgs.push('--pull', 'missing')
+  }
+
+  if (usePerf) {
     dockerArgs.push('--cap-add', 'SYS_PTRACE', '--cap-add', 'PERFMON')
   }
 
@@ -168,7 +171,7 @@ export async function runInContainer({
 
     const durationMs = Date.now() - start
     const result = parseStdoutResult(stdout)
-    const perfCounters = collectPerf ? await readPerfFile(workDir).catch(() => null) : null
+    const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
 
     return {
       result,
@@ -240,8 +243,8 @@ async function readPerfFile(workDir) {
  */
 export async function checkImages() {
   const status = {}
-  for (const [runtime, image] of Object.entries(IMAGE_BY_RUNTIME)) {
-    status[runtime] = await imageExists(image)
+  for (const target of DEFAULT_RUNTIME_TARGETS) {
+    status[target.id] = await imageExists(target.image)
   }
   return status
 }
@@ -252,4 +255,11 @@ function imageExists(image) {
     child.once('close', (code) => resolve(code === 0))
     child.once('error', () => resolve(false))
   })
+}
+
+function safeName(value) {
+  return String(value || 'runtime')
+    .replace(/[^A-Za-z0-9_.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'runtime'
 }

@@ -33,6 +33,7 @@ import { runInContainer, checkImages } from './docker.js'
 import { buildNodeScript } from './runtimes/node.js'
 import { buildDenoScript } from './runtimes/deno.js'
 import { buildBunScript } from './runtimes/bun.js'
+import { DEFAULT_RUNTIME_TARGETS, normalizeRuntimeTargets } from './runtime-targets.js'
 
 const PORT = Number(process.env.PORT) || 8080
 const SHARED_SECRET = process.env.BENCHMARK_WORKER_SECRET || ''
@@ -59,7 +60,6 @@ const DEFAULT_PROFILES = [
   { label: '1x', resourceLevel: 1, cpus: 1.0, memMb: 512 },
 ]
 
-const DEFAULT_RUNTIMES = ['node', 'deno', 'bun']
 const MAX_TIME_MS = 5_000
 const PER_RUN_TIMEOUT_MS = 30_000
 
@@ -96,7 +96,7 @@ app.post('/api/run', async (c) => {
       const enc = new TextEncoder()
       const send = (obj) => controller.enqueue(enc.encode(JSON.stringify(obj) + '\n'))
 
-      send({ type: 'start', runtimes: params.runtimes, profiles: params.profiles, timeMs: params.timeMs })
+      send({ type: 'start', runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs })
 
       const abortCtrl = new AbortController()
       c.req.raw.signal?.addEventListener('abort', () => abortCtrl.abort(), { once: true })
@@ -143,8 +143,8 @@ app.post('/api/jobs', async (c) => {
     createdAt: Date.now(),
     deadline: Date.now() + JOB_DEADLINE_MS,
     completedAt: null,
-    params: { runtimes: params.runtimes, profiles: params.profiles, timeMs: params.timeMs },
-    partial: emptyAccumulator(params.runtimes),
+    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs },
+    partial: emptyAccumulator(params.runtimeTargets),
     result: null,
     error: null,
     abortCtrl: new AbortController(),
@@ -199,33 +199,49 @@ function parseRunParams(body) {
     return { error: 'code (string) is required' }
   }
   const timeMs = Math.min(Number(body.timeMs) || 1500, MAX_TIME_MS)
-  const runtimes = sanitizeRuntimes(body.runtimes) || DEFAULT_RUNTIMES
+  const runtimeTargets = normalizeRuntimeTargets(body.runtimes) || DEFAULT_RUNTIME_TARGETS
   const profiles = sanitizeProfiles(body.profiles) || DEFAULT_PROFILES
-  return { code, setup, teardown, timeMs, runtimes, profiles }
+  return { code, setup, teardown, timeMs, runtimeTargets, profiles }
 }
 
-function emptyAccumulator(runtimes) {
+function emptyAccumulator(runtimeTargets) {
   const acc = {}
-  for (const rt of runtimes) acc[rt] = { profiles: [], avgOpsPerSec: 0, error: null }
+  for (const target of runtimeTargets) {
+    acc[target.id] = {
+      runtime: target.runtime,
+      version: target.version,
+      label: target.label,
+      profiles: [],
+      avgOpsPerSec: 0,
+      error: null,
+    }
+  }
   return acc
 }
 
-async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimes, profiles }, { signal, onProgress, accum } = {}) {
-  const accumulator = accum || emptyAccumulator(runtimes)
+async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimeTargets, profiles }, { signal, onProgress, accum } = {}) {
+  const accumulator = accum || emptyAccumulator(runtimeTargets)
 
-  for (const runtime of runtimes) {
+  for (const target of runtimeTargets) {
     for (const profile of profiles) {
       if (signal?.aborted) throw new Error('aborted')
 
-      onProgress?.({ type: 'progress', runtime, profile: profile.label, status: 'running' })
+      onProgress?.({
+        type: 'progress',
+        runtime: target.id,
+        runtimeName: target.runtime,
+        version: target.version,
+        profile: profile.label,
+        status: 'running',
+      })
 
-      const builder = SCRIPT_BUILDERS[runtime]
+      const builder = SCRIPT_BUILDERS[target.runtime]
       const script = builder({ code, setup, teardown, timeMs })
 
       let outcome
       try {
         outcome = await runInContainer({
-          runtime,
+          runtime: target,
           script,
           profile,
           collectPerf: COLLECT_PERF,
@@ -253,18 +269,25 @@ async function runBenchmarkBatch({ code, setup, teardown, timeMs, runtimes, prof
         stderrTail: outcome.result.state === 'errored' ? outcome.stderrTail : undefined,
         ...outcome.result,
       }
-      accumulator[runtime].profiles.push(profileResult)
-      if (profileResult.state === 'errored' && !accumulator[runtime].error) {
-        accumulator[runtime].error = profileResult.error || 'unknown error'
+      accumulator[target.id].profiles.push(profileResult)
+      if (profileResult.state === 'errored' && !accumulator[target.id].error) {
+        accumulator[target.id].error = profileResult.error || 'unknown error'
       }
 
-      onProgress?.({ type: 'result', runtime, profile: profile.label, ...profileResult })
+      onProgress?.({
+        type: 'result',
+        runtime: target.id,
+        runtimeName: target.runtime,
+        version: target.version,
+        profile: profile.label,
+        ...profileResult,
+      })
     }
   }
 
-  for (const rt of runtimes) {
-    const ops = accumulator[rt].profiles.map(p => p.opsPerSec).filter(n => n > 0)
-    accumulator[rt].avgOpsPerSec = ops.length > 0
+  for (const target of runtimeTargets) {
+    const ops = accumulator[target.id].profiles.map(p => p.opsPerSec).filter(n => n > 0)
+    accumulator[target.id].avgOpsPerSec = ops.length > 0
       ? Math.round(ops.reduce((s, v) => s + v, 0) / ops.length)
       : 0
   }
@@ -325,12 +348,6 @@ function countByState(state) {
   let n = 0
   for (const j of jobs.values()) if (j.state === state) n++
   return n
-}
-
-function sanitizeRuntimes(input) {
-  if (!Array.isArray(input)) return null
-  const allowed = input.filter(r => SCRIPT_BUILDERS[r])
-  return allowed.length > 0 ? allowed : null
 }
 
 function sanitizeProfiles(input) {

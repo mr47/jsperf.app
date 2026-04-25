@@ -49,18 +49,39 @@ function FrameThrottler({ paused }) {
 // backbuffer via gl.readPixels, pick a denser character for brighter
 // pixels, and rebuild the SVG mask. Throttled to MASK_REFRESH_MS so
 // the rebuild cost doesn't dominate the frame budget.
-function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_MS }) {
+function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_MS, paused = false }) {
   const { size, gl } = useThree()
   const cols = Math.max(1, Math.floor(size.width / CELL_SIZE))
   const rows = Math.max(1, Math.floor(size.height / ROW_HEIGHT))
 
   // Mutable per-instance state we don't want to rebuild each render.
+  // Reusable scratch buffers live here too so the per-frame hot path
+  // allocates nothing beyond the final `svg` / `uri` strings.
   const refs = useRef({
     pixelBuf: null,
     lastRefreshAt: 0,
     svgPrefix: '',
     svgSuffix: '',
+    charTable: null, // pre-escaped char-by-density lookup
+    rowParts: null,  // length-cols scratch array for one row
+    bodyParts: null, // length-rows scratch array for tspans
   })
+
+  // Build the escaped character lookup once per `characters` change.
+  // Doing this in the hot loop costs ~4 comparisons per cell per frame.
+  useEffect(() => {
+    const charSet = (characters || '').replace(/[^\S ]/g, '') || '01'
+    const table = new Array(charSet.length)
+    for (let i = 0; i < charSet.length; i++) {
+      let ch = charSet[i]
+      if (ch === ' ') ch = '\u00A0'
+      else if (ch === '<') ch = '&lt;'
+      else if (ch === '>') ch = '&gt;'
+      else if (ch === '&') ch = '&amp;'
+      table[i] = ch
+    }
+    refs.current.charTable = table
+  }, [characters])
 
   useEffect(() => {
     const c = gl.domElement
@@ -78,25 +99,52 @@ function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_
     c.style.webkitMaskRepeat = 'no-repeat'
     c.style.contain = 'paint'
     return () => {
-      c.style.imageRendering = ''
+      // Drop the mask data URL so the browser releases the decoded
+      // image immediately instead of waiting for the canvas element
+      // itself to be GC'd.
       c.style.maskImage = ''
       c.style.webkitMaskImage = ''
+      c.style.imageRendering = ''
+      c.style.maskMode = ''
+      c.style.webkitMaskMode = ''
+      c.style.maskRepeat = ''
+      c.style.webkitMaskRepeat = ''
+      c.style.pointerEvents = ''
+      c.style.contain = ''
     }
   }, [gl])
 
   useEffect(() => {
     if (size.width <= 0 || size.height <= 0) return
-    refs.current.pixelBuf = new Uint8Array(cols * rows * 4)
-    refs.current.lastRefreshAt = 0 // force immediate rebuild on next frame
-    refs.current.svgPrefix =
+    const r = refs.current
+    r.pixelBuf = new Uint8Array(cols * rows * 4)
+    r.rowParts = new Array(cols)
+    r.bodyParts = new Array(rows)
+    r.lastRefreshAt = 0 // force immediate rebuild on next frame
+    r.svgPrefix =
       `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}">` +
       `<text fill="white" font-family="Courier New, monospace" font-size="${FONT_SIZE}" xml:space="preserve">`
-    refs.current.svgSuffix = `</text></svg>`
+    r.svgSuffix = `</text></svg>`
   }, [size.width, size.height, cols, rows])
+
+  // Release everything we hold across mount/unmount so an in-flight
+  // mask-image decode can't pin the pixel buffer.
+  useEffect(() => {
+    return () => {
+      const r = refs.current
+      r.pixelBuf = null
+      r.rowParts = null
+      r.bodyParts = null
+      r.charTable = null
+      r.svgPrefix = ''
+      r.svgSuffix = ''
+    }
+  }, [])
 
   // Priority-1 useFrame takes over rendering from r3f so we can
   // readPixels straight after the render with consistent timing.
   useFrame((state) => {
+    if (paused) return
     const c = gl.domElement
 
     // r3f may resize our backbuffer back up to container size on
@@ -113,8 +161,14 @@ function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_
     if (now - refs.current.lastRefreshAt < refreshMs) return
     refs.current.lastRefreshAt = now
 
-    const buf = refs.current.pixelBuf
-    if (!buf || buf.length !== cols * rows * 4) return
+    const r = refs.current
+    const buf = r.pixelBuf
+    const rowParts = r.rowParts
+    const bodyParts = r.bodyParts
+    const charTable = r.charTable
+    if (!buf || !rowParts || !bodyParts || !charTable) return
+    if (buf.length !== cols * rows * 4) return
+    if (rowParts.length !== cols || bodyParts.length !== rows) return
 
     const ctx = gl.getContext()
     try {
@@ -123,36 +177,29 @@ function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_
       return
     }
 
-    const charSet = (characters || '').replace(/[^\S ]/g, '') || '01'
-    const lastIdx = charSet.length - 1
+    const lastIdx = charTable.length - 1
 
-    let body = ''
     // WebGL pixel data is bottom-up; iterate rows in reverse to flip Y.
     for (let yy = 0; yy < rows; yy++) {
       const y = rows - 1 - yy
       const base = y * cols * 4
-      let row = ''
       for (let x = 0; x < cols; x++) {
         const i = base + x * 4
         const a = buf[i + 3]
         const bright = a === 0
           ? 0
           : (0.3 * buf[i] + 0.59 * buf[i + 1] + 0.11 * buf[i + 2]) / 255
-        let idx = Math.floor(bright * lastIdx)
+        let idx = (bright * lastIdx) | 0
         if (idx < 0) idx = 0
         else if (idx > lastIdx) idx = lastIdx
-        let ch = charSet[idx]
-        if (ch === ' ') ch = '\u00A0'
-        else if (ch === '<') ch = '&lt;'
-        else if (ch === '>') ch = '&gt;'
-        else if (ch === '&') ch = '&amp;'
-        row += ch
+        rowParts[x] = charTable[idx]
       }
+      const row = rowParts.join('')
       const dy = yy === 0 ? Math.round(FONT_SIZE * 0.9) : ROW_HEIGHT
-      body += `<tspan x="0" dy="${dy}" xml:space="preserve">${row}</tspan>`
+      bodyParts[yy] = `<tspan x="0" dy="${dy}" xml:space="preserve">${row}</tspan>`
     }
 
-    const svg = refs.current.svgPrefix + body + refs.current.svgSuffix
+    const svg = r.svgPrefix + bodyParts.join('') + r.svgSuffix
     const uri = `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`
     c.style.maskImage = uri
     c.style.webkitMaskImage = uri
@@ -275,7 +322,7 @@ export default function HeroBackground() {
 
           <CoolShape />
 
-          <SvgMaskAsciiRenderer characters={CHAR_SET} />
+          <SvgMaskAsciiRenderer characters={CHAR_SET} paused={paused} />
         </Canvas>
       )}
     </div>

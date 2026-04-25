@@ -45,6 +45,7 @@ export default async function handler(req, res) {
     }
 
     const { tests, setup, teardown, slug, revision, force } = req.body
+    const multiRuntimeOptions = parseMultiRuntimeOptions(req.body)
 
     if (!tests || !Array.isArray(tests) || tests.length === 0) {
       return res.status(400).json({ error: 'tests array is required and must not be empty' })
@@ -69,6 +70,7 @@ export default async function handler(req, res) {
     // refresh cadences (base is deterministic; MR can vary with worker
     // host load) and so a stale cache in one shouldn't shadow the other.
     const codeHash = computeCodeHash(tests, setup, teardown)
+    const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(tests, setup, teardown, multiRuntimeOptions)
     const cacheKey = `analysis_v4:${codeHash}`
 
     // `force: true` from the "Re-analyze" button busts the Redis cache
@@ -85,8 +87,8 @@ export default async function handler(req, res) {
       // On cache HIT we still need to give the client fresh MR jobIds so
       // it can poll for new MR data (or pick up cached MR from the proxy
       // endpoint, which has its own per-hash cache).
-      const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash)
-      const merged = mergeMultiRuntimeMeta(cachedData, mrInfo)
+      const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
+      const merged = { ...mergeMultiRuntimeMeta(cachedData, mrInfo), codeHash }
       res.setHeader('X-Analysis-Cache', 'HIT')
       return res.status(200).json(merged)
     }
@@ -113,12 +115,12 @@ export default async function handler(req, res) {
     // Kick off MR jobs FIRST so they run on the worker concurrently with
     // QuickJS+V8 here. By the time we finish those phases the worker is
     // typically already done, so the client's first poll gets results.
-    const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash)
+    const mrInfo = await maybeEnqueueMultiRuntime(tests, setup, teardown, multiRuntimeCacheKey, multiRuntimeOptions)
     if (mrInfo?.jobs) {
       sendLine({
         type: 'multi-runtime-enqueued',
         jobs: mrInfo.jobs,
-        codeHash,
+        codeHash: multiRuntimeCacheKey,
         deadlineMs: mrInfo.deadlineMs,
       })
     } else if (mrInfo?.error) {
@@ -148,7 +150,7 @@ export default async function handler(req, res) {
       await redis.setex(cacheKey, 3600, JSON.stringify(analysis))
     }
 
-    const final = mergeMultiRuntimeMeta(analysis, mrInfo)
+    const final = { ...mergeMultiRuntimeMeta(analysis, mrInfo), codeHash }
     sendLine({ type: 'result', data: final })
     return res.end()
   } catch (error) {
@@ -177,11 +179,11 @@ export default async function handler(req, res) {
  *   null                                                  when the worker
  *                                                         is not configured
  */
-async function maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash) {
+async function maybeEnqueueMultiRuntime(tests, setup, teardown, cacheKey, options = {}) {
   if (!process.env.BENCHMARK_WORKER_URL) return null
 
   const enqueues = await Promise.all(tests.map((t, i) =>
-    enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500 })
+    enqueueMultiRuntimeJob(t.code, { setup, teardown, timeMs: 1500, ...options })
       .then(res => ({ testIndex: i, res }))
       .catch(err => ({ testIndex: i, res: { unavailable: true, error: err.message || String(err) } }))
   ))
@@ -193,11 +195,11 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash) {
   }
 
   // Cache the testIndex → jobId map so the polling proxy endpoint can
-  // surface the most-recent run for this codeHash if a user refreshes
+  // surface the most-recent run for this runtime selection if a user refreshes
   // before the MR job completes.
   try {
     await redis.setex(
-      `mr_jobs_v1:${codeHash}`,
+      `mr_jobs_v1:${cacheKey}`,
       300,
       JSON.stringify(successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId }))),
     )
@@ -206,6 +208,7 @@ async function maybeEnqueueMultiRuntime(tests, setup, teardown, codeHash) {
   return {
     jobs: successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId })),
     deadlineMs: successes[0].res.deadlineMs,
+    cacheKey,
   }
 }
 
@@ -214,7 +217,7 @@ function mergeMultiRuntimeMeta(analysis, mrInfo) {
   return {
     ...analysis,
     multiRuntime: mrInfo.jobs
-      ? { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs }
+      ? { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs, cacheKey: mrInfo.cacheKey }
       : { unavailable: true, error: mrInfo.error },
   }
 }
@@ -226,4 +229,41 @@ function computeCodeHash(tests, setup, teardown) {
     teardown: (teardown || '').trim(),
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+function computeMultiRuntimeCacheKey(tests, setup, teardown, options) {
+  const content = JSON.stringify({
+    tests: tests.map(t => ({ code: t.code.trim() })),
+    setup: (setup || '').trim(),
+    teardown: (teardown || '').trim(),
+    runtimes: options.runtimes || null,
+  })
+  return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
+}
+
+function parseMultiRuntimeOptions(body) {
+  const runtimes = normalizeRuntimeRequest(body?.runtimes)
+  return runtimes ? { runtimes } : {}
+}
+
+function normalizeRuntimeRequest(input) {
+  if (!Array.isArray(input)) return null
+
+  const cleaned = input
+    .slice(0, 12)
+    .map((item) => {
+      if (typeof item === 'string') {
+        const value = item.trim()
+        return value.length > 0 && value.length <= 100 ? value : null
+      }
+      if (!item || typeof item !== 'object') return null
+      const runtime = typeof item.runtime === 'string' ? item.runtime.trim() : ''
+      const version = item.version == null ? null : String(item.version).trim()
+      if (!runtime || runtime.length > 20) return null
+      if (version != null && (!version || version.length > 100)) return null
+      return version == null ? { runtime } : { runtime, version }
+    })
+    .filter(Boolean)
+
+  return cleaned.length > 0 ? cleaned : null
 }

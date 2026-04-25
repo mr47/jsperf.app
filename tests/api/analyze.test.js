@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 
 // Mock external dependencies
 vi.mock('../../lib/mongodb', () => ({
@@ -58,6 +58,9 @@ vi.mock('../../lib/engines/runner', () => ({
 
 import handler from '../../pages/api/benchmark/analyze'
 
+const ORIG_WORKER_URL = process.env.BENCHMARK_WORKER_URL
+const ORIG_FETCH = globalThis.fetch
+
 function createMockReq(body, method = 'POST') {
   return {
     method,
@@ -106,6 +109,14 @@ function parseNdjsonLines(res) {
 describe('POST /api/benchmark/analyze', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    delete process.env.BENCHMARK_WORKER_URL
+    globalThis.fetch = ORIG_FETCH
+  })
+
+  afterEach(() => {
+    if (ORIG_WORKER_URL) process.env.BENCHMARK_WORKER_URL = ORIG_WORKER_URL
+    else delete process.env.BENCHMARK_WORKER_URL
+    globalThis.fetch = ORIG_FETCH
   })
 
   it('returns 405 for non-POST methods', async () => {
@@ -244,5 +255,26 @@ describe('POST /api/benchmark/analyze', () => {
     const messages = parseNdjsonLines(res)
     const resultMsg = messages.find(m => m.type === 'result')
     expect(resultMsg.data.hasErrors).toBe(true)
+  })
+
+  it('forwards requested runtime versions to multi-runtime jobs', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({ jobId: 'job-1', deadlineMs: 30000 }),
+      text: async () => JSON.stringify({ jobId: 'job-1' }),
+    }))
+
+    const req = createMockReq({
+      tests: [{ code: 'x + 1', title: 'test' }],
+      runtimes: ['node@lts', 'node@24.11.1', 'bun@1.3.0'],
+    })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    const [, init] = globalThis.fetch.mock.calls[0]
+    expect(JSON.parse(init.body).runtimes).toEqual(['node@lts', 'node@24.11.1', 'bun@1.3.0'])
   })
 })

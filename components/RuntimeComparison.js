@@ -1,13 +1,20 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Cpu, Trophy } from 'lucide-react'
 
-const RUNTIME_META = {
+const BASE_RUNTIME_META = {
   node: { label: 'Node.js', engine: 'V8',  text: 'text-emerald-600 dark:text-emerald-400', bar: 'bg-emerald-500', dot: 'bg-emerald-500' },
   deno: { label: 'Deno',    engine: 'V8',  text: 'text-sky-600 dark:text-sky-400',         bar: 'bg-sky-500',     dot: 'bg-sky-500' },
   bun:  { label: 'Bun',     engine: 'JSC', text: 'text-pink-600 dark:text-pink-400',       bar: 'bg-pink-500',    dot: 'bg-pink-500' },
 }
 
 const RUNTIME_ORDER = ['node', 'deno', 'bun']
+const FALLBACK_META = {
+  label: 'Runtime',
+  engine: 'JS',
+  text: 'text-violet-600 dark:text-violet-400',
+  bar: 'bg-violet-500',
+  dot: 'bg-violet-500',
+}
 
 function formatOps(n) {
   if (!n) return '0'
@@ -88,7 +95,7 @@ function RuntimeLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
       {RUNTIME_ORDER.map((rt) => {
-        const meta = RUNTIME_META[rt]
+        const meta = BASE_RUNTIME_META[rt]
         return (
           <span key={rt} className="inline-flex items-center gap-1.5">
             <span className={`inline-block h-2 w-2 rounded-full ${meta.dot}`} />
@@ -102,18 +109,18 @@ function RuntimeLegend() {
 }
 
 function TestRuntimePanel({ title, comparison }) {
-  const byName = Object.fromEntries(comparison.runtimes.map(r => [r.runtime, r]))
-  const ordered = RUNTIME_ORDER.map(name => byName[name]).filter(Boolean)
+  const ordered = [...comparison.runtimes].sort(compareRuntimeEntries)
 
   const series = ordered.map((rt) => {
     const p = rt.profiles?.[0] || {}
     const c = p.perfCounters || {}
+    const meta = runtimeMeta(rt)
     const ipc = (c.instructions != null && c.cycles != null && c.cycles > 0)
       ? c.instructions / c.cycles
       : null
     return {
       runtime: rt.runtime,
-      meta: RUNTIME_META[rt.runtime],
+      meta,
       hasError: rt.hasError,
       error: rt.error,
       values: {
@@ -184,6 +191,9 @@ function TestRuntimePanel({ title, comparison }) {
     })
   }
 
+  const fastestMeta = metaForRuntimeId(comparison, comparison.fastestRuntime)
+  const slowestMeta = metaForRuntimeId(comparison, comparison.slowestRuntime)
+
   return (
     <div className="space-y-3">
       {title && (
@@ -194,12 +204,12 @@ function TestRuntimePanel({ title, comparison }) {
         <div className="text-xs text-muted-foreground">
           Throughput spread: <span className="font-medium text-foreground">{comparison.spread}x</span>
           {' between '}
-          <span className={RUNTIME_META[comparison.fastestRuntime]?.text}>
-            {RUNTIME_META[comparison.fastestRuntime]?.label || comparison.fastestRuntime}
+          <span className={fastestMeta.text}>
+            {fastestMeta.label || comparison.fastestRuntime}
           </span>
           {' and '}
-          <span className={RUNTIME_META[comparison.slowestRuntime]?.text}>
-            {RUNTIME_META[comparison.slowestRuntime]?.label || comparison.slowestRuntime}
+          <span className={slowestMeta.text}>
+            {slowestMeta.label || comparison.slowestRuntime}
           </span>
         </div>
       )}
@@ -234,6 +244,46 @@ function TestRuntimePanel({ title, comparison }) {
       )}
     </div>
   )
+}
+
+function compareRuntimeEntries(a, b) {
+  const baseA = runtimeBase(a)
+  const baseB = runtimeBase(b)
+  const orderA = RUNTIME_ORDER.indexOf(baseA)
+  const orderB = RUNTIME_ORDER.indexOf(baseB)
+  const normalizedA = orderA === -1 ? Number.MAX_SAFE_INTEGER : orderA
+  const normalizedB = orderB === -1 ? Number.MAX_SAFE_INTEGER : orderB
+  if (normalizedA !== normalizedB) return normalizedA - normalizedB
+  return runtimeLabel(a).localeCompare(runtimeLabel(b), undefined, { numeric: true })
+}
+
+function metaForRuntimeId(comparison, runtimeId) {
+  const entry = comparison.runtimes.find(r => r.runtime === runtimeId)
+  return runtimeMeta(entry || { runtime: runtimeId })
+}
+
+function runtimeMeta(entry) {
+  const base = runtimeBase(entry)
+  const version = entry?.version || runtimeVersion(entry?.runtime)
+  const baseMeta = BASE_RUNTIME_META[base] || FALLBACK_META
+  return {
+    ...baseMeta,
+    label: entry?.label || (version ? `${baseMeta.label} ${version}` : baseMeta.label || entry?.runtime),
+  }
+}
+
+function runtimeLabel(entry) {
+  return runtimeMeta(entry).label
+}
+
+function runtimeBase(entry) {
+  return (entry?.runtimeName || entry?.runtime || '').split('@')[0]
+}
+
+function runtimeVersion(runtimeId) {
+  if (typeof runtimeId !== 'string') return null
+  const marker = runtimeId.indexOf('@')
+  return marker === -1 ? null : runtimeId.slice(marker + 1)
 }
 
 /**

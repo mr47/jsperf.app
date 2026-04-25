@@ -215,6 +215,19 @@ describe('buildRuntimeComparison', () => {
     expect(cmp.ranking).toHaveLength(1)
   })
 
+  it('keeps version metadata for versioned runtime keys', () => {
+    const cmp = buildRuntimeComparison({
+      'node@22': { runtime: 'node', version: '22', label: 'Node.js 22', profiles: [sampleProfile('1x', 1, 1000)] },
+      'node@24': { runtime: 'node', version: '24', label: 'Node.js 24', profiles: [sampleProfile('1x', 1, 1200)] },
+    })
+
+    const node22 = cmp.runtimes.find(r => r.runtime === 'node@22')
+    expect(node22.runtimeName).toBe('node')
+    expect(node22.version).toBe('22')
+    expect(node22.label).toBe('Node.js 22')
+    expect(cmp.fastestRuntime).toBe('node@24')
+  })
+
   it('reports no available data when all runtimes errored', () => {
     const cmp = buildRuntimeComparison({
       node: { profiles: [sampleProfile('1x', 1, 0)] },

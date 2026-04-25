@@ -6,6 +6,7 @@ import UAParser from 'ua-parser-js'
 import Test from './Test'
 import StatsChart from './StatsChart'
 import DeepAnalysis from './DeepAnalysis'
+import RuntimeVersionSelector from './RuntimeVersionSelector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber } from '../utils/ArrayUtils'
@@ -43,8 +44,7 @@ function formatMultiRuntimeForPrompt(multiRuntimeData) {
 
   const blocks = ready.map((r) => {
     const cmp = r.runtimeComparison
-    const byName = Object.fromEntries(cmp.runtimes.map(rt => [rt.runtime, rt]))
-    const ordered = RUNTIME_ORDER_FOR_PROMPT.map(name => byName[name]).filter(Boolean)
+    const ordered = [...cmp.runtimes].sort(compareRuntimeForPrompt)
 
     const runtimeLines = ordered.map((rt) => {
       const p = rt.profiles?.[0] || {}
@@ -85,11 +85,11 @@ function formatMultiRuntimeForPrompt(multiRuntimeData) {
       const latStr = `p50=${fmtLatency(p.latencyMean)} p99=${fmtLatency(p.latencyP99)}`
       const memStr = p.rss != null ? ` rss=${fmtBytes(p.rss)}` : ''
 
-      return `    ${RUNTIME_LABELS_FOR_PROMPT[rt.runtime] || rt.runtime}: ${opsStr}; ${latStr}${memStr}${perfStr}`
+      return `    ${runtimeLabelForPrompt(rt)}: ${opsStr}; ${latStr}${memStr}${perfStr}`
     }).join('\n')
 
-    const fastest = RUNTIME_LABELS_FOR_PROMPT[cmp.fastestRuntime] || cmp.fastestRuntime
-    const slowest = RUNTIME_LABELS_FOR_PROMPT[cmp.slowestRuntime] || cmp.slowestRuntime
+    const fastest = runtimeLabelForPrompt(cmp.runtimes.find(rt => rt.runtime === cmp.fastestRuntime) || { runtime: cmp.fastestRuntime })
+    const slowest = runtimeLabelForPrompt(cmp.runtimes.find(rt => rt.runtime === cmp.slowestRuntime) || { runtime: cmp.slowestRuntime })
     const spreadLine = (cmp.spread > 1 && fastest && slowest)
       ? `\n    ➜ ${cmp.spread}x throughput spread (fastest: ${fastest}, slowest: ${slowest})`
       : ''
@@ -103,6 +103,32 @@ function formatMultiRuntimeForPrompt(multiRuntimeData) {
 Each runtime ran the same snippet inside its own Docker container with identical resource limits. V8 powers Node and Deno; Bun uses JavaScriptCore. Differences are real engine/runtime effects, not hardware noise.
 
 ${blocks}`
+}
+
+function compareRuntimeForPrompt(a, b) {
+  const orderA = RUNTIME_ORDER_FOR_PROMPT.indexOf(runtimeBaseForPrompt(a))
+  const orderB = RUNTIME_ORDER_FOR_PROMPT.indexOf(runtimeBaseForPrompt(b))
+  const normalizedA = orderA === -1 ? Number.MAX_SAFE_INTEGER : orderA
+  const normalizedB = orderB === -1 ? Number.MAX_SAFE_INTEGER : orderB
+  if (normalizedA !== normalizedB) return normalizedA - normalizedB
+  return runtimeLabelForPrompt(a).localeCompare(runtimeLabelForPrompt(b), undefined, { numeric: true })
+}
+
+function runtimeLabelForPrompt(entry) {
+  const base = runtimeBaseForPrompt(entry)
+  const version = entry?.version || runtimeVersionForPrompt(entry?.runtime)
+  const label = RUNTIME_LABELS_FOR_PROMPT[base] || base || entry?.runtime || 'runtime'
+  return version ? `${label} ${version}` : label
+}
+
+function runtimeBaseForPrompt(entry) {
+  return (entry?.runtimeName || entry?.runtime || '').split('@')[0]
+}
+
+function runtimeVersionForPrompt(runtimeId) {
+  if (typeof runtimeId !== 'string') return null
+  const marker = runtimeId.indexOf('@')
+  return marker === -1 ? null : runtimeId.slice(marker + 1)
 }
 
 export default function Tests(props) {
@@ -136,6 +162,7 @@ export default function Tests(props) {
   const [multiRuntimeStatus, setMultiRuntimeStatus] = useState('idle')
   const [multiRuntimeData, setMultiRuntimeData] = useState(null)
   const [multiRuntimeError, setMultiRuntimeError] = useState(null)
+  const [runtimeTargets, setRuntimeTargets] = useState(null)
   const multiRuntimeAbortRef = useRef(null)
 
   const windowRef = useRef(null)
@@ -295,6 +322,9 @@ export default function Tests(props) {
           slug,
           revision,
           force,
+          ...(Array.isArray(runtimeTargets) && runtimeTargets.length > 0
+            ? { runtimes: runtimeTargets }
+            : {}),
         }),
       })
 
@@ -323,7 +353,7 @@ export default function Tests(props) {
         if (data?.multiRuntime?.jobs) {
           pollMultiRuntime({
             jobs: data.multiRuntime.jobs,
-            codeHash: data.codeHash || null,
+            codeHash: data.multiRuntime.cacheKey || data.codeHash || null,
             deadlineMs: data.multiRuntime.deadlineMs,
           })
         } else if (data?.multiRuntime?.unavailable) {
@@ -396,7 +426,7 @@ export default function Tests(props) {
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
     }
-  }, [tests, setup, teardown, slug, revision, pollMultiRuntime])
+  }, [tests, setup, teardown, slug, revision, runtimeTargets, pollMultiRuntime])
 
   useEffect(() => {
     return () => {
@@ -708,6 +738,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
     <>
       <Card className="my-6 shadow-sm border-border/60">
         <CardContent className="p-4">
+          <div className="space-y-3">
           <div className="flex flex-col md:flex-row md:items-center gap-3">
             <div className="flex-1 min-w-0">
               <h2 className="text-lg font-bold tracking-tight">Test Runner</h2>
@@ -848,6 +879,15 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
                   onClick={() => run()}>Stop</Button>
               }
             </div>
+          </div>
+
+          {benchStatus === 'complete' && (
+            <RuntimeVersionSelector
+              value={runtimeTargets}
+              onChange={setRuntimeTargets}
+              disabled={analysisStatus === 'loading'}
+            />
+          )}
           </div>
         </CardContent>
       </Card>
