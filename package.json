@@ -15,7 +15,9 @@
     "build": "next build",
     "start": "next start",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -53,6 +55,11 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
+    "@types/lodash": "^4.17.24",
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/ua-parser-js": "^0.7.39",
     "@vitest/coverage-v8": "^4.1.4",
     "happy-dom": "^20.8.9",
     "postcss": "^8.5.9",

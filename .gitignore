@@ -8,6 +8,7 @@
 
 # testing
 /coverage
+/worker/coverage
 
 # next.js
 /.next/
@@ -15,6 +16,9 @@
 
 # production
 /build
+/worker/dist
+tsconfig.tsbuildinfo
+worker/tsconfig.tsbuildinfo
 
 # misc
 .DS_Store
