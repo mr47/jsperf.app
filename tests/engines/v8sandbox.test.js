@@ -76,6 +76,23 @@ describe('runInV8Sandbox', () => {
     expect(result.latency).toHaveProperty('samplesCount')
   })
 
+  it('parses the final JSON line when benchmark code logs to stdout', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    Sandbox.create.mockResolvedValueOnce({
+      writeFiles: vi.fn(async () => {}),
+      runCommand: vi.fn(async () => ({
+        exitCode: 0,
+        stdout: vi.fn(async () => `debug log\n${mockStdoutData}\n`),
+        stderr: vi.fn(async () => ''),
+      })),
+      stop: vi.fn(async () => ({})),
+    })
+
+    const result = await runInV8Sandbox('console.log("debug log")')
+    expect(result.state).toBe('completed')
+    expect(result.opsPerSec).toBe(150000)
+  })
+
   it('handles code that throws errors', async () => {
     const { Sandbox } = await import('@vercel/sandbox')
     Sandbox.create.mockResolvedValueOnce({

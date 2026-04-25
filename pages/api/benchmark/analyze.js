@@ -62,7 +62,7 @@ export default async function handler(req, res) {
     }
 
     // Cache by content hash. Two separate cache scopes:
-    //   - analysis_v5:<hash>     base analysis (QuickJS + canonical V8 + prediction)
+    //   - analysis_v6:<hash>     base analysis (QuickJS + canonical V8 + prediction)
     //   - mr_v1:<hash>           per-test multi-runtime results, fetched
     //                            and embedded by the polling client through
     //                            /api/benchmark/multi-runtime/[jobId]
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     // host load) and so a stale cache in one shouldn't shadow the other.
     const codeHash = computeCodeHash(tests, setup, teardown)
     const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(tests, setup, teardown, multiRuntimeOptions)
-    const cacheKey = `analysis_v5:${codeHash}`
+    const cacheKey = `analysis_v6:${codeHash}`
 
     // `force: true` from the "Re-analyze" button busts the Redis cache
     // so the user always gets a fresh QuickJS+V8 run. The MongoDB
