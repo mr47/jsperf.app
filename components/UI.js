@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import PostMessageBroker from '../utils/postMessageBroker'
 import { getRanked, formatNumber } from '../utils/ArrayUtils'
 import { runBenchmark } from '../utils/benchmark'
+import { renderPrepHTML } from '../utils/prepHTML'
 
 function compileFactory(code, setup, teardown, legacyIsAsync) {
   try {
@@ -39,6 +40,7 @@ export default (props) => {
   const {
     pageData: { tests, initHTML, setup, teardown },
   } = props
+  const prepRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -50,13 +52,7 @@ export default (props) => {
         : window
     )
 
-    const factories = tests.map((test) =>
-      compileFactory(test.code, setup, teardown, test.async)
-    )
-
-    broker.emit('ready', {})
-
-    broker.register('run', async (event) => {
+    const registerRunner = (factories) => broker.register('run', async (event) => {
       if (cancelled) return
 
       if (abortController) {
@@ -263,17 +259,41 @@ export default (props) => {
       broker.emit('complete', { results })
     })
 
+    const prepareSandbox = async () => {
+      let prepError = null
+
+      try {
+        await renderPrepHTML(prepRef.current, initHTML)
+      } catch (error) {
+        prepError = error
+      }
+
+      if (cancelled) return
+
+      const factories = tests.map((test) =>
+        prepError
+          ? { factory: null, error: prepError, actuallyAsync: false }
+          : compileFactory(test.code, setup, teardown, test.async)
+      )
+
+      registerRunner(factories)
+      broker.emit('ready', {})
+    }
+
+    prepareSandbox()
+
     return () => {
       cancelled = true
       if (abortController) abortController.abort()
       broker.unregisterAll()
+      if (prepRef.current) prepRef.current.textContent = ''
     }
   }, [])
 
   return (
     <div
+      ref={prepRef}
       className="prepHTMLOutput"
-      dangerouslySetInnerHTML={{ __html: initHTML }}
     />
   )
 }
