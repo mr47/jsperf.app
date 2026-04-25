@@ -1,4 +1,4 @@
-import { signIn, signOut, useSession } from "next-auth/react"
+import { signIn, useSession } from "next-auth/react"
 import { useState, useEffect } from 'react'
 import GitHubIcon from './GitHubIcon'
 import Link from 'next/link'
@@ -25,6 +25,7 @@ export default function Header(props) {
   };
 
   const { login } = session?.user?.profile || {}
+  const sessionLoading = status === 'loading'
 
   return (
     <header className="border-b border-border mb-6">
@@ -52,7 +53,7 @@ export default function Header(props) {
           </div>
           
           <div className="flex items-center gap-4 mt-4 lg:mt-0">
-            {mounted && (
+            {mounted ? (
               <Button
                 variant="ghost"
                 size="icon"
@@ -61,20 +62,24 @@ export default function Header(props) {
               >
                 {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
               </Button>
+            ) : (
+              <div className="size-9" aria-hidden="true" />
             )}
             
-            { !session &&
-              <Button variant="outline" onClick={() => signIn("github")} className="flex items-center gap-2">
-                <span>Sign In</span>
-                <GitHubIcon fill="currentColor" width={16} height={16} />
-              </Button>
-            }
-            {
-            session &&
-              <Link href={`/u/${session?.user?.id}`} className="font-medium text-sm hover:text-primary transition-colors">
-                { login }
-              </Link>
-            }
+            <div className="flex min-w-24 max-w-40 justify-end">
+              {sessionLoading ? (
+                <div className="h-9 w-full" aria-hidden="true" />
+              ) : !session ? (
+                <Button variant="outline" onClick={() => signIn("github")} className="w-full flex items-center gap-2">
+                  <span>Sign In</span>
+                  <GitHubIcon fill="currentColor" width={16} height={16} />
+                </Button>
+              ) : (
+                <Link href={`/u/${session?.user?.id}`} className="font-medium text-sm hover:text-primary transition-colors truncate text-right">
+                  { login }
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </nav>

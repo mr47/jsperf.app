@@ -168,11 +168,9 @@ export default function DeepAnalysis({
 
   if (status !== 'done' || !analysis) return null
 
-  const hasErrors = analysis.hasErrors ||
-    analysis.results?.some(r =>
-      r.v8?.profiles?.some(p => p.state === 'errored') ||
-      r.quickjs?.profiles?.some(p => p.state === 'errored')
-    )
+  const engineErrors = collectEngineErrors(analysis.results)
+  const hasErrors = analysis.hasErrors || engineErrors.length > 0
+  const errorMessage = formatEngineErrorMessage(engineErrors)
 
   // Merge async multi-runtime results onto the per-test base results.
   // The base results don't carry MR data anymore (it's polled separately
@@ -222,8 +220,7 @@ export default function DeepAnalysis({
       {hasErrors && (
         <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
           <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-            Some engines encountered errors during analysis. Results may be incomplete.
-            Try re-running from the toolbar.
+            {errorMessage || 'Some engines encountered errors during analysis. Results may be incomplete.'}
           </p>
         </div>
       )}
@@ -249,6 +246,49 @@ export default function DeepAnalysis({
       />
     </div>
   )
+}
+
+function collectEngineErrors(results) {
+  if (!Array.isArray(results)) return []
+
+  const seen = new Set()
+  const errors = []
+  for (const result of results) {
+    for (const engine of [
+      { key: 'quickjs', label: 'QuickJS-WASM' },
+      { key: 'v8', label: 'V8 Firecracker' },
+    ]) {
+      const profile = result[engine.key]?.profiles?.find(p => p.state === 'errored')
+      if (!profile) continue
+
+      const message = profile.error || 'unknown error'
+      const dedupeKey = `${engine.key}:${message}`
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      errors.push({
+        engine: engine.key,
+        label: engine.label,
+        title: result.title || `Test ${result.testIndex + 1}`,
+        message,
+      })
+    }
+  }
+  return errors
+}
+
+function formatEngineErrorMessage(errors) {
+  if (!errors.length) return null
+
+  const v8Errors = errors.filter(e => e.engine === 'v8')
+  const quickjsErrors = errors.filter(e => e.engine === 'quickjs')
+  if (quickjsErrors.length > 0 && v8Errors.length === 0) {
+    const first = quickjsErrors[0]
+    return `${first.label} could not run ${first.title}: ${first.message}. V8 Firecracker completed, so this is not a Vercel sandbox failure.`
+  }
+
+  const first = errors[0]
+  const suffix = errors.length > 1 ? ` (${errors.length} distinct engine errors)` : ''
+  return `${first.label} could not run ${first.title}: ${first.message}.${suffix}`
 }
 
 function mergeMultiRuntime(baseResults, mrData) {

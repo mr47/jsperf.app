@@ -24,7 +24,7 @@ const DONATELLO_URL = 'https://donatello.to/mr47'
  * stacking context, and locks body scroll while open.
  */
 export default function DonorBoost() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const [open, setOpen] = useState(false)
   const [donor, setDonor] = useState(null)
   const [loadingMe, setLoadingMe] = useState(true)
@@ -124,20 +124,30 @@ export default function DonorBoost() {
 
   const isDonor = !!donor
   const signedIn = !!session?.user
+  const loadingTrigger = loadingMe || status === 'loading'
 
   const trigger = (
     <button
       type="button"
       onClick={() => setOpen(true)}
-      className={`text-sm font-medium transition-colors flex items-center gap-1.5 ${
-        isDonor
+      className={`text-sm font-medium transition-colors flex min-w-36 items-center justify-start gap-1.5 ${
+        loadingTrigger
+          ? 'text-muted-foreground'
+          : isDonor
           ? 'text-amber-600 dark:text-amber-400 hover:text-amber-500'
           : 'text-muted-foreground hover:text-foreground'
       }`}
       aria-haspopup="dialog"
       aria-expanded={open}
+      aria-busy={loadingTrigger}
     >
-      {isDonor ? (
+      {loadingTrigger ? (
+        <>
+          <span className="inline-block w-4 h-4 rounded-full bg-muted-foreground/20 animate-pulse" aria-hidden="true" />
+          <span className="inline-block h-4 w-24 rounded bg-muted-foreground/20 animate-pulse" aria-hidden="true" />
+          <span className="sr-only">Checking boost status</span>
+        </>
+      ) : isDonor ? (
         <>
           <Sparkles className="w-4 h-4" />
           <span>Boosted</span>
