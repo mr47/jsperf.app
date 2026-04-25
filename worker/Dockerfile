@@ -12,14 +12,19 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         docker.io \
+        g++ \
+        make \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
+ENV CXXFLAGS="-std=c++20"
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY server.js docker.js runtime-targets.js ./
+COPY complexity ./complexity
 COPY runtimes ./runtimes
 
 ENV NODE_ENV=production

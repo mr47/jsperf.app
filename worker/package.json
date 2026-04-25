@@ -11,8 +11,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@hono/node-server": "^1.16.0",
     "hono": "^4.10.0",
-    "@hono/node-server": "^1.16.0"
+    "tree-sitter": "^0.25.0",
+    "tree-sitter-javascript": "^0.25.0"
   },
   "devDependencies": {
     "vitest": "^4.1.4"

@@ -20,7 +20,32 @@ vi.mock('../../lib/engines/v8sandbox', () => ({
   })),
 }))
 
-import { runAnalysis } from '../../lib/engines/runner'
+import { runAnalysis as runAnalysisBase } from '../../lib/engines/runner'
+
+function fakeEstimateComplexities(tests, { setup } = {}) {
+  const setupSymbols = typeof setup === 'string' && setup.includes('const items')
+    ? ['items']
+    : []
+  return tests.map(test => {
+    const linear = /for\s*\(const item of items/.test(test.code) || /i\s*<\s*n/.test(test.code)
+    return {
+      version: 1,
+      time: { notation: linear ? 'O(n)' : 'O(1)', label: linear ? 'linear' : 'constant', confidence: 0.9 },
+      space: { notation: 'O(1)', label: 'constant', confidence: 0.88 },
+      async: { mode: 'none', concurrency: 'sync', notes: [] },
+      explanation: linear ? 'A loop drives a linear estimate.' : 'Only constant work detected.',
+      signals: linear ? ['for'] : [],
+      setupContext: { symbols: setupSymbols, notes: ['setup parsed as context only'] },
+    }
+  })
+}
+
+function runAnalysis(tests, opts = {}) {
+  return runAnalysisBase(tests, {
+    estimateComplexities: fakeEstimateComplexities,
+    ...opts,
+  })
+}
 
 describe('runAnalysis', () => {
   it('runs both engines and combines results', async () => {

@@ -1,6 +1,7 @@
 import { analysesCollection } from '../../../lib/mongodb'
 import { redis } from '../../../lib/redis'
 import { runAnalysis } from '../../../lib/engines/runner'
+import { estimateComplexitiesOnWorker } from '../../../lib/engines/complexity'
 import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
 import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
@@ -22,7 +23,7 @@ const RATE_LIMIT = { free: 2, donor: 10, window: '5 m' }
 // Synchronous budget:
 //   - QuickJS:    4 memory profiles × ~1.5s ≈ 6s
 //   - V8 sandbox: 1 canonical single-vCPU run × ~5-8s
-//   - Complexity: <100ms static pass
+//   - Complexity: <100ms worker static pass
 //   - Prediction: <100ms
 //   - Total:      ~35s, leaving headroom for slow cold starts.
 export const config = {
@@ -104,8 +105,10 @@ export default async function handler(req, res) {
     // even though it's not done by this function — the client tracks it
     // separately via polling.
     const enabledEngines = ['quickjs', 'v8']
-    if (process.env.BENCHMARK_WORKER_URL) enabledEngines.push('multi-runtime')
-    enabledEngines.push('complexity')
+    if (process.env.BENCHMARK_WORKER_URL) {
+      enabledEngines.push('multi-runtime')
+      enabledEngines.push('complexity')
+    }
     enabledEngines.push('prediction')
     sendLine({ type: 'pipeline', engines: enabledEngines })
 
@@ -134,6 +137,7 @@ export default async function handler(req, res) {
       teardown: teardown || undefined,
       timeMs: 2000,
       onProgress: (step) => sendLine({ type: 'progress', ...step }),
+      estimateComplexities: process.env.BENCHMARK_WORKER_URL ? estimateComplexitiesOnWorker : undefined,
     })
 
     const analyses = await analysesCollection()

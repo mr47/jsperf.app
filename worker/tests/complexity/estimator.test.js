@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { estimateComplexity } from '../../lib/complexity/estimator'
+import { estimateComplexity } from '../../complexity/estimator.js'
 
 describe('estimateComplexity', () => {
   it('reports constant work for straight-line scalar code', () => {

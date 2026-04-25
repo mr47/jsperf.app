@@ -34,6 +34,7 @@ import { buildNodeScript } from './runtimes/node.js'
 import { buildDenoScript } from './runtimes/deno.js'
 import { buildBunScript } from './runtimes/bun.js'
 import { DEFAULT_RUNTIME_TARGETS, normalizeRuntimeTargets } from './runtime-targets.js'
+import { estimateComplexity } from './complexity/estimator.js'
 
 const PORT = Number(process.env.PORT) || 8080
 const SHARED_SECRET = process.env.BENCHMARK_WORKER_SECRET || ''
@@ -191,6 +192,39 @@ app.post('/api/jobs', async (c) => {
     deadlineMs: pollDeadlineMs,
     executionDeadlineMs,
   }, 202)
+})
+
+app.post('/api/complexity', async (c) => {
+  if (!authorized(c)) return c.json({ error: 'unauthorized' }, 401)
+
+  let body
+  try { body = await c.req.json() } catch (_) {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+
+  const tests = Array.isArray(body?.tests) ? body.tests : null
+  if (!tests || tests.length === 0) {
+    return c.json({ error: 'tests array is required and must not be empty' }, 400)
+  }
+  if (tests.length > 20) {
+    return c.json({ error: 'Maximum 20 tests per complexity analysis' }, 400)
+  }
+
+  const setup = typeof body.setup === 'string' ? body.setup : ''
+  const results = []
+  for (let i = 0; i < tests.length; i++) {
+    const test = tests[i]
+    if (!test?.code || typeof test.code !== 'string') {
+      return c.json({ error: 'Each test must have a non-empty code string' }, 400)
+    }
+    results.push({
+      testIndex: Number.isInteger(test.testIndex) ? test.testIndex : i,
+      title: test.title || `Test ${i + 1}`,
+      complexity: estimateComplexity(test.code, { setup }),
+    })
+  }
+
+  return c.json({ results })
 })
 
 app.get('/api/jobs/:id', async (c) => {

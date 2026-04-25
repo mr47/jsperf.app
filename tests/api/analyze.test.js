@@ -36,8 +36,10 @@ vi.mock('../../lib/engines/runner', () => ({
     opts?.onProgress?.({ engine: 'quickjs', testIndex: 0, status: 'done' })
     opts?.onProgress?.({ engine: 'v8', testIndex: 0, status: 'running' })
     opts?.onProgress?.({ engine: 'v8', testIndex: 0, status: 'done' })
-    opts?.onProgress?.({ engine: 'complexity', testIndex: 0, status: 'running' })
-    opts?.onProgress?.({ engine: 'complexity', testIndex: 0, status: 'done' })
+    if (opts?.estimateComplexities) {
+      opts?.onProgress?.({ engine: 'complexity', testIndex: 0, status: 'running' })
+      opts?.onProgress?.({ engine: 'complexity', testIndex: 0, status: 'done' })
+    }
     opts?.onProgress?.({ engine: 'prediction', testIndex: 0, status: 'running' })
     opts?.onProgress?.({ engine: 'prediction', testIndex: 0, status: 'done' })
 
@@ -56,14 +58,14 @@ vi.mock('../../lib/engines/runner', () => ({
             predictedAt: { '1x': 50000, '2x': 100000 },
             characteristics: { cpuBound: true, memoryBound: false, allocationHeavy: false, jitFriendly: true },
           },
-          complexity: {
+          complexity: opts?.estimateComplexities ? {
             version: 1,
             time: { notation: 'O(1)', label: 'constant', confidence: 0.9 },
             space: { notation: 'O(1)', label: 'constant', confidence: 0.88 },
             async: { mode: 'none', concurrency: 'sync', notes: [] },
             explanation: 'Only constant work detected.',
             signals: [],
-          },
+          } : null,
         },
       ],
       comparison: { fastestByAlgorithm: 0, fastestByRuntime: 0, divergence: false },
@@ -188,6 +190,14 @@ describe('POST /api/benchmark/analyze', () => {
   })
 
   it('streams NDJSON with progress and result on cache miss', async () => {
+    process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 202,
+      json: async () => ({ jobId: 'job-1', deadlineMs: 30000 }),
+      text: async () => JSON.stringify({ jobId: 'job-1' }),
+    }))
+
     const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
     const res = createMockRes()
 
