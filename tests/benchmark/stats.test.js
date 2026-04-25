@@ -13,6 +13,7 @@ describe('computeBenchmarkStats', () => {
     expect(stats.latency.mean).toBeCloseTo(0.125)
     expect(stats.latency.sem).toBeGreaterThan(0)
     expect(stats.latency.rme).toBeGreaterThan(0)
+    expect(stats.latency.p95).toBeGreaterThan(0)
     expect(stats.latency.samplesCount).toBe(3)
     expect(stats.methodology.version).toBe(METHODOLOGY_VERSION)
     expect(stats.methodology.mean).toBe('totalMs/iterations')

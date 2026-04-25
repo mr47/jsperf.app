@@ -87,7 +87,7 @@ async function loadMultiRuntimeCache(codeHash, results) {
   if (!codeHash || !Array.isArray(results) || results.length === 0) return null
   try {
     const entries = await Promise.all(results.map(async (r) => {
-      const cached = await redis.get(`mr_v1:${codeHash}:${r.testIndex}`)
+      const cached = await redis.get(`mr_v2:${codeHash}:${r.testIndex}`)
       if (!cached) return null
       const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
       return {

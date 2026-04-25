@@ -245,7 +245,7 @@ describe('buildRuntimeComparison', () => {
     memMb: 256 * level,
     opsPerSec,
     state: opsPerSec > 0 ? 'completed' : 'errored',
-    latency: opsPerSec > 0 ? { mean: 1000 / opsPerSec, p50: 1000 / opsPerSec, p99: 2000 / opsPerSec } : null,
+    latency: opsPerSec > 0 ? { mean: 1000 / opsPerSec, p50: 1000 / opsPerSec, p95: 1500 / opsPerSec, p99: 2000 / opsPerSec } : null,
     memory: opsPerSec > 0 ? { after: { rss: 50_000_000, heapUsed: 20_000_000 } } : null,
     perfCounters: null,
   })
@@ -267,6 +267,7 @@ describe('buildRuntimeComparison', () => {
     expect(cmp.slowestRuntime).toBe('deno')
     expect(cmp.spread).toBeGreaterThan(1)
     expect(cmp.ranking[0].runtime).toBe('bun')
+    expect(cmp.runtimes[0].profiles[0].latencyP95).toBeGreaterThan(0)
   })
 
   it('classifies linear scaling per runtime', () => {

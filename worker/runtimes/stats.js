@@ -76,6 +76,7 @@ function computeBenchmarkStats(samples, opts = {}) {
       rme,
       p50: __percentile(latencies, 0.5),
       p75: __percentile(latencies, 0.75),
+      p95: __percentile(latencies, 0.95),
       p99: __percentile(latencies, 0.99),
       min: n > 0 ? latencies[0] : 0,
       max: n > 0 ? latencies[n - 1] : 0,

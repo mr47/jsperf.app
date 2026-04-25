@@ -1,4 +1,5 @@
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Cpu, Trophy } from 'lucide-react'
 import { BASE_RUNTIME_KEYS, compareRuntimePalette, runtimePalette } from '../lib/runtimePalette'
 
@@ -29,6 +30,41 @@ function formatBig(n) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(Math.round(n))
+}
+
+const METRIC_HELP = {
+  opsPerSec: 'How many times the snippet ran per second. Higher is faster.',
+  latencyMean: 'Average time for one run of the snippet. Lower is faster.',
+  latencyP50: 'Median latency: half of runs were faster, half were slower.',
+  latencyP95: 'Tail latency: 95% of runs were this fast or faster.',
+  latencyP99: 'Worst-tail latency: 99% of runs were this fast or faster.',
+  rss: 'Resident Set Size: total memory the process kept in RAM.',
+  heapUsed: 'JavaScript heap currently used by objects and values.',
+  instructions: 'CPU instructions retired while running the benchmark.',
+  cycles: 'CPU clock cycles used. Fewer cycles usually means less CPU work.',
+  ipc: 'Instructions per cycle. Higher often means the CPU pipeline stayed busier.',
+  cacheMisses: 'Times the CPU needed data that was not already in cache.',
+  branchMisses: 'Times the CPU guessed a branch wrong and had to backtrack.',
+}
+
+function Help({ text }) {
+  if (!text) return null
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={text}
+          className="inline-flex items-center justify-center ml-1 h-3.5 w-3.5 rounded-full border border-border text-[9px] text-muted-foreground cursor-help align-middle hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          ?
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 export default function RuntimeComparison({ results }) {
@@ -112,6 +148,8 @@ function TestRuntimePanel({ title, comparison }) {
       values: {
         opsPerSec:    rt.avgOpsPerSec || 0,
         latencyMean:  p.latencyMean ?? null,
+        latencyP50:   p.latencyP50  ?? null,
+        latencyP95:   p.latencyP95  ?? null,
         latencyP99:   p.latencyP99  ?? null,
         rss:          p.rss         ?? null,
         heapUsed:     p.heapUsed    ?? null,
@@ -134,31 +172,33 @@ function TestRuntimePanel({ title, comparison }) {
   // The "headline" charts are the ones we render as overlaid bars at the top.
   // Everything (including these) also lands in the unified table below.
   const headlineCharts = [
-    { key: 'opsPerSec',   label: 'Throughput',   unit: 'ops/s',         direction: 'higher', format: formatOps },
-    { key: 'latencyMean', label: 'Latency p50',  unit: 'per iteration', direction: 'lower',  format: formatLatency },
-    { key: 'latencyP99',  label: 'Latency p99',  unit: 'per iteration', direction: 'lower',  format: formatLatency },
-    { key: 'rss',         label: 'Memory (RSS)', unit: 'resident',      direction: 'lower',  format: formatBytes },
+    { key: 'opsPerSec',   label: 'Throughput',   unit: 'ops/s',         direction: 'higher', format: formatOps, help: METRIC_HELP.opsPerSec },
+    { key: 'latencyMean', label: 'Mean latency', unit: 'per iteration', direction: 'lower',  format: formatLatency, help: METRIC_HELP.latencyMean },
+    { key: 'latencyP99',  label: 'Latency p99',  unit: 'per iteration', direction: 'lower',  format: formatLatency, help: METRIC_HELP.latencyP99 },
+    { key: 'rss',         label: 'Memory (RSS)', unit: 'resident',      direction: 'lower',  format: formatBytes, help: METRIC_HELP.rss },
   ]
 
   const tableSections = [
     {
       label: 'Throughput',
       rows: [
-        { key: 'opsPerSec', label: 'Ops / second', direction: 'higher', format: formatOps },
+        { key: 'opsPerSec', label: 'Ops / second', direction: 'higher', format: formatOps, help: METRIC_HELP.opsPerSec },
       ],
     },
     {
       label: 'Latency',
       rows: [
-        { key: 'latencyMean', label: 'Mean (p50)', direction: 'lower', format: formatLatency },
-        { key: 'latencyP99',  label: 'p99',        direction: 'lower', format: formatLatency },
+        { key: 'latencyMean', label: 'Mean', direction: 'lower', format: formatLatency, help: METRIC_HELP.latencyMean },
+        { key: 'latencyP50',  label: 'p50',  direction: 'lower', format: formatLatency, help: METRIC_HELP.latencyP50 },
+        { key: 'latencyP95',  label: 'p95',  direction: 'lower', format: formatLatency, help: METRIC_HELP.latencyP95 },
+        { key: 'latencyP99',  label: 'p99',  direction: 'lower', format: formatLatency, help: METRIC_HELP.latencyP99 },
       ],
     },
     {
       label: 'Memory',
       rows: [
-        { key: 'rss',      label: 'RSS',       direction: 'lower', format: formatBytes },
-        { key: 'heapUsed', label: 'Heap used', direction: 'lower', format: formatBytes },
+        { key: 'rss',      label: 'RSS',       direction: 'lower', format: formatBytes, help: METRIC_HELP.rss },
+        { key: 'heapUsed', label: 'Heap used', direction: 'lower', format: formatBytes, help: METRIC_HELP.heapUsed },
       ],
     },
   ]
@@ -167,11 +207,11 @@ function TestRuntimePanel({ title, comparison }) {
     tableSections.push({
       label: 'Hardware counters',
       rows: [
-        { key: 'instructions', label: 'Instructions',      direction: null,     format: formatBig },
-        { key: 'cycles',       label: 'Cycles',            direction: null,     format: formatBig },
-        { key: 'ipc',          label: 'IPC (instr/cycle)', direction: 'higher', format: (v) => v.toFixed(2) },
-        { key: 'cacheMisses',  label: 'Cache misses',      direction: 'lower',  format: formatBig },
-        { key: 'branchMisses', label: 'Branch misses',     direction: 'lower',  format: formatBig },
+        { key: 'instructions', label: 'Instructions',      direction: null,     format: formatBig, help: METRIC_HELP.instructions },
+        { key: 'cycles',       label: 'Cycles',            direction: null,     format: formatBig, help: METRIC_HELP.cycles },
+        { key: 'ipc',          label: 'IPC (instr/cycle)', direction: 'higher', format: (v) => v.toFixed(2), help: METRIC_HELP.ipc },
+        { key: 'cacheMisses',  label: 'Cache misses',      direction: 'lower',  format: formatBig, help: METRIC_HELP.cacheMisses },
+        { key: 'branchMisses', label: 'Branch misses',     direction: 'lower',  format: formatBig, help: METRIC_HELP.branchMisses },
       ],
       footer: 'IPC > ~2 typically means well-vectorized JIT output; < ~1 suggests cache or branch-misprediction stalls. Counters render “—” when the host kernel disallows perf events.',
     })
@@ -209,6 +249,7 @@ function TestRuntimePanel({ title, comparison }) {
             unit={chart.unit}
             direction={chart.direction}
             format={chart.format}
+            help={chart.help}
             series={series}
             valueOf={(s) => s.values[chart.key]}
           />
@@ -272,7 +313,7 @@ function runtimeVersion(runtimeId) {
  * "lower is better" charts don't lie about magnitude — the trophy is the
  * winner signal, not the bar length.
  */
-function JointChart({ label, unit, direction, format, series, valueOf }) {
+function JointChart({ label, unit, direction, format, help, series, valueOf }) {
   const validValues = series
     .map(s => valueOf(s))
     .filter(v => v != null && Number.isFinite(v) && v > 0)
@@ -289,6 +330,7 @@ function JointChart({ label, unit, direction, format, series, valueOf }) {
       <div className="flex items-baseline justify-between mb-2">
         <div className="text-xs font-medium text-foreground">
           {label}
+          <Help text={help} />
           <span className="ml-1.5 text-[10px] text-muted-foreground font-normal">
             ({directionLabel})
           </span>
@@ -393,7 +435,10 @@ function SectionRows({ section, series, isFirstSection }) {
 
         return (
           <tr key={row.key} className="border-t border-border/30">
-            <td className="py-1.5 px-3 text-foreground">{row.label}</td>
+            <td className="py-1.5 px-3 text-foreground">
+              {row.label}
+              <Help text={row.help} />
+            </td>
             {series.map((s, i) => {
               const v = s.values[row.key]
               const valid = v != null && Number.isFinite(v)

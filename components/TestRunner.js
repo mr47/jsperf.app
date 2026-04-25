@@ -9,6 +9,7 @@ import DeepAnalysis from './DeepAnalysis'
 import RuntimeVersionSelector from './RuntimeVersionSelector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatNumber } from '../utils/ArrayUtils'
 import { ChevronDown, Microscope, Loader2, X } from 'lucide-react'
 
@@ -1025,7 +1026,18 @@ Why is the fastest snippet performing better in modern JavaScript engines?${prom
           <thead className="bg-primary text-primary-foreground">
             <tr>
               <th colSpan="2" className="py-3 px-4 font-semibold border-r border-primary-foreground/20">Test Case</th>
-              <th title="Operations per second (higher is better)" className="py-3 px-4 font-semibold text-center">Ops/sec</th>
+              <th className="py-3 px-4 font-semibold text-center">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex cursor-help items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground/60" tabIndex={0}>
+                      Ops/sec
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Operations per second: how many times the test ran each second. Higher is faster.
+                  </TooltipContent>
+                </Tooltip>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">

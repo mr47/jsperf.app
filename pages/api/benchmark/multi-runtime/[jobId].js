@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   const testIndex = Number.parseInt(req.query.testIndex, 10)
   if (codeHash && Number.isFinite(testIndex)) {
     try {
-      const cached = await redis.get(`mr_v1:${codeHash}:${testIndex}`)
+      const cached = await redis.get(`mr_v2:${codeHash}:${testIndex}`)
       if (cached) {
         const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
         res.setHeader('X-MR-Cache', 'HIT')
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
 
   if (codeHash && Number.isFinite(testIndex) && runtimeComparison?.available) {
     try {
-      await redis.setex(`mr_v1:${codeHash}:${testIndex}`, 3600, JSON.stringify(payload))
+      await redis.setex(`mr_v2:${codeHash}:${testIndex}`, 3600, JSON.stringify(payload))
     } catch (_) { /* non-fatal */ }
   }
 

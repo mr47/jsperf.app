@@ -221,7 +221,7 @@ describe('POST /api/benchmark/analyze', () => {
 
     await handler(req, res)
 
-    expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^analysis_v6:/))
+    expect(redis.del).toHaveBeenCalledWith(expect.stringMatching(/^analysis_v7:/))
     // With force=true the handler must not consult the cache, otherwise
     // a stale entry could short-circuit the streaming run.
     expect(redis.get).not.toHaveBeenCalled()

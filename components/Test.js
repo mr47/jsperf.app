@@ -1,5 +1,19 @@
 import {highlightSanitizedJS} from '../utils/hljs'
 import { formatNumber, formatLatency } from '../utils/ArrayUtils'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+
+function MetricTooltip({ children, text }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 
 export default function Test(props) {
   const {
@@ -34,10 +48,16 @@ export default function Test(props) {
     error: (<div className="font-bold text-destructive">ERROR</div>),
     finished: (
       <>
-        <p className="font-semibold text-foreground">{hz != null && hz !== '' ? hz : '—'}</p>
-        <small className="block text-muted-foreground">
-          {rme === '—' || rme === 'n/a' ? rme : `±${rme}%`}
-        </small>
+        <MetricTooltip text="Operations per second: how many times this test ran each second. Higher is faster.">
+          <p className="font-semibold text-foreground cursor-help" tabIndex={0}>
+            {hz != null && hz !== '' ? hz : '—'}
+          </p>
+        </MetricTooltip>
+        <MetricTooltip text="Relative margin of error. Lower means the result was steadier during sampling.">
+          <small className="block text-muted-foreground cursor-help" tabIndex={0}>
+            {rme === '—' || rme === 'n/a' ? rme : `±${rme}%`}
+          </small>
+        </MetricTooltip>
         <p className="text-sm font-medium">
           {tied
             ? 'tied'
@@ -48,9 +68,11 @@ export default function Test(props) {
                 : `${percent}% slower`}
         </p>
         {samples > 0 && (
-          <p className="text-[10px] text-muted-foreground mt-1 leading-tight" title={`p50: ${formatLatency(p50Latency)} · p99: ${formatLatency(p99Latency)}`}>
-            {samples} samples · {formatLatency(meanLatency)}
-          </p>
+          <MetricTooltip text={`Samples are timing windows. Mean: average run time. p50: typical run (${formatLatency(p50Latency)}). p99: slow tail, 99% of runs were faster than ${formatLatency(p99Latency)}.`}>
+            <p className="text-[10px] text-muted-foreground mt-1 leading-tight cursor-help" tabIndex={0}>
+              {samples} samples · {formatLatency(meanLatency)}
+            </p>
+          </MetricTooltip>
         )}
       </>
     )
