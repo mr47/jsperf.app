@@ -42,7 +42,7 @@ export default function CanonicalResult({ results, comparison }) {
           Controlled Environment Results
         </h3>
         <p className="text-xs text-muted-foreground mb-4">
-          Reproducible results from an isolated server environment. Running this analysis again will yield the same ranking.
+          Canonical V8 JIT results from an isolated single-vCPU server environment, with QuickJS interpreter fallback when V8 is unavailable.
         </p>
 
         {allErrored && (

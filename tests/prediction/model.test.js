@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildPrediction, compareTests, buildRuntimeComparison } from '../../lib/prediction/model'
 
 describe('buildPrediction', () => {
-  it('detects linear scaling (2x resources -> ~2x ops)', () => {
+  it('detects linear scaling when multiple explicit resource levels are supplied', () => {
     const result = buildPrediction({
       quickjsProfiles: [
         { label: '1x', resourceLevel: 1, opsPerSec: 1000 },
@@ -47,7 +47,7 @@ describe('buildPrediction', () => {
     expect(result.jitBenefit).toBe(50)
   })
 
-  it('computes JIT benefit from matched successful resource levels', () => {
+  it('computes JIT benefit from matched successful profile levels', () => {
     const result = buildPrediction({
       quickjsProfiles: [
         { label: '1x', resourceLevel: 1, opsPerSec: 100 },
@@ -121,6 +121,42 @@ describe('buildPrediction', () => {
     expect(result.predictedAt).toHaveProperty('4x')
     expect(result.predictedAt).toHaveProperty('8x')
     expect(result.predictedAt['8x']).toBeGreaterThan(result.predictedAt['4x'])
+  })
+
+  it('uses the QuickJS memory sweep when V8 has only the canonical single-core profile', () => {
+    const result = buildPrediction({
+      quickjsProfiles: [
+        { label: '0.5x', resourceLevel: 0.5, opsPerSec: 500 },
+        { label: '1x', resourceLevel: 1, opsPerSec: 1000 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 2000 },
+        { label: '4x', resourceLevel: 4, opsPerSec: 4000 },
+      ],
+      v8Profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 50000 },
+      ],
+    })
+
+    expect(result.scalingSource).toBe('quickjs-memory')
+    expect(result.scalingType).toBe('linear')
+    expect(result.predictedAt['2x']).toBe(2000)
+    expect(result.jitBenefit).toBe(50)
+  })
+
+  it('does not extrapolate noisy memory-response fits', () => {
+    const result = buildPrediction({
+      quickjsProfiles: [
+        { label: '0.5x', resourceLevel: 0.5, opsPerSec: 1000 },
+        { label: '1x', resourceLevel: 1, opsPerSec: 100 },
+        { label: '2x', resourceLevel: 2, opsPerSec: 1200 },
+        { label: '4x', resourceLevel: 4, opsPerSec: 150 },
+      ],
+      v8Profiles: [
+        { label: '1x', resourceLevel: 1, opsPerSec: 5000 },
+      ],
+    })
+
+    expect(result.scalingType).toBe('noisy')
+    expect(result.predictedAt).toEqual({})
   })
 
   it('uses measured values for in-sample predictions', () => {

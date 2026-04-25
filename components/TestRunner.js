@@ -99,7 +99,7 @@ function formatMultiRuntimeForPrompt(multiRuntimeData) {
 
   return `
 
-### Multi-Runtime Comparison (Node.js / Deno / Bun, same isolated CPU+memory budget):
+### Multi-Runtime Comparison (Node.js / Deno / Bun, same isolated single-core CPU+memory budget):
 Each runtime ran the same snippet inside its own Docker container with identical resource limits. V8 powers Node and Deno; Bun uses JavaScriptCore. Differences are real engine/runtime effects, not hardware noise.
 
 ${blocks}`
@@ -802,7 +802,7 @@ export default function Tests(props) {
           `  QuickJS (interpreter): ${formatNumber(Math.round(r.quickjs.opsPerSec))} ops/sec`,
           `  V8 (JIT):              ${formatNumber(Math.round(r.v8.opsPerSec))} ops/sec`,
           `  JIT Amplification:     ${r.prediction?.jitBenefit ?? 'N/A'}x`,
-          `  Scaling Type:          ${r.prediction?.scalingType ?? 'N/A'} (confidence: ${r.prediction?.scalingConfidence != null ? (r.prediction.scalingConfidence * 100).toFixed(0) + '%' : 'N/A'})`,
+          `  Memory Response:       ${r.prediction?.scalingType ?? 'N/A'} (fit quality: ${r.prediction?.scalingConfidence != null ? (r.prediction.scalingConfidence * 100).toFixed(0) + '%' : 'N/A'})`,
           `  Memory Sensitivity:    ${r.prediction?.memSensitivity ?? 'N/A'}`,
           activeChars ? `  Characteristics:       ${activeChars}` : null,
         ].filter(Boolean).join('\n')
@@ -816,7 +816,7 @@ export default function Tests(props) {
       analysisSection = `
 
 ### Deep Analysis (Server-Side Controlled Environment):
-These results come from isolated, reproducible server runs — QuickJS-WASM as a deterministic interpreter baseline and V8 in a Firecracker microVM for realistic JIT profiling.
+These results come from isolated server runs — QuickJS-WASM provides a deterministic interpreter baseline and memory-limit sweep; V8 runs once in a single-vCPU Firecracker microVM for realistic canonical JIT profiling.
 
 ${serverResults}
 
@@ -829,7 +829,7 @@ ${divergenceNote}`
     }
 
     const promptHints = []
-    if (includeAnalysis) promptHints.push('JIT amplification, scaling type, characteristics')
+    if (includeAnalysis) promptHints.push('JIT amplification, memory response, characteristics')
     if (includeAnalysis && multiRuntimeStatus === 'done') {
       promptHints.push('cross-runtime variation (Node/Deno/Bun) and hardware perf counters where available')
     }

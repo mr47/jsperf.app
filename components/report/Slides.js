@@ -748,9 +748,9 @@ function MethodologySlide({ report }) {
             <p className="mt-2 text-xs leading-relaxed text-foreground/80">
               Node / Deno / Bun worker data across{' '}
               <span className="font-semibold">{runtimeSources.totalRuntimeSlots}</span>{' '}
-              test-runtime pairs
+              single-core test-runtime pairs
               {runtimeSources.totalProfiles > 0 && (
-                <> and <span className="font-semibold">{runtimeSources.totalProfiles}</span> profiles</>
+                <> and <span className="font-semibold">{runtimeSources.totalProfiles}</span> captured profile{runtimeSources.totalProfiles === 1 ? '' : 's'}</>
               )}.
             </p>
             {visibleRuntimes.length > 0 && (

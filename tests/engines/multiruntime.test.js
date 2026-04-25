@@ -66,6 +66,9 @@ describe('enqueueMultiRuntimeJob', () => {
     const body = JSON.parse(init.body)
     expect(body.code).toBe('x+1')
     expect(body.runtimes).toEqual(['node'])
+    expect(body.profiles).toEqual([
+      { label: '1x', resourceLevel: 1, cpus: 1, memMb: 512 },
+    ])
   })
 
   it('forwards versioned runtime targets', async () => {

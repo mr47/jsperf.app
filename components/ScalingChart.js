@@ -17,10 +17,10 @@ const compactNumber = (num) =>
   Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(num)
 
 const SCALING_LABELS = {
-  'linear': 'scales linearly with memory',
-  'sublinear': 'scales with diminishing returns',
-  'plateau': 'plateaus — adding memory won\'t help',
-  'degrading': 'degrades under pressure',
+  'linear': 'improves linearly with more memory headroom',
+  'sublinear': 'improves with diminishing returns',
+  'plateau': 'is stable across memory limits',
+  'degrading': 'slows down as memory pressure changes',
   'noisy': 'results are noisy (low confidence)',
   'insufficient-data': 'not enough data points',
 }
@@ -94,11 +94,11 @@ export default function ScalingPredictionChart({ results }) {
     <Card className="border-border/60 shadow-sm">
       <CardContent className="p-5">
         <h3 className="text-base font-semibold text-foreground mb-1">
-          Scaling Prediction
+          Memory Response
         </h3>
         <p className="text-xs text-muted-foreground mb-4">
-          How each snippet performs as the memory limit increases. Steeper = better scaling.
-          {!v8Available && ' (Using QuickJS interpreter — V8 sandbox unavailable)'}
+          QuickJS memory-limit sweep for spotting allocation pressure. V8 stays on a canonical single-vCPU run because ordinary JS snippets do not use extra CPU cores.
+          {!v8Available && ' V8 is still used for the canonical JIT result when available.'}
         </p>
 
         <div className="h-[260px] w-full" style={{ minWidth: 0 }}>
@@ -154,7 +154,7 @@ export default function ScalingPredictionChart({ results }) {
                   <p className="text-xs text-muted-foreground">
                     <span className="font-medium text-foreground">{r.title}</span>
                     {' '}{label}
-                    {ratio && ` — at ${mem2x ? `${mem2x} MB` : '2x'}, expect ~${ratio}x throughput`}
+                    {ratio && ` — at ${mem2x ? `${mem2x} MB` : '2x'}, measured/modelled ~${ratio}x throughput`}
                     {r.prediction.scalingConfidence < 0.7 && ' (low confidence)'}
                   </p>
                 </div>

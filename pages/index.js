@@ -154,9 +154,9 @@ export default function Home(props) {
                 <div className="h-12 w-12 rounded-lg bg-rose-500/10 flex items-center justify-center mb-4">
                   <BarChart3 className="h-6 w-6 text-rose-600 dark:text-rose-500" />
                 </div>
-                <CardTitle className="text-xl">Predictive Scaling</CardTitle>
+                <CardTitle className="text-xl">Memory Response</CardTitle>
                 <CardDescription className="text-base mt-2 leading-relaxed">
-                  See how your code scales under different resource levels. Regression-based prediction models reveal whether performance is CPU-bound, memory-bound, or JIT-friendly.
+                  See how snippets behave under QuickJS memory-limit sweeps while V8 stays on a canonical single-core JIT run for apples-to-apples results.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -234,10 +234,10 @@ export default function Home(props) {
                 </div>
                 <h3 className="font-semibold text-lg">Prediction Model</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">
-                  Compares interpreter vs. JIT results across resource profiles to compute JIT amplification, scaling type, and performance predictions at 1x&ndash;8x resources.
+                  Compares interpreter memory sweeps with canonical V8 JIT results to estimate JIT amplification, memory response, and engine-specific behavior.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-2">
-                  <span className="text-xs rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2.5 py-0.5 font-medium">Scaling</span>
+                  <span className="text-xs rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2.5 py-0.5 font-medium">Memory</span>
                   <span className="text-xs rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 px-2.5 py-0.5 font-medium">Prediction</span>
                 </div>
               </div>
@@ -325,7 +325,7 @@ export default function Home(props) {
                         is the winner
                       </h3>
                       <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed">
-                        Outperforms <code className="text-[10px] font-mono px-1 py-0.5 rounded bg-muted">forEach()</code> by <strong className="text-foreground">2.3&times;</strong> under V8 with stable JIT amplification across all resource profiles.
+                        Outperforms <code className="text-[10px] font-mono px-1 py-0.5 rounded bg-muted">forEach()</code> by <strong className="text-foreground">2.3&times;</strong> under canonical V8 with stable JIT amplification.
                       </p>
                       <div className="grid grid-cols-3 gap-2 pt-3">
                         <div className="rounded-md border border-border/50 bg-card/60 p-2">

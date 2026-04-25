@@ -19,8 +19,8 @@ const RATE_LIMIT = { free: 2, donor: 10, window: '5 m' }
 // length of the worker run does not contribute to this function's wall time.
 //
 // Synchronous budget:
-//   - QuickJS:    4 profiles × ~1.5s ≈ 6s
-//   - V8 sandbox: 4 profiles × ~5-8s ≈ 25-30s (sandbox boot dominates)
+//   - QuickJS:    4 memory profiles × ~1.5s ≈ 6s
+//   - V8 sandbox: 1 canonical single-vCPU run × ~5-8s
 //   - Prediction: <100ms
 //   - Total:      ~35s, leaving headroom for slow cold starts.
 export const config = {
@@ -62,7 +62,7 @@ export default async function handler(req, res) {
     }
 
     // Cache by content hash. Two separate cache scopes:
-    //   - analysis_v4:<hash>     base analysis (QuickJS + V8 + prediction)
+    //   - analysis_v5:<hash>     base analysis (QuickJS + canonical V8 + prediction)
     //   - mr_v1:<hash>           per-test multi-runtime results, fetched
     //                            and embedded by the polling client through
     //                            /api/benchmark/multi-runtime/[jobId]
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     // host load) and so a stale cache in one shouldn't shadow the other.
     const codeHash = computeCodeHash(tests, setup, teardown)
     const multiRuntimeCacheKey = computeMultiRuntimeCacheKey(tests, setup, teardown, multiRuntimeOptions)
-    const cacheKey = `analysis_v4:${codeHash}`
+    const cacheKey = `analysis_v5:${codeHash}`
 
     // `force: true` from the "Re-analyze" button busts the Redis cache
     // so the user always gets a fresh QuickJS+V8 run. The MongoDB

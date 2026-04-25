@@ -13,7 +13,7 @@ vi.mock('../../lib/engines/quickjs', () => ({
 vi.mock('../../lib/engines/v8sandbox', () => ({
   runInV8Sandbox: vi.fn(async (code, opts) => ({
     state: 'completed',
-    opsPerSec: 50000 * (opts?.vcpus || 1),
+    opsPerSec: 50000,
     latency: { mean: 0.02, p50: 0.018, p99: 0.03, min: 0.015, max: 0.04, samplesCount: 10 },
     heapUsed: 4194304,
     heapTotal: 8388608,
@@ -97,7 +97,7 @@ describe('runAnalysis', () => {
     expect(result.results[1].title).toBe('Test B')
   })
 
-  it('runs V8 once per unique sandbox resource config per test', async () => {
+  it('runs one canonical single-vCPU V8 profile per test', async () => {
     const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
     runInV8Sandbox.mockClear()
 
@@ -107,22 +107,14 @@ describe('runAnalysis', () => {
     ])
 
     expect(runInV8Sandbox).toHaveBeenCalledTimes(2)
-    expect(result.results[0].v8.profiles).toHaveLength(4)
-    expect(result.results[1].v8.profiles).toHaveLength(4)
+    expect(runInV8Sandbox).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ vcpus: 1 }))
+    expect(result.results[0].v8.profiles).toHaveLength(1)
+    expect(result.results[1].v8.profiles).toHaveLength(1)
     expect(result.results[0].v8.profiles.every(profile => profile.opsPerSec > 0)).toBe(true)
   })
 
   it('handles partial failure (one engine errors)', async () => {
     const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
-    runInV8Sandbox.mockResolvedValueOnce({
-      state: 'errored', error: 'Sandbox unavailable', opsPerSec: 0, latency: null, heapUsed: 0,
-    })
-    runInV8Sandbox.mockResolvedValueOnce({
-      state: 'errored', error: 'Sandbox unavailable', opsPerSec: 0, latency: null, heapUsed: 0,
-    })
-    runInV8Sandbox.mockResolvedValueOnce({
-      state: 'errored', error: 'Sandbox unavailable', opsPerSec: 0, latency: null, heapUsed: 0,
-    })
     runInV8Sandbox.mockResolvedValueOnce({
       state: 'errored', error: 'Sandbox unavailable', opsPerSec: 0, latency: null, heapUsed: 0,
     })

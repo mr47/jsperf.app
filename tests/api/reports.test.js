@@ -155,6 +155,42 @@ describe('createReport', () => {
     expect(test0.runtimeComparison.fastestRuntime).toBe('bun')
   })
 
+  it('uses canonical deep-analysis ops/sec for report summary instead of first profile', async () => {
+    const clientAnalysis = {
+      results: [
+        {
+          testIndex: 0,
+          title: 'Fast loop',
+          v8: {
+            opsPerSec: 5000,
+            profiles: [
+              { opsPerSec: 100000 },
+              { opsPerSec: 5000 },
+            ],
+          },
+          quickjs: { opsPerSec: 1000, profiles: [{ opsPerSec: 1000 }] },
+        },
+        {
+          testIndex: 1,
+          title: 'Slow loop',
+          v8: { opsPerSec: 8000, profiles: [{ opsPerSec: 8000 }] },
+          quickjs: { opsPerSec: 800, profiles: [{ opsPerSec: 800 }] },
+        },
+      ],
+    }
+
+    await createReport({
+      slug: 'demo',
+      revision: 1,
+      donor: { name: 'kyle' },
+      clientAnalysis,
+    })
+
+    const stored = insertedReports[insertedReports.length - 1]
+    expect(stored.summary.leader.title).toBe('Slow loop')
+    expect(stored.summary.entries.find(e => e.testIndex === 0).opsPerSec).toBe(5000)
+  })
+
   it('normalises raw perf-event keys (kebab-case) into camelCase counters', async () => {
     const clientAnalysis = {
       results: [

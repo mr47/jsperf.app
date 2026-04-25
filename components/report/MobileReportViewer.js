@@ -466,8 +466,8 @@ function MethodologySection({ report }) {
             {runtimeSources.runtimes.length} engine{runtimeSources.runtimes.length === 1 ? '' : 's'}
           </div>
           <p className="mt-1.5 text-xs text-foreground/75">
-            Node / Deno / Bun worker data across {runtimeSources.totalRuntimeSlots} test-runtime pairs
-            {runtimeSources.totalProfiles > 0 ? ` and ${runtimeSources.totalProfiles} resource profiles` : ''}.
+            Node / Deno / Bun worker data across {runtimeSources.totalRuntimeSlots} single-core test-runtime pairs
+            {runtimeSources.totalProfiles > 0 ? ` and ${runtimeSources.totalProfiles} captured profile${runtimeSources.totalProfiles === 1 ? '' : 's'}` : ''}.
           </p>
           <div className="mt-3 space-y-2">
             {runtimeSources.runtimes.map(rt => (

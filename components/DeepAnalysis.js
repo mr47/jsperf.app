@@ -23,8 +23,8 @@ function formatRelativeTime(value) {
 const STEP_META = {
   quickjs: { label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
   v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
-  'multi-runtime': { label: 'Comparing Node / Deno / Bun', desc: 'Cross-runtime + hardware perf counters' },
-  prediction: { label: 'Building prediction model', desc: 'Scaling analysis & regression' },
+  'multi-runtime': { label: 'Comparing Node / Deno / Bun', desc: 'Single-core runtime comparison + hardware perf counters' },
+  prediction: { label: 'Building prediction model', desc: 'JIT amplification and memory-response analysis' },
 }
 
 const DEFAULT_PIPELINE = ['quickjs', 'v8', 'multi-runtime', 'prediction']
@@ -326,7 +326,7 @@ function MultiRuntimeSection({ results, status, error }) {
             Comparing Node / Deno / Bun
           </p>
           <p className="text-xs text-muted-foreground leading-tight">
-            Running on remote worker — hardware perf counters incoming.
+            Running on the remote worker with a matched single-core budget — hardware perf counters incoming.
           </p>
         </div>
       </div>
