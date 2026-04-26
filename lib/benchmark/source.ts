@@ -26,6 +26,16 @@ const DEFAULT_TYPESCRIPT_OPTIONS: TypeScriptLanguageOptions = Object.freeze({
 const ALLOWED_TARGETS = new Set<TypeScriptTarget>(['es2020', 'es2022', 'esnext'])
 const ALLOWED_RUNTIME_MODES = new Set<TypeScriptRuntimeMode>(['native-where-available', 'compiled-everywhere'])
 const MODULE_SYNTAX_RE = /(^|[\n;])\s*(import|export)\s/m
+const TYPESCRIPT_SYNTAX_RE = [
+  /\btype\s+[$A-Z_a-z][$\w]*(?:\s*<[^>{}]*>)?\s*=/,
+  /\binterface\s+[$A-Z_a-z][$\w]*(?:\s*<[^>{}]*>)?\s*{/,
+  /\benum\s+[$A-Z_a-z][$\w]*\s*{/,
+  /\b(?:const|let|var)\s+[$A-Z_a-z][$\w]*\s*:\s*[^=;\n]+[=;]/,
+  /\bfunction\s+[$A-Z_a-z][$\w]*\s*(?:<[^>{}]*>)?\([^)]*:\s*[^)]*\)\s*(?::\s*[^{]+)?{/,
+  /\)\s*:\s*[$A-Z_a-z][$\w]*(?:\[\])?\s*=>/,
+  /\bas\s+const\b/,
+  /\bas\s+[$A-Z_a-z][$\w]*(?:<[^>{}]*>)?/,
+]
 const WRAPPER_NAME = '__jsperfTsBody__'
 
 export class SourcePreparationError extends Error {
@@ -42,6 +52,24 @@ export function normalizeBenchmarkLanguage(value?: unknown): BenchmarkLanguage {
   const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
   if (raw === 'ts' || raw === 'typescript') return LANGUAGE_TYPESCRIPT
   return LANGUAGE_JAVASCRIPT
+}
+
+export function inferBenchmarkLanguage({
+  language,
+  tests,
+  setup = '',
+  teardown = '',
+}: PrepareBenchmarkSourcesInput = {}): BenchmarkLanguage {
+  const raw = typeof language === 'string' ? language.trim().toLowerCase() : ''
+  if (raw) return normalizeBenchmarkLanguage(raw)
+
+  const sources = [
+    setup,
+    teardown,
+    ...(Array.isArray(tests) ? tests.map(test => test?.code || '') : []),
+  ].join('\n')
+
+  return hasTypeScriptSyntax(sources) ? LANGUAGE_TYPESCRIPT : LANGUAGE_JAVASCRIPT
 }
 
 export function normalizeLanguageOptions(language: unknown, value: unknown = {}): TypeScriptLanguageOptions | null {
@@ -75,11 +103,16 @@ export function prepareBenchmarkSources({
   language,
   languageOptions,
 }: PrepareBenchmarkSourcesInput = {}): PreparedBenchmarkSources {
-  const normalizedLanguage = normalizeBenchmarkLanguage(language)
-  const normalizedOptions = normalizeLanguageOptions(normalizedLanguage, languageOptions)
   const start = nowMs()
 
   const originalTests: BenchmarkTestSource[] = Array.isArray(tests) ? tests : []
+  const normalizedLanguage = inferBenchmarkLanguage({
+    language,
+    tests: originalTests,
+    setup,
+    teardown,
+  })
+  const normalizedOptions = normalizeLanguageOptions(normalizedLanguage, languageOptions)
   if (normalizedLanguage !== LANGUAGE_TYPESCRIPT) {
     return {
       language: LANGUAGE_JAVASCRIPT,
@@ -153,6 +186,10 @@ function assertSupportedTypeScriptSource(source: string, options: TypeScriptLang
       details,
     )
   }
+}
+
+function hasTypeScriptSyntax(source: string): boolean {
+  return TYPESCRIPT_SYNTAX_RE.some(pattern => pattern.test(source))
 }
 
 function transpileStatements(source: string, options: TypeScriptLanguageOptions, details: SourcePartDetails): string {

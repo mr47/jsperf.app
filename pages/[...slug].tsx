@@ -18,6 +18,7 @@ import Setup from '../components/sections/Setup'
 import Teardown from '../components/sections/Teardown'
 import PrepCode from '../components/sections/PrepCode'
 import { Separator } from '@/components/ui/separator'
+import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../lib/benchmark/source'
 
 export default function Slug(props) {
   const {
@@ -126,6 +127,15 @@ export const getStaticProps = async ({params}) => {
       notFound: true
     }
   }
+
+  const language = inferBenchmarkLanguage({
+    language: pageData.language,
+    tests: pageData.tests || [],
+    setup: pageData.setup,
+    teardown: pageData.teardown,
+  })
+  pageData.language = language
+  pageData.languageOptions = normalizeLanguageOptions(language, pageData.languageOptions)
 
   // Bump dates dynamically to look alive
   if (pageData.published) {

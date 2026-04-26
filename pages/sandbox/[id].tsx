@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic'
 import SandboxBanner from '../../components/SandboxBanner'
 import {
   prepareBenchmarkSources,
-  normalizeBenchmarkLanguage,
+  inferBenchmarkLanguage,
   normalizeLanguageOptions,
   SourcePreparationError,
 } from '../../lib/benchmark/source'
@@ -45,7 +45,12 @@ export async function getServerSideProps({params, res}) {
     }
   }
 
-  const language = normalizeBenchmarkLanguage(pageData.language)
+  const language = inferBenchmarkLanguage({
+    language: pageData.language,
+    tests: pageData.tests || [],
+    setup: pageData.setup,
+    teardown: pageData.teardown,
+  })
   const languageOptions = normalizeLanguageOptions(language, pageData.languageOptions)
   pageData.language = language
   pageData.languageOptions = languageOptions

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  inferBenchmarkLanguage,
   normalizeBenchmarkLanguage,
   normalizeLanguageOptions,
   prepareBenchmarkSources,
@@ -28,6 +29,31 @@ describe('benchmark source preparation', () => {
       typeCheck: false,
       imports: false,
     })
+  })
+
+  it('infers TypeScript for legacy saved snippets without language metadata', () => {
+    const seed = TYPESCRIPT_SEED_BENCHMARKS[0]
+
+    expect(inferBenchmarkLanguage({
+      setup: seed.setup,
+      tests: seed.tests,
+    })).toBe('typescript')
+
+    const prepared = prepareBenchmarkSources({
+      setup: seed.setup,
+      tests: seed.tests,
+    })
+
+    expect(prepared.language).toBe('typescript')
+    expect(prepared.runtime.setup).not.toContain('ClickEvent =')
+    expect(prepared.runtime.tests[0].code).not.toContain(': number')
+  })
+
+  it('does not infer TypeScript when JavaScript is explicit', () => {
+    expect(inferBenchmarkLanguage({
+      language: 'javascript',
+      setup: 'type ClickEvent = { x: number }',
+    })).toBe('javascript')
   })
 
   it('passes JavaScript through without a compiler', () => {

@@ -18,6 +18,7 @@ import PrepCode from '../../../components/sections/PrepCode'
 import { Button } from '@/components/ui/button'
 import { Loader2 } from 'lucide-react'
 import UUID from '../../../components/UUID'
+import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../../../lib/benchmark/source'
 
 export default function Preview(props) {
   const { data: session, status } = useSession()
@@ -172,6 +173,15 @@ export async function getServerSideProps({params}) {
       notFound: true
     }
   }
+
+  const inferredLanguage = inferBenchmarkLanguage({
+    language: pageData.language,
+    tests: pageData.tests || [],
+    setup: pageData.setup,
+    teardown: pageData.teardown,
+  })
+  pageData.language = inferredLanguage
+  pageData.languageOptions = normalizeLanguageOptions(inferredLanguage, pageData.languageOptions)
 
   return { 
     props: { 
