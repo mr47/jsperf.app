@@ -1109,6 +1109,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
           pipeline={analysisPipeline}
           testCount={tests.length}
           cachedAt={analysisCachedAt}
+          stats={stats}
           multiRuntime={{
             status: multiRuntimeStatus,
             data: multiRuntimeData,

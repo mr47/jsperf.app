@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { pagesCollection } from '../../lib/mongodb'
-import { getSession } from "next-auth/react"
+import { getToken } from 'next-auth/jwt'
 import { shortcode } from "../../utils/Url"
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benchmark/source'
@@ -8,6 +8,21 @@ import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benc
 // Free: 10/min by IP. Donor: 60/min by donor identity (see lib/rateLimit.js).
 // Page create/update is a write to MongoDB — keep it modest to honor server resources.
 const RATE_LIMIT = { free: 10, donor: 60, window: '1 m' }
+
+const getSessionUser = async (req) => {
+  if (!process.env.NEXTAUTH_SECRET) return null
+
+  try {
+    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
+    return token?.user || null
+  } catch (_) {
+    return null
+  }
+}
+
+const getErrorMessage = (error) => (
+  error instanceof Error ? error.message : String(error)
+)
 
 /**
  *
@@ -76,7 +91,7 @@ const addPage = async (req, res) => {
       })
     }
 
-    const session = await getSession({ req })
+    const sessionUser = await getSessionUser(req)
 
     // if (!session) {
     //   throw new Error('User is not authenticated.')
@@ -120,8 +135,8 @@ const addPage = async (req, res) => {
     payload.published = new Date()
 
     // Set the github user ID if authenticated
-    if (session?.user?.id) {
-      payload.githubID = session.user.id
+    if (sessionUser?.id) {
+      payload.githubID = sessionUser.id
     }
 
     // Will throw an error if schema validation fails
@@ -141,7 +156,7 @@ const addPage = async (req, res) => {
       })
   } catch (error) {
     return res.json({
-      message: new Error(error).message,
+      message: getErrorMessage(error),
       success: false,
     })
   }
@@ -168,7 +183,7 @@ const updatePage = async (req, res) => {
       })
     }
 
-    const session = await getSession({ req })
+    const sessionUser = await getSessionUser(req)
 
     const pages = await pagesCollection()
 
@@ -199,8 +214,8 @@ const updatePage = async (req, res) => {
     // Only the original creator of this page can update it
     let allowedToEdit = false
 
-    if (page.githubID && session?.user?.id) {
-      if (page.githubID === session?.user?.id) {
+    if (page.githubID && sessionUser?.id) {
+      if (page.githubID === sessionUser?.id) {
         allowedToEdit = true
       }
     }
@@ -240,8 +255,8 @@ const updatePage = async (req, res) => {
       }
     })
 
-    if (session?.user?.id) {
-      safePayload.githubID = session?.user?.id
+    if (sessionUser?.id) {
+      safePayload.githubID = sessionUser?.id
     }
 
     await pages.updateOne({
@@ -266,7 +281,7 @@ const updatePage = async (req, res) => {
 
   } catch (error) {
     return res.json({
-      message: new Error(error).message,
+      message: getErrorMessage(error),
       success: false,
     })
   }

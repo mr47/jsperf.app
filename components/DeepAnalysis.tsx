@@ -5,6 +5,7 @@ import JITInsight from './JITInsight'
 import ComplexityInsight from './ComplexityInsight'
 import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
+import CompatibilityMatrix from './CompatibilityMatrix'
 import { Microscope, RefreshCw, Database } from 'lucide-react'
 
 function formatRelativeTime(value) {
@@ -128,7 +129,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
 
 export default function DeepAnalysis({
   status, analysis, error, onRetry, progress, pipeline, testCount,
-  multiRuntime, cachedAt,
+  multiRuntime, cachedAt, stats,
 }) {
   const mrStatus = multiRuntime?.status || 'idle'
   const mrData = multiRuntime?.data || null
@@ -234,6 +235,12 @@ export default function DeepAnalysis({
           </p>
         </div>
       )}
+
+      <CompatibilityMatrix
+        results={enrichedResults}
+        browserStats={stats}
+        multiRuntime={{ status: mrStatus, error: mrError }}
+      />
 
       <CanonicalResult
         results={enrichedResults}
