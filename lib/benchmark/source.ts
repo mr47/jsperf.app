@@ -60,16 +60,14 @@ export function inferBenchmarkLanguage({
   setup = '',
   teardown = '',
 }: PrepareBenchmarkSourcesInput = {}): BenchmarkLanguage {
-  const raw = typeof language === 'string' ? language.trim().toLowerCase() : ''
-  if (raw) return normalizeBenchmarkLanguage(raw)
-
   const sources = [
     setup,
     teardown,
     ...(Array.isArray(tests) ? tests.map(test => test?.code || '') : []),
   ].join('\n')
 
-  return hasTypeScriptSyntax(sources) ? LANGUAGE_TYPESCRIPT : LANGUAGE_JAVASCRIPT
+  if (hasTypeScriptSyntax(sources)) return LANGUAGE_TYPESCRIPT
+  return normalizeBenchmarkLanguage(language)
 }
 
 export function normalizeLanguageOptions(language: unknown, value: unknown = {}): TypeScriptLanguageOptions | null {

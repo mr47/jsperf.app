@@ -50,11 +50,11 @@ describe('benchmark source preparation', () => {
     expect(prepared.runtime.tests[0].code).not.toContain(': number')
   })
 
-  it('does not infer TypeScript when JavaScript is explicit', () => {
+  it('overrides stale JavaScript metadata when TypeScript syntax is present', () => {
     expect(inferBenchmarkLanguage({
       language: 'javascript',
       setup: 'type ClickEvent = { x: number }',
-    })).toBe('javascript')
+    })).toBe('typescript')
   })
 
   it('highlights TypeScript syntax even when legacy metadata is missing', () => {

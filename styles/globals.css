@@ -2,8 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@source "../components/**/*.{js,jsx}";
-@source "../pages/**/*.{js,jsx}";
+@source "../components/**/*.{js,jsx,ts,tsx}";
+@source "../pages/**/*.{js,jsx,ts,tsx}";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -154,6 +154,12 @@
 
 
 @layer components {
+  .hljs {
+    background: transparent !important;
+    color: inherit;
+    padding: 0;
+  }
+
   .edit-form fieldset {
     @apply flex flex-col w-full;
   }
