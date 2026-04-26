@@ -110,8 +110,10 @@ describe('createReport', () => {
     expect(out.url).toBe(`/r/${out.id}`)
     const stored = insertedReports[0]
     expect(stored.title).toBe('Demo benchmark')
-    expect(stored.creator).toMatchObject({ name: 'kyle', source: 'donate' })
+    expect(stored.creator).toMatchObject({ name: 'kyle', source: 'donate', boosted: true })
     expect(stored.benchmark.tests).toHaveLength(2)
+    expect(stored.compatibilityMatrix.generatedByBoostedDonor).toBe(true)
+    expect(stored.compatibilityMatrix.tests).toHaveLength(2)
     expect(stored.summary.leader.title).toBe('Fast loop')
     expect(stored.summary.lagger.title).toBe('Slow loop')
     expect(stored.summary.dataSource).toBe('v8')

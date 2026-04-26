@@ -2,13 +2,59 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { signIn, useSession } from 'next-auth/react'
-import { Coffee, Sparkles, X, Loader2, Zap, Heart, Check, Presentation } from 'lucide-react'
+import { Coffee, Sparkles, X, Loader2, Zap, Heart, Check, Presentation, Microscope, Gauge, Cpu, BarChart3 } from 'lucide-react'
 import GitHubIcon from './GitHubIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const DONATELLO_URL = 'https://donatello.to/mr47'
+
+const DONOR_PERKS = [
+  {
+    icon: Zap,
+    label: 'Save and edit benchmarks',
+    detail: '60 / min',
+    sub: 'Higher create and update quota',
+  },
+  {
+    icon: BarChart3,
+    label: 'Submit benchmark runs',
+    detail: '60 / min',
+    sub: 'More stored browser run payloads',
+  },
+  {
+    icon: Microscope,
+    label: 'Deep analysis',
+    detail: '10 / 5 min',
+    sub: 'QuickJS, V8, JIT, memory, and complexity',
+  },
+  {
+    icon: Cpu,
+    label: 'Runtime comparison',
+    detail: 'Included',
+    sub: 'Node, Deno, Bun, and hardware counters',
+  },
+  {
+    icon: Gauge,
+    label: 'Compatibility matrix',
+    detail: 'Unlocked',
+    sub: 'Browser and runtime rankings',
+  },
+  {
+    icon: Presentation,
+    label: 'Presentation reports',
+    detail: '30 / hour',
+    sub: 'Shareable frozen slide decks',
+  },
+]
+
+function emitDonorUpdate(donor) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('jsperf:donor-updated', {
+    detail: { donor: donor || null },
+  }))
+}
 
 /**
  * Header CTA + full Support / Donor-boost modal.
@@ -50,8 +96,17 @@ export default function DonorBoost() {
     setLoadingMe(true)
     fetch('/api/donor/me')
       .then(r => r.ok ? r.json() : { donor: null })
-      .then(data => { if (!cancelled) setDonor(data?.donor || null) })
-      .catch(() => { if (!cancelled) setDonor(null) })
+      .then(data => {
+        if (cancelled) return
+        const nextDonor = data?.donor || null
+        setDonor(nextDonor)
+        emitDonorUpdate(nextDonor)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setDonor(null)
+        emitDonorUpdate(null)
+      })
       .finally(() => { if (!cancelled) setLoadingMe(false) })
     return () => { cancelled = true }
   }, [session?.user?.email])
@@ -105,6 +160,7 @@ export default function DonorBoost() {
         return
       }
       setDonor(data.donor)
+      emitDonorUpdate(data.donor)
       setSuccess('Boost activated. Thank you!')
       setShowForm(false)
       setName('')
@@ -119,6 +175,7 @@ export default function DonorBoost() {
   const handleSignOut = async () => {
     try { await fetch('/api/donor/me', { method: 'DELETE' }) } catch (_) { /* ignore */ }
     setDonor(null)
+    emitDonorUpdate(null)
     setSuccess(null)
     setError(null)
   }
@@ -216,7 +273,7 @@ function DonorBoostModal(props) {
 
       {/* Panel — bottom sheet on mobile, centered card on sm+ */}
       <div
-        className="relative w-full sm:w-auto sm:max-w-2xl sm:mx-4 max-h-[92vh] overflow-y-auto
+        className="relative w-full sm:w-auto sm:max-w-3xl sm:mx-4 max-h-[92vh] overflow-y-auto
                    bg-card text-card-foreground border border-border shadow-2xl
                    rounded-t-2xl sm:rounded-2xl
                    animate-in slide-in-from-bottom sm:slide-in-from-bottom-0 sm:zoom-in-95 fade-in duration-300"
@@ -321,16 +378,29 @@ function LoadingState() {
   )
 }
 
-function PerkRow({ icon: Icon, label, value }) {
+function DonorPerksGrid() {
   return (
-    <div className="flex items-center gap-3 py-2.5">
-      <div className="shrink-0 w-8 h-8 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-        <Icon className="w-4 h-4" />
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {DONOR_PERKS.map(perk => (
+        <Perk key={perk.label} {...perk} />
+      ))}
+    </div>
+  )
+}
+
+function Perk({ icon: Icon, label, detail, sub }) {
+  return (
+    <div className="rounded-lg bg-background border px-3 py-3">
+      <div className="flex items-start gap-2.5">
+        <div className="shrink-0 w-8 h-8 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+          <Icon className="w-4 h-4" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-xs text-muted-foreground">{label}</div>
+          <div className="text-base font-semibold mt-0.5 tabular-nums">{detail}</div>
+          <div className="text-xs text-muted-foreground/70 mt-0.5 leading-snug">{sub}</div>
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-foreground">{label}</div>
-      </div>
-      <div className="text-sm tabular-nums font-semibold text-foreground whitespace-nowrap">{value}</div>
     </div>
   )
 }
@@ -342,12 +412,7 @@ function DonorView({ donor, onSignOut }) {
         <div className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold mb-2">
           Active boost
         </div>
-        <div className="divide-y divide-border/50">
-          <PerkRow icon={Zap} label="Save / load benchmark" value="120 / min" />
-          <PerkRow icon={Zap} label="Submit benchmark runs" value="120 / min" />
-          <PerkRow icon={Zap} label="Deep analysis" value="5 / min" />
-          <PerkRow icon={Presentation} label="Complexity report slides" value="Unlocked" />
-        </div>
+        <DonorPerksGrid />
       </div>
 
       <dl className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -396,12 +461,7 @@ function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
         <div className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
           What you get for any donation
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <Perk label="Save / load" detail="120 / min" sub="up from 30" />
-          <Perk label="Run submissions" detail="120 / min" sub="up from 30" />
-          <Perk label="Deep analysis" detail="5 / min" sub="up from 1" />
-          <Perk label="Reports" detail="Unlocked" sub="complexity slide deck" />
-        </div>
+        <DonorPerksGrid />
         <div className="text-xs text-muted-foreground mt-3">Boost lasts 30 days, automatically refreshed for active subscribers.</div>
       </div>
 
@@ -465,16 +525,6 @@ function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
           <Check className="w-4 h-4" /> {success}
         </div>
       )}
-    </div>
-  )
-}
-
-function Perk({ label, detail, sub }) {
-  return (
-    <div className="rounded-lg bg-background border px-3 py-2.5">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="text-base font-semibold mt-0.5 tabular-nums">{detail}</div>
-      <div className="text-xs text-muted-foreground/70 mt-0.5">{sub}</div>
     </div>
   )
 }

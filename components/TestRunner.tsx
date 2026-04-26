@@ -235,6 +235,8 @@ export default function Tests(props) {
   const [broker, setBroker] = useState(null)
   const [tests, setTests] = useState(props.tests)
   const [stats, setStats] = useState(null)
+  const [donor, setDonor] = useState(null)
+  const [donorStatus, setDonorStatus] = useState('loading')
 
   const [analysisStatus, setAnalysisStatus] = useState('idle')
   const [analysis, setAnalysis] = useState(null)
@@ -266,6 +268,7 @@ export default function Tests(props) {
   const stoppedForVisibilityRef = useRef(false)
   const statusMessageRef = useRef('')
   const lastCycleUiUpdateRef = useRef(0)
+  const isDonor = !!donor
 
   const setStatusMessageIfChanged = useCallback((message) => {
     if (statusMessageRef.current === message) return
@@ -281,6 +284,38 @@ export default function Tests(props) {
         .catch(err => console.error('Failed to fetch stats', err))
     }
   }, [slug, revision])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadDonor = () => {
+      setDonorStatus('loading')
+      fetch('/api/donor/me')
+        .then(r => (r.ok ? r.json() : { donor: null }))
+        .then(data => {
+          if (cancelled) return
+          setDonor(data?.donor || null)
+          setDonorStatus('ready')
+        })
+        .catch(() => {
+          if (cancelled) return
+          setDonor(null)
+          setDonorStatus('ready')
+        })
+    }
+
+    const onDonorUpdated = (event) => {
+      setDonor(event?.detail?.donor || null)
+      setDonorStatus('ready')
+    }
+
+    loadDonor()
+    window.addEventListener('jsperf:donor-updated', onDonorUpdated)
+    return () => {
+      cancelled = true
+      window.removeEventListener('jsperf:donor-updated', onDonorUpdated)
+    }
+  }, [])
 
   // Poll the multi-runtime proxy endpoint until every enqueued job
   // resolves (or the deadline is hit). Updates state incrementally so
@@ -962,7 +997,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={analysisStatus === 'loading'}
+                  disabled={analysisStatus === 'loading' || donorStatus === 'loading'}
                   className="h-9 font-bold shadow-sm border-violet-500/30 bg-violet-50/50 hover:bg-violet-100/50 text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:hover:bg-violet-500/20 dark:text-violet-400"
                   onClick={() => openRuntimeAnalysisModal(analysisStatus === 'done')}
                 >
@@ -1110,6 +1145,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
           testCount={tests.length}
           cachedAt={analysisCachedAt}
           stats={stats}
+          showCompatibilityMatrix={isDonor && analysisStatus === 'done' && !!analysis}
           multiRuntime={{
             status: multiRuntimeStatus,
             data: multiRuntimeData,

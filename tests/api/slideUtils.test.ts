@@ -11,6 +11,8 @@ import {
   summarizeShareItems,
   buildDeck,
   flattenRuntimes,
+  hasCompatibilityMatrix,
+  rankCompatibilityRows,
   collectPerfSamples,
   collectPredictionResults,
   collectComplexityResults,
@@ -235,6 +237,35 @@ describe('slideUtils.buildDeck', () => {
       },
     })
     expect(deck).toContain('methodology')
+  })
+
+  it('includes compatibility matrix slide only for boosted report snapshots', () => {
+    const report = {
+      creator: { boosted: true },
+      summary: {},
+      compatibilityMatrix: {
+        generatedByBoostedDonor: true,
+        environments: [{ key: 'node', shortLabel: 'Node' }],
+        tests: [
+          {
+            testIndex: 0,
+            title: 'winner',
+            cells: [{ environmentKey: 'node', state: 'ok', comparison: 'wins', opsPerSec: 100 }],
+          },
+          {
+            testIndex: 1,
+            title: 'loser',
+            cells: [{ environmentKey: 'node', state: 'ok', comparison: 'loses', opsPerSec: 50 }],
+          },
+        ],
+      },
+    }
+
+    expect(hasCompatibilityMatrix(report)).toBe(true)
+    expect(buildDeck(report)).toContain('compatibilityMatrix')
+    expect(rankCompatibilityRows(report)[0].title).toBe('winner')
+    expect(hasCompatibilityMatrix({ ...report, creator: { boosted: false } })).toBe(false)
+    expect(buildDeck({ ...report, creator: { boosted: false } })).not.toContain('compatibilityMatrix')
   })
 
   it('skips head-to-head when leader and lagger are the same test', () => {

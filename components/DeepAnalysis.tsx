@@ -129,7 +129,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
 
 export default function DeepAnalysis({
   status, analysis, error, onRetry, progress, pipeline, testCount,
-  multiRuntime, cachedAt, stats,
+  multiRuntime, cachedAt, stats, showCompatibilityMatrix = false,
 }) {
   const mrStatus = multiRuntime?.status || 'idle'
   const mrData = multiRuntime?.data || null
@@ -236,11 +236,13 @@ export default function DeepAnalysis({
         </div>
       )}
 
-      <CompatibilityMatrix
-        results={enrichedResults}
-        browserStats={stats}
-        multiRuntime={{ status: mrStatus, error: mrError }}
-      />
+      {showCompatibilityMatrix && (
+        <CompatibilityMatrix
+          results={enrichedResults}
+          browserStats={stats}
+          multiRuntime={{ status: mrStatus, error: mrError }}
+        />
+      )}
 
       <CanonicalResult
         results={enrichedResults}

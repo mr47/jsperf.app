@@ -17,6 +17,7 @@ import {
   reportsCollection,
 } from './mongodb'
 import { attachStoredMultiRuntimeResults } from './multiRuntimeResults'
+import { buildCompatibilityMatrix } from './compatibilityMatrix'
 
 const ID_ALPHABET = 'abcdefghijkmnopqrstuvwxyz23456789'  // no 0/1/i/l/o (visually unambiguous)
 const ID_LENGTH = 8
@@ -292,6 +293,25 @@ function snapshotAnalysis(analysis) {
   }
 }
 
+function snapshotCompatibilityMatrix({ analysis, stats, boosted }) {
+  if (!boosted || !analysis?.results?.length) return null
+
+  const matrix = buildCompatibilityMatrix({
+    results: analysis.results,
+    browserStats: stats,
+    multiRuntimeStatus: 'done',
+  })
+  if (!matrix?.tests?.length) return null
+
+  return {
+    version: 1,
+    generatedByBoostedDonor: true,
+    environmentGroups: matrix.environmentGroups,
+    environments: matrix.environments,
+    tests: matrix.tests,
+  }
+}
+
 /**
  * Merge a multi-runtime polling snapshot (the shape returned by
  * /api/benchmark/multi-runtime/[jobId] and aggregated client-side
@@ -407,6 +427,11 @@ export async function createReport({
   const benchmark = snapshotBenchmark(page)
   const stats = await snapshotStats(slug, rev)
   const analysis = snapshotAnalysis(rawAnalysis)
+  const compatibilityMatrix = snapshotCompatibilityMatrix({
+    analysis,
+    stats,
+    boosted: true,
+  })
   const summary = computeSummary({ benchmark, stats, analysis })
 
   // Avoid the (extremely unlikely) ID collision by retrying a few
@@ -429,10 +454,12 @@ export async function createReport({
       name: donor.name,
       source: donor.source || 'donate',
       email: donor.email || null,
+      boosted: true,
     },
     benchmark,
     stats,
     analysis,
+    compatibilityMatrix,
     summary,
     createdAt: new Date(),
     views: 0,

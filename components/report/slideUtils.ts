@@ -145,6 +145,45 @@ export function flattenRuntimes(report) {
   return out
 }
 
+export function hasCompatibilityMatrix(report) {
+  return Boolean(
+    report?.creator?.boosted === true &&
+    report?.compatibilityMatrix?.generatedByBoostedDonor === true &&
+    Array.isArray(report.compatibilityMatrix.tests) &&
+    report.compatibilityMatrix.tests.length > 0 &&
+    Array.isArray(report.compatibilityMatrix.environments) &&
+    report.compatibilityMatrix.environments.length > 0
+  )
+}
+
+export function rankCompatibilityRows(report) {
+  const rows = report?.compatibilityMatrix?.tests || []
+  return rows
+    .map(row => {
+      const cells = Array.isArray(row.cells) ? row.cells : []
+      const wins = cells.filter(cell => cell.comparison === 'wins').length
+      const losses = cells.filter(cell => cell.comparison === 'loses').length
+      const ties = cells.filter(cell => cell.comparison === 'irrelevant').length
+      const failures = cells.filter(cell => cell.state === 'failed' || cell.state === 'unsupported').length
+      return {
+        ...row,
+        cells,
+        wins,
+        losses,
+        ties,
+        failures,
+        score: (wins * 2) + ties - (losses * 2) - failures,
+      }
+    })
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score
+      if (b.wins !== a.wins) return b.wins - a.wins
+      if (a.losses !== b.losses) return a.losses - b.losses
+      return (a.testIndex || 0) - (b.testIndex || 0)
+    })
+    .map((row, index) => ({ ...row, rank: index + 1 }))
+}
+
 /**
  * Summarise the controlled Node/Deno/Bun worker measurements for the
  * methodology slide. Browser stats and runtime-worker stats are collected
@@ -346,6 +385,7 @@ export function buildDeck(report) {
   }
 
   if (flattenRuntimes(report).length) slides.push('runtimes')
+  if (hasCompatibilityMatrix(report)) slides.push('compatibilityMatrix')
   if (collectPerfSamples(report).length) slides.push('perfCounters')
   if (hasJitMetrics(report)) slides.push('jitAmplification')
   if (hasComplexityMetrics(report)) slides.push('complexity')
