@@ -6,6 +6,17 @@ const ASYNC_MARKERS = [
   'return new Promise',
 ]
 
+const PROMISE_LIKE_RE = /\b(?:return\s+)?(?:Promise\.(?:resolve|reject|all|allSettled|race|any)|fetch\s*\(|[^;\n]+?\.(?:then|catch|finally)\s*\()/m
+const TIMER_ASYNC_RE = /\b(?:setTimeout|setInterval|requestAnimationFrame|queueMicrotask)\s*\(/
+const MUTATING_METHOD_RE = /\.(?:push|pop|shift|unshift|splice|sort|reverse|copyWithin|fill|set|add|delete|clear|append|appendChild|remove|removeChild)\s*\(/
+const GLOBAL_WRITE_RE = /\b(?:globalThis|self|window)\s*\.\s*[A-Za-z_$][\w$]*\s*(?:[+\-*/%&|^]?=(?!=|>)|\+\+|--)/
+const RETURN_OR_THROW_RE = /\b(?:return|throw)\b/
+const NON_DECLARATION_ASSIGNMENT_RE = /(^|[;\n]\s*|[^\w$])(?!(?:const|let|var)\s+)([A-Za-z_$][\w$]*(?:\s*(?:\.|\[)[^=;]+)?)\s*(?:[+\-*/%&|^]?=(?!=|>)|\+\+|--)/
+const COMPUTABLE_WORK_RE = /\bnew\s+[A-Za-z_$]|\b[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)?\s*\(|[+\-*/%&|^]=?|=>/
+const SETUP_WORK_RE = /\b(?:Array\.from|new\s+(?:Array|Map|Set|WeakMap|WeakSet|Date|RegExp|URL|Uint8Array|Uint16Array|Uint32Array|Int8Array|Int16Array|Int32Array|Float32Array|Float64Array)|JSON\.parse|structuredClone)\s*\(/
+const DECLARED_SETUP_WORK_RE = /\b(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*(?:Array\.from|new\s+(?:Array|Map|Set|WeakMap|WeakSet)|JSON\.parse|structuredClone|\[[\s\S]{120,}?\]|\{[\s\S]{160,}?\})/
+const LARGE_LITERAL_RE = /(?:\[[\s\S]{180,}?\]|\{[\s\S]{240,}?\})/
+
 const BROWSER_API_GLOBALS = [
   'window',
   'document',
@@ -60,6 +71,75 @@ export function isAsyncTest(test?: BenchmarkTestSource | null): boolean {
   return ASYNC_MARKERS.some(marker => code.includes(marker))
 }
 
+export interface BenchmarkSourceRisk {
+  evidence: string
+}
+
+export function findAsyncNotAwaitedRisk(test?: BenchmarkTestSource | null): BenchmarkSourceRisk | null {
+  if (isAsyncTest(test)) return null
+
+  const source = primaryTestSource(test)
+  if (!source) return null
+  const searchable = stripCommentsAndStrings(source)
+
+  if (PROMISE_LIKE_RE.test(searchable)) {
+    return { evidence: firstMatchingSnippet(source, PROMISE_LIKE_RE) || 'Promise-like work without an async marker' }
+  }
+  if (TIMER_ASYNC_RE.test(searchable)) {
+    return { evidence: firstMatchingSnippet(source, TIMER_ASYNC_RE) || 'Timer or microtask scheduled inside the measured function' }
+  }
+  return null
+}
+
+export function findDeadCodeEliminationRisk(test?: BenchmarkTestSource | null): BenchmarkSourceRisk | null {
+  const source = primaryTestSource(test)
+  if (!source) return null
+
+  const searchable = stripCommentsAndStrings(source)
+  if (!COMPUTABLE_WORK_RE.test(searchable)) return null
+  if (hasObservableEffect(searchable)) return null
+
+  return {
+    evidence: firstMeaningfulLine(source) || 'Snippet appears to compute a value without making it observable',
+  }
+}
+
+export function findConstantFoldingRisk(test?: BenchmarkTestSource | null): BenchmarkSourceRisk | null {
+  const source = primaryTestSource(test)
+  if (!source) return null
+
+  const searchable = stripCommentsAndStrings(source)
+  const identifiers = [...searchable.matchAll(/\b[A-Za-z_$][\w$]*\b/g)]
+    .map(match => match[0])
+    .filter(identifier => !CONSTANT_ALLOWED_IDENTIFIERS.has(identifier))
+
+  const hasLiteralOperator =
+    /\bMath\s*\./.test(source) ||
+    /(?:\d|true|false|null|undefined|["'`])[\s\S]*[+\-*/%]/.test(source)
+  if (identifiers.length === 0 && hasLiteralOperator) {
+    return { evidence: firstMeaningfulLine(source) || 'Only literal inputs are visible in the measured expression' }
+  }
+  return null
+}
+
+export function findSetupInMeasuredCodeRisk(test?: BenchmarkTestSource | null): BenchmarkSourceRisk | null {
+  const source = primaryTestSource(test)
+  if (!source) return null
+
+  const searchable = stripCommentsAndStrings(source)
+  const evidence =
+    firstMatchingSnippet(source, DECLARED_SETUP_WORK_RE) ||
+    firstMatchingSnippet(source, SETUP_WORK_RE) ||
+    firstMatchingSnippet(source, LARGE_LITERAL_RE)
+
+  if (!evidence) return null
+  if (/\breturn\b/.test(searchable) && !DECLARED_SETUP_WORK_RE.test(searchable) && !LARGE_LITERAL_RE.test(searchable)) {
+    return null
+  }
+
+  return { evidence }
+}
+
 export function testUsesBrowserApis(
   test?: BenchmarkTestSource | null,
   { setup, teardown }: { setup?: string, teardown?: string } = {},
@@ -99,7 +179,7 @@ export function findBrowserApiGlobals(source: unknown): string[] {
   return [...matches].sort()
 }
 
-function stripCommentsAndStrings(source: string): string {
+export function stripCommentsAndStrings(source: string): string {
   let out = ''
   let state: 'code' | 'line-comment' | 'block-comment' | 'string' = 'code'
   let quote: string | null = null
@@ -173,4 +253,72 @@ function stripCommentsAndStrings(source: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+const CONSTANT_ALLOWED_IDENTIFIERS = new Set([
+  'return',
+  'true',
+  'false',
+  'null',
+  'undefined',
+  'NaN',
+  'Infinity',
+  'Math',
+  'abs',
+  'acos',
+  'asin',
+  'atan',
+  'atan2',
+  'ceil',
+  'cos',
+  'floor',
+  'imul',
+  'log',
+  'max',
+  'min',
+  'pow',
+  'round',
+  'sign',
+  'sin',
+  'sqrt',
+  'tan',
+  'trunc',
+])
+
+function primaryTestSource(test?: BenchmarkTestSource | null): string {
+  return [
+    typeof test?.originalCode === 'string' ? test.originalCode : '',
+    typeof test?.code === 'string' ? test.code : '',
+    typeof test?.runtimeCode === 'string' ? test.runtimeCode : '',
+  ].find(value => value.trim().length > 0) || ''
+}
+
+function hasObservableEffect(source: string): boolean {
+  return (
+    RETURN_OR_THROW_RE.test(source) ||
+    MUTATING_METHOD_RE.test(source) ||
+    GLOBAL_WRITE_RE.test(source) ||
+    NON_DECLARATION_ASSIGNMENT_RE.test(source) ||
+    /\b(?:console|performance)\s*\./.test(source) ||
+    /\bdeferred\s*\.\s*resolve\s*\(/.test(source)
+  )
+}
+
+function firstMatchingSnippet(source: string, pattern: RegExp): string | null {
+  const match = source.match(pattern)
+  if (!match) return null
+  return cleanSnippet(match[0])
+}
+
+function firstMeaningfulLine(source: string): string | null {
+  const line = source
+    .split(/\r?\n/)
+    .map(value => value.trim())
+    .find(value => value && !value.startsWith('//'))
+  return line ? cleanSnippet(line) : null
+}
+
+function cleanSnippet(value: string): string {
+  const compact = value.replace(/\s+/g, ' ').trim()
+  return compact.length > 120 ? `${compact.slice(0, 117)}...` : compact
 }

@@ -225,9 +225,14 @@ describe('POST /api/benchmark/analyze', () => {
     expect(resultMsgs[0].data.results[0].v8).toBeDefined()
     expect(resultMsgs[0].data.results[0].prediction).toBeDefined()
     expect(resultMsgs[0].data.results[0].complexity).toBeDefined()
+    expect(resultMsgs[0].data.doctor).toMatchObject({
+      diagnostics: expect.any(Array),
+      summary: expect.objectContaining({ total: expect.any(Number) }),
+    })
     expect(insertOneMock).toHaveBeenCalledWith(expect.objectContaining({
       codeHash: expect.any(String),
       multiRuntimeCacheKey: expect.any(String),
+      doctor: expect.any(Object),
     }))
   })
 

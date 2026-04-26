@@ -6,7 +6,9 @@ import ComplexityInsight from './ComplexityInsight'
 import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
 import CompatibilityMatrix from './CompatibilityMatrix'
+import BenchmarkDoctor from './BenchmarkDoctor'
 import { Microscope, RefreshCw, Database } from 'lucide-react'
+import { buildBenchmarkDoctor } from '../lib/benchmark/doctor'
 
 function formatRelativeTime(value) {
   if (!value) return null
@@ -129,7 +131,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
 
 export default function DeepAnalysis({
   status, analysis, error, onRetry, progress, pipeline, testCount,
-  multiRuntime, cachedAt, stats, showCompatibilityMatrix = false,
+  multiRuntime, cachedAt, stats, tests, setup, teardown, showCompatibilityMatrix = false,
 }) {
   const mrStatus = multiRuntime?.status || 'idle'
   const mrData = multiRuntime?.data || null
@@ -184,6 +186,12 @@ export default function DeepAnalysis({
 
   const cachedLabel = formatRelativeTime(cachedAt)
   const sourcePrepLabel = formatSourcePrepMeta(analysis.meta)
+  const doctor = analysis.doctor || buildBenchmarkDoctor({
+    tests: tests || [],
+    setup: setup || '',
+    teardown: teardown || '',
+    results: analysis.results || [],
+  })
 
   return (
     <div className="mt-8 space-y-4 animate-in fade-in duration-500">
@@ -235,6 +243,8 @@ export default function DeepAnalysis({
           </p>
         </div>
       )}
+
+      <BenchmarkDoctor doctor={doctor} />
 
       {showCompatibilityMatrix && (
         <CompatibilityMatrix

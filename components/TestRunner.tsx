@@ -1145,6 +1145,9 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
           testCount={tests.length}
           cachedAt={analysisCachedAt}
           stats={stats}
+          tests={tests}
+          setup={setup}
+          teardown={teardown}
           showCompatibilityMatrix={isDonor && analysisStatus === 'done' && !!analysis}
           multiRuntime={{
             status: multiRuntimeStatus,

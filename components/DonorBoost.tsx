@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { signIn, useSession } from 'next-auth/react'
-import { Coffee, Sparkles, X, Loader2, Zap, Heart, Check, Presentation, Microscope, Gauge, Cpu, BarChart3 } from 'lucide-react'
+import { Coffee, Sparkles, X, Loader2, Zap, Heart, Check, Presentation, Microscope, Gauge, Cpu, BarChart3, Stethoscope } from 'lucide-react'
 import GitHubIcon from './GitHubIcon'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,6 +40,12 @@ const DONOR_PERKS = [
     label: 'Compatibility matrix',
     detail: 'Unlocked',
     sub: 'Browser and runtime rankings',
+  },
+  {
+    icon: Stethoscope,
+    label: 'Benchmark Doctor',
+    detail: 'Included',
+    sub: 'Warnings for misleading microbenchmarks',
   },
   {
     icon: Presentation,

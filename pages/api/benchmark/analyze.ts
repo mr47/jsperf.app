@@ -7,6 +7,7 @@ import { enqueueMultiRuntimeJob } from '../../../lib/engines/multiruntime'
 import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
 import { findBrowserApiUsage, isAsyncTest } from '../../../lib/benchmark/detection'
+import { buildBenchmarkDoctor } from '../../../lib/benchmark/doctor'
 import {
   inferBenchmarkLanguage,
   prepareBenchmarkSources,
@@ -110,10 +111,11 @@ export default async function handler(req, res) {
     const cached = !force ? await redis.get(cacheKey) : null
     if (cached) {
       const cachedData = typeof cached === 'string' ? JSON.parse(cached) : cached
+      const cachedWithDoctor = attachBenchmarkDoctor(cachedData, prepared)
       // On cache HIT we still attach durable MR results when available, or
       // give the client fresh MR jobIds so it can poll for missing data.
       const mrInfo = await maybeEnqueueMultiRuntime(prepared, multiRuntimeCacheKey, multiRuntimeOptions)
-      const merged = { ...mergeMultiRuntimeMeta(cachedData, mrInfo), codeHash, multiRuntimeCacheKey }
+      const merged = { ...mergeMultiRuntimeMeta(cachedWithDoctor, mrInfo), codeHash, multiRuntimeCacheKey }
       res.setHeader('X-Analysis-Cache', 'HIT')
       return res.status(200).json(merged)
     }
@@ -174,7 +176,7 @@ export default async function handler(req, res) {
           })
         : undefined,
     })
-    const analysisWithMeta = {
+    const analysisWithMeta = attachBenchmarkDoctor({
       ...analysis,
       meta: {
         ...(analysis.meta || {}),
@@ -186,7 +188,7 @@ export default async function handler(req, res) {
         languageOptions: prepared.languageOptions,
         sourcePrepVersion: prepared.sourcePrepVersion,
       },
-    }
+    }, prepared)
 
     const analyses = await analysesCollection()
     const doc = {
@@ -198,6 +200,7 @@ export default async function handler(req, res) {
       comparison: analysisWithMeta.comparison,
       hasErrors: analysisWithMeta.hasErrors || false,
       meta: analysisWithMeta.meta,
+      doctor: analysisWithMeta.doctor,
       createdAt: new Date(),
     }
     await analyses.insertOne(doc)
@@ -306,6 +309,19 @@ function mergeMultiRuntimeMeta(analysis, mrInfo) {
   return {
     ...analysis,
     multiRuntime,
+  }
+}
+
+function attachBenchmarkDoctor(analysis, prepared) {
+  if (!analysis) return analysis
+  return {
+    ...analysis,
+    doctor: buildBenchmarkDoctor({
+      tests: prepared.original.tests,
+      setup: prepared.original.setup,
+      teardown: prepared.original.teardown,
+      results: analysis.results || [],
+    }),
   }
 }
 
