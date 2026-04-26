@@ -3,7 +3,7 @@ import { pagesCollection } from '../../lib/mongodb'
 import { getSession } from "next-auth/react"
 import { shortcode } from "../../utils/Url"
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
-import { normalizeBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benchmark/source'
+import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benchmark/source'
 
 // Free: 10/min by IP. Donor: 60/min by donor identity (see lib/rateLimit.js).
 // Page create/update is a write to MongoDB — keep it modest to honor server resources.
@@ -85,7 +85,12 @@ const addPage = async (req, res) => {
     const pages = await pagesCollection()
 
     const payload = JSON.parse(req.body)
-    payload.language = normalizeBenchmarkLanguage(payload.language)
+    payload.language = inferBenchmarkLanguage({
+      language: payload.language,
+      tests: payload.tests,
+      setup: payload.setup,
+      teardown: payload.teardown,
+    })
     payload.languageOptions = normalizeLanguageOptions(payload.language, payload.languageOptions)
 
     // Could be a revision of an existing page.
@@ -208,6 +213,13 @@ const updatePage = async (req, res) => {
       throw new Error('Does not have the authority to update this page.')
     }
 
+    const safeLanguage = inferBenchmarkLanguage({
+      language: payload.language,
+      tests: payload.tests,
+      setup: payload.setup,
+      teardown: payload.teardown,
+    })
+
     const safePayload = {
       title: payload.title,
       info: payload.info,
@@ -215,8 +227,8 @@ const updatePage = async (req, res) => {
       setup: payload.setup,
       teardown: payload.teardown,
       tests: payload.tests,
-      language: normalizeBenchmarkLanguage(payload.language),
-      languageOptions: normalizeLanguageOptions(payload.language, payload.languageOptions),
+      language: safeLanguage,
+      languageOptions: normalizeLanguageOptions(safeLanguage, payload.languageOptions),
       authorName: payload.authorName,
       visible: payload.visible,
     }

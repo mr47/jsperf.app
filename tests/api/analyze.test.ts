@@ -439,4 +439,28 @@ describe('POST /api/benchmark/analyze', () => {
     expect(result.meta.sourcePrepMs).toEqual(expect.any(Number))
     expect(result.meta.compiler.version).toEqual(expect.any(String))
   })
+
+  it('infers TypeScript from setup before deep analysis when language metadata is missing', async () => {
+    const { runAnalysis } = await import('../../lib/engines/runner')
+    process.env.BENCHMARK_WORKER_URL = ''
+
+    const req = createMockReq({
+      setup: 'type ClickEvent = { x: number }\nconst event: ClickEvent = { x: 1 }',
+      tests: [{ code: 'return event.x as number', title: 'typed setup' }],
+    })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(runAnalysis).toHaveBeenCalledWith(
+      [expect.objectContaining({ code: expect.stringContaining('return event.x') })],
+      expect.objectContaining({
+        setup: expect.stringContaining('const event = { x: 1 }'),
+      }),
+    )
+
+    const messages = parseNdjsonLines(res)
+    const result = messages.find(m => m.type === 'result')?.data
+    expect(result.meta.language).toBe('typescript')
+  })
 })

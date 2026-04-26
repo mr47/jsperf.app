@@ -8,8 +8,8 @@ import { loadStoredMultiRuntimeResults } from '../../../lib/multiRuntimeResults'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
 import { findBrowserApiUsage, isAsyncTest } from '../../../lib/benchmark/detection'
 import {
+  inferBenchmarkLanguage,
   prepareBenchmarkSources,
-  normalizeBenchmarkLanguage,
   normalizeLanguageOptions,
   SourcePreparationError,
 } from '../../../lib/benchmark/source'
@@ -56,7 +56,12 @@ export default async function handler(req, res) {
     }
 
     const { tests, setup, teardown, slug, revision, force } = req.body
-    const language = normalizeBenchmarkLanguage(req.body?.language)
+    const language = inferBenchmarkLanguage({
+      language: req.body?.language,
+      tests,
+      setup,
+      teardown,
+    })
     const languageOptions = normalizeLanguageOptions(language, req.body?.languageOptions)
     const multiRuntimeOptions = parseMultiRuntimeOptions(req.body)
 
