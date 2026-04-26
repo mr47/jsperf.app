@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { signOut, useSession } from "next-auth/react"
 import Link from 'next/link'
+import { SEO_LANDING_PAGES } from '../lib/seo-pages'
 
 export default function Footer() {
   const { data: session, status } = useSession()
@@ -8,10 +9,15 @@ export default function Footer() {
   return (
       <footer className="mt-8 block overflow-hidden border-t border-border">
         <nav className="container flex flex-wrap items-center justify-between px-2 py-4">
-          <div className="flex gap-4 mb-4 sm:mb-0">
+          <div className="flex flex-wrap gap-4 mb-4 sm:mb-0">
             <Link href="/" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
               New Benchmark
             </Link>
+            {SEO_LANDING_PAGES.slice(0, 4).map((page) => (
+              <Link key={page.href} href={page.href} className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
+                {page.label}
+              </Link>
+            ))}
             <Link href="https://github.com/mr47/jsperf.app/issues" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors">
               Report Issue
             </Link>

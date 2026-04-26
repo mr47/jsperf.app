@@ -1,6 +1,14 @@
 // @ts-nocheck
 import Head from 'next/head'
 import { useRouter } from 'next/router'
+import {
+  DEFAULT_SEO_DESCRIPTION,
+  DEFAULT_SEO_KEYWORDS,
+  DEFAULT_SEO_TITLE,
+  SITE_NAME,
+  absoluteUrl,
+  withSiteTitle,
+} from '../lib/seo'
 
 export default function SEO({ 
   title, 
@@ -9,23 +17,23 @@ export default function SEO({
   ogImage, 
   ogType = 'website',
   twitterHandle = '@jsperf',
-  noindex = false
+  noindex = false,
+  keywords = [],
+  jsonLd = [],
 }) {
   const router = useRouter()
-  
-  const siteName = 'jsPerf - JavaScript Performance Benchmark'
-  const defaultTitle = siteName
-  const defaultDescription = 'jsPerf is an online JavaScript performance benchmark test runner. Write, share, and compare execution speed of your JavaScript code snippets right in the browser.'
-  
-  const seoTitle = title ? `${title} | jsPerf` : defaultTitle
-  const seoDescription = description || defaultDescription
-  const siteUrl = 'https://jsperf.net'
-  
-  // Use specific canonical URL or fallback to the current path
-  const canonicalUrl = canonical || `${siteUrl}${router.asPath === '/' ? '' : router.asPath}`
-  
-  // Default OG image or specific
-  const ogImageUrl = ogImage || `${siteUrl}/og-image.png`
+  const routePath = (router.asPath || '/').split(/[?#]/)[0]
+  const seoTitle = title ? withSiteTitle(title) : DEFAULT_SEO_TITLE
+  const seoDescription = description || DEFAULT_SEO_DESCRIPTION
+  const canonicalUrl = absoluteUrl(canonical || routePath)
+  const ogImageUrl = absoluteUrl(ogImage || '/og-image.png')
+  const keywordList = Array.from(
+    new Set([
+      ...DEFAULT_SEO_KEYWORDS,
+      ...(Array.isArray(keywords) ? keywords : String(keywords).split(',').map((keyword) => keyword.trim())),
+    ].filter(Boolean))
+  ).join(', ')
+  const jsonLdItems = (Array.isArray(jsonLd) ? jsonLd : [jsonLd]).filter(Boolean)
 
   return (
     <Head>
@@ -42,7 +50,7 @@ export default function SEO({
       <meta property="og:title" content={seoTitle} />
       <meta property="og:description" content={seoDescription} />
       <meta property="og:image" content={ogImageUrl} />
-      <meta property="og:site_name" content={siteName} />
+      <meta property="og:site_name" content={SITE_NAME} />
 
       {/* Twitter */}
       <meta property="twitter:card" content="summary_large_image" />
@@ -52,10 +60,17 @@ export default function SEO({
       <meta property="twitter:image" content={ogImageUrl} />
       {twitterHandle && <meta name="twitter:creator" content={twitterHandle} />}
       {twitterHandle && <meta name="twitter:site" content={twitterHandle} />}
-      
-      {noindex && <meta name="robots" content="noindex,follow" />}
-      <meta name="keywords" content="javascript, benchmark, performance, jsperf, testing, web development, coding, snippet, tinybench" />
+
+      <meta name="robots" content={noindex ? 'noindex,follow' : 'index,follow,max-image-preview:large'} />
+      <meta name="keywords" content={keywordList} />
       <meta name="author" content="Dmytro Piddubnyi <https://mr47.in>" />
+      {jsonLdItems.map((item, index) => (
+        <script
+          key={index}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(item) }}
+        />
+      ))}
     </Head>
   )
 }

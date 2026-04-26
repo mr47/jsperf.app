@@ -50,6 +50,12 @@ export default function Header(props) {
             <Link href="/create" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors flex items-center">
               Create
             </Link>
+            <Link href="/guide/how-to-benchmark-javascript" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors flex items-center">
+              Guide
+            </Link>
+            <Link href="/javascript-runtime-benchmark" className="text-sm font-medium hover:text-foreground text-muted-foreground transition-colors flex items-center">
+              Runtimes
+            </Link>
             <DonorBoost />
           </div>
           

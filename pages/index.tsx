@@ -8,6 +8,8 @@ import { Zap, Share2, Code2, Sparkles, TrendingUp, Users, Microscope, Cpu, BarCh
 import GitHubIcon from '../components/GitHubIcon'
 import dynamic from 'next/dynamic'
 import { highlightSanitizedCode } from '../utils/hljs'
+import { SEO_LANDING_PAGES } from '../lib/seo-pages'
+import { softwareApplicationSchema, websiteSchema } from '../lib/seo'
 
 const HeroBackground = dynamic(() => import('../components/HeroBackground'), { ssr: false })
 const TYPESCRIPT_PREVIEW_CODE = `type Product = {
@@ -30,8 +32,16 @@ export default function Home(props) {
   return (
     <>
       <SEO 
-        title="jsPerf - Online JavaScript and TypeScript performance benchmark" 
-        description="jsPerf.net is an online JavaScript and TypeScript performance benchmark test runner" 
+        title="Online JavaScript and TypeScript Benchmark Tool"
+        description="Run JavaScript and TypeScript benchmarks online. Compare code snippets by ops/sec, save shareable jsPerf tests, and analyze browser, V8, QuickJS, Node, Deno, and Bun behavior."
+        keywords={[
+          'js benchmark',
+          'javascript benchmark online',
+          'online javascript performance benchmark',
+          'typescript benchmark online',
+          'compare javascript snippets',
+        ]}
+        jsonLd={[softwareApplicationSchema(), websiteSchema()]}
       />
       <Layout>
         {/* Animated 3D ASCII Background */}
@@ -213,6 +223,27 @@ export default function Home(props) {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+        </section>
+
+        <section className="py-20 border-t border-border/50">
+          <div className="text-center mb-10 space-y-4">
+            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">Popular JavaScript benchmark resources</h2>
+            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+              Start from a focused guide, compare functions online, or explore runtime-specific JavaScript performance questions.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {SEO_LANDING_PAGES.map((page) => (
+              <Link href={page.href} key={page.href} className="group block">
+                <Card className="h-full border-border bg-card/50 transition-colors hover:bg-muted/50">
+                  <CardHeader>
+                    <CardTitle className="text-lg group-hover:text-primary transition-colors">{page.label}</CardTitle>
+                    <CardDescription className="leading-6">{page.description}</CardDescription>
+                  </CardHeader>
+                </Card>
+              </Link>
+            ))}
           </div>
         </section>
 

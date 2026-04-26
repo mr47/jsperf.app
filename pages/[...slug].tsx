@@ -19,6 +19,7 @@ import Teardown from '../components/sections/Teardown'
 import PrepCode from '../components/sections/PrepCode'
 import { Separator } from '@/components/ui/separator'
 import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../lib/benchmark/source'
+import { absoluteUrl, breadcrumbSchema } from '../lib/seo'
 
 export default function Slug(props) {
   const {
@@ -40,12 +41,47 @@ export default function Slug(props) {
 
   const {revisions} = props
   const { data: session } = useSession()
+  const benchmarkPath = `/${slug}${revision > 1 ? `/${revision}` : ''}`
+  const benchmarkTitle = `${title}${revision > 1 ? ` (v${revision})` : ''}`
+  const benchmarkDescription = `${benchmarkTitle} - online JavaScript${language === 'typescript' ? ' and TypeScript' : ''} benchmark with ${tests.length} test${tests.length === 1 ? '' : 's'}${mirror ? ' from the jsPerf.com mirror' : ''}.`
+  const benchmarkSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'TechArticle',
+    headline: benchmarkTitle,
+    description: benchmarkDescription,
+    url: absoluteUrl(benchmarkPath),
+    datePublished: published,
+    author: authorName ? {
+      '@type': 'Person',
+      name: authorName,
+    } : undefined,
+    about: [
+      'JavaScript benchmark',
+      'JavaScript performance',
+      ...(language === 'typescript' ? ['TypeScript benchmark'] : []),
+    ],
+  }
 
   return (
     <>
       <SEO 
-        title={`${title}${revision > 1 ? ` (v${revision})` : ''}`}
-        description={`${title}${revision > 1 ? ` (v${revision})` : ''} - Online Javascript Benchmark${mirror ? ' - jsPerf.com mirror' : ''}`}
+        title={benchmarkTitle}
+        description={benchmarkDescription}
+        canonical={benchmarkPath}
+        keywords={[
+          title,
+          'online javascript benchmark',
+          'javascript performance test',
+          ...(language === 'typescript' ? ['typescript benchmark'] : []),
+        ]}
+        jsonLd={[
+          benchmarkSchema,
+          breadcrumbSchema([
+            { name: 'Home', path: '/' },
+            { name: 'Latest Benchmarks', path: '/latest' },
+            { name: benchmarkTitle, path: benchmarkPath },
+          ]),
+        ]}
       />
       <Layout>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 py-6">

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { pagesCollection } from '../lib/mongodb'
+import { absoluteUrl } from '../lib/seo'
 
 const Sitemap = () => {}
 
@@ -27,10 +28,13 @@ export const getServerSideProps = async ({res}) => {
 
   const sitemap = `<?xml version="1.0" encoding="UTF-8"?>
     <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        <sitemap>
+          <loc>${absoluteUrl('/sitemap/static.xml')}</loc>
+        </sitemap>
     ${result.map(({_id}) => {
       return `
         <sitemap>
-          <loc>https://jsperf.net/sitemap/${_id}.xml</loc>
+          <loc>${absoluteUrl(`/sitemap/${_id}.xml`)}</loc>
         </sitemap>
       `
     }).join('')}

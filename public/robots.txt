@@ -1,6 +1,0 @@
-Sitemap: https://jsperf.net/sitemap.xml
-
-User-agent: *
-Disallow: /*/edit$
-Disallow: /*/preview$
-Disallow: /sandbox

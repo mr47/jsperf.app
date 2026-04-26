@@ -6,19 +6,40 @@ import Layout from '../components/Layout'
 import { DateTimeLong } from '../utils/Date'
 import { bumpDateIfOld } from '../utils/DateBump'
 import { Card, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { breadcrumbSchema, webPageSchema } from '../lib/seo'
+
+const title = 'Latest JavaScript Performance Benchmarks'
+const description = 'Browse recent JavaScript and TypeScript performance benchmarks on jsPerf, including browser ops/sec comparisons, revisions, and shareable benchmark pages.'
+const path = '/latest'
 
 export default function Latest(props) {
   const {entries} = props
   return (
     <>
       <SEO 
-        title="jsPerf - Latest Benchmarks" 
-        description="Browse the latest online javascript performance benchmarks" 
+        title={title}
+        description={description}
+        canonical={path}
+        keywords={[
+          'latest javascript benchmarks',
+          'javascript performance benchmarks',
+          'js benchmark examples',
+          'online javascript benchmark results',
+        ]}
+        jsonLd={[
+          webPageSchema({ title, description, path }),
+          breadcrumbSchema([
+            { name: 'Home', path: '/' },
+            { name: 'Latest Benchmarks', path },
+          ]),
+        ]}
       />
       <Layout>
         <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight mb-2">Latest Benchmarks</h1>
-          <p className="text-muted-foreground">Browse the most recently created or updated JavaScript performance tests.</p>
+          <h1 className="text-3xl font-bold tracking-tight mb-2">Latest JavaScript performance benchmarks</h1>
+          <p className="text-muted-foreground max-w-3xl leading-7">
+            Browse recent JavaScript and TypeScript benchmark pages, rerun public tests in your browser, and inspect revisions for real-world performance questions.
+          </p>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
