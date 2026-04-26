@@ -5,6 +5,37 @@ import { getRanked, formatNumber } from '../utils/ArrayUtils'
 import { runBenchmark } from '../utils/benchmark'
 import { renderPrepHTML } from '../utils/prepHTML'
 
+function detectRetainedArrayGrowth(code, setup) {
+  const setupSource = String(setup || '')
+  const testSource = String(code || '')
+  const arrayNames = []
+  const declarationPattern = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:\[\s*\]|new\s+Array\s*\()/g
+  let match
+
+  while ((match = declarationPattern.exec(setupSource))) {
+    arrayNames.push(match[1])
+  }
+
+  for (const name of arrayNames) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const pushesToSetupArray = new RegExp(`\\b${escaped}\\s*\\.\\s*push\\s*\\(`).test(testSource)
+    if (!pushesToSetupArray) continue
+
+    const clearsInsideTest = new RegExp(
+      `(?:\\b${escaped}\\s*\\.\\s*length\\s*=\\s*0\\b|\\b${escaped}\\s*=\\s*\\[\\s*\\]|\\b${escaped}\\s*\\.\\s*splice\\s*\\()`
+    ).test(testSource)
+    if (clearsInsideTest) continue
+
+    return new Error(
+      `This test appends to setup array "${name}" on every operation. ` +
+      'That retains millions of values during the browser run and can crash the tab before teardown runs. ' +
+      'Use a scalar sink, overwrite fixed indexes, or clear the array inside the test body.'
+    )
+  }
+
+  return null
+}
+
 function compileFactory(code, setup, teardown, legacyIsAsync) {
   try {
     // Auto-detect modern async/await or legacy deferred.resolve usage
@@ -281,6 +312,8 @@ export default (props) => {
         const error = prepError || compileError
         if (error) return { factory: null, error, actuallyAsync: false }
         const runtimeTest = runtimeTests[index] || test
+        const memoryRisk = detectRetainedArrayGrowth(runtimeTest.code, runtimeSetup)
+        if (memoryRisk) return { factory: null, error: memoryRisk, actuallyAsync: false }
         return compileFactory(runtimeTest.code, runtimeSetup, runtimeTeardown, test.async)
       })
 

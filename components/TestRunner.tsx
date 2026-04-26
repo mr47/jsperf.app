@@ -7,6 +7,7 @@ import UAParser from 'ua-parser-js'
 import Test from './Test'
 import StatsChart from './StatsChart'
 import DeepAnalysis from './DeepAnalysis'
+import BrowserRunAnimation from './BrowserRunAnimation'
 import RuntimeVersionSelector from './RuntimeVersionSelector'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -1133,6 +1134,8 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
           you need a finite ops/sec estimate.
         </p>
       )}
+
+      <BrowserRunAnimation tests={tests} benchStatus={benchStatus} />
 
       {analysisStatus !== 'idle' && (
         <DeepAnalysis
