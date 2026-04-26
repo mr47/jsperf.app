@@ -18,6 +18,7 @@ import {
 } from './mongodb'
 import { attachStoredMultiRuntimeResults } from './multiRuntimeResults'
 import { buildCompatibilityMatrix } from './compatibilityMatrix'
+import { buildBenchmarkDoctor } from './benchmark/doctor'
 
 const ID_ALPHABET = 'abcdefghijkmnopqrstuvwxyz23456789'  // no 0/1/i/l/o (visually unambiguous)
 const ID_LENGTH = 8
@@ -217,6 +218,47 @@ function compactProfile(p) {
   }
 }
 
+function compactString(value, max = 500) {
+  if (typeof value !== 'string') return null
+  return value.length > max ? `${value.slice(0, max)}...` : value
+}
+
+function compactDoctor(doctor) {
+  if (!doctor || typeof doctor !== 'object') return null
+
+  const diagnostics = Array.isArray(doctor.diagnostics)
+    ? doctor.diagnostics.slice(0, 50).map(d => ({
+      id: compactString(d.id, 120) || null,
+      severity: ['danger', 'warning', 'info'].includes(d.severity) ? d.severity : 'info',
+      category: compactString(d.category, 120) || null,
+      scope: d.scope === 'run' ? 'run' : 'test',
+      testIndex: Number.isInteger(d.testIndex) ? d.testIndex : null,
+      testTitle: compactString(d.testTitle, 160),
+      title: compactString(d.title, 180) || 'Benchmark Doctor finding',
+      message: compactString(d.message, 500) || '',
+      evidence: compactString(d.evidence, 240),
+      recommendation: compactString(d.recommendation, 500) || '',
+    }))
+    : []
+
+  const rawSummary = doctor.summary && typeof doctor.summary === 'object' ? doctor.summary : {}
+  const summary = {
+    total: Number(rawSummary.total) || diagnostics.length,
+    info: Number(rawSummary.info) || diagnostics.filter(d => d.severity === 'info').length,
+    warning: Number(rawSummary.warning) || diagnostics.filter(d => d.severity === 'warning').length,
+    danger: Number(rawSummary.danger) || diagnostics.filter(d => d.severity === 'danger').length,
+    verdict: ['clean', 'review', 'misleading'].includes(rawSummary.verdict)
+      ? rawSummary.verdict
+      : diagnostics.some(d => d.severity === 'danger')
+        ? 'misleading'
+        : diagnostics.length
+          ? 'review'
+          : 'clean',
+  }
+
+  return { diagnostics, summary }
+}
+
 /**
  * Normalise the per-test multi-runtime data into a single, predictable
  * shape regardless of whether it came from the worker proxy
@@ -269,11 +311,19 @@ function normaliseMultiRuntime(raw) {
  * viewer renders. Stays well under Mongo's 16MB doc limit even for
  * very wide benchmarks.
  */
-function snapshotAnalysis(analysis) {
+function snapshotAnalysis(analysis, benchmark = null) {
   if (!analysis) return null
+  const doctor = compactDoctor(analysis.doctor) || compactDoctor(buildBenchmarkDoctor({
+    tests: benchmark?.tests || [],
+    setup: benchmark?.setup || '',
+    teardown: benchmark?.teardown || '',
+    results: analysis.results || [],
+  }))
+
   return {
     comparison: analysis.comparison || null,
     hasErrors: analysis.hasErrors || false,
+    doctor,
     results: (analysis.results || []).slice(0, MAX_TESTS_SNAPSHOT).map(r => ({
       testIndex: r.testIndex,
       title: r.title || null,
@@ -426,7 +476,7 @@ export async function createReport({
 
   const benchmark = snapshotBenchmark(page)
   const stats = await snapshotStats(slug, rev)
-  const analysis = snapshotAnalysis(rawAnalysis)
+  const analysis = snapshotAnalysis(rawAnalysis, benchmark)
   const compatibilityMatrix = snapshotCompatibilityMatrix({
     analysis,
     stats,

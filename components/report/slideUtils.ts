@@ -367,6 +367,13 @@ export function hasMemoryResponse(report) {
   return Boolean(response?.data?.length && response?.series?.length)
 }
 
+export function hasBenchmarkDoctor(report) {
+  const doctor = report?.analysis?.doctor
+  if (!doctor || typeof doctor !== 'object') return false
+  if (Array.isArray(doctor.diagnostics)) return true
+  return Boolean(doctor.summary && typeof doctor.summary === 'object')
+}
+
 /**
  * Pick which slides to show for this report. Slides whose data isn't
  * present (no analysis, no multi-runtime, etc.) are silently skipped
@@ -378,7 +385,10 @@ export function buildDeck(report) {
   const ranked = sum.ranked || []
   const hasRanked = ranked.length >= 2
 
-  if (hasRanked) slides.push('leaderboard')
+  if (hasRanked) {
+    slides.push('leaderboard')
+    slides.push('speedAnimation')
+  }
   if (sum.leader) slides.push('winner')
   if (hasRanked && sum.lagger && sum.leader && sum.lagger.title !== sum.leader.title) {
     slides.push('headToHead')
@@ -386,6 +396,7 @@ export function buildDeck(report) {
 
   if (flattenRuntimes(report).length) slides.push('runtimes')
   if (hasCompatibilityMatrix(report)) slides.push('compatibilityMatrix')
+  if (hasBenchmarkDoctor(report)) slides.push('benchmarkDoctor')
   if (collectPerfSamples(report).length) slides.push('perfCounters')
   if (hasJitMetrics(report)) slides.push('jitAmplification')
   if (hasComplexityMetrics(report)) slides.push('complexity')

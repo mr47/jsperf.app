@@ -24,6 +24,10 @@ import {
   Zap,
   Activity,
   Layers,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldAlert,
+  Stethoscope,
 } from 'lucide-react'
 import {
   BarChart,
@@ -274,6 +278,139 @@ function LeaderboardSlide({ report }) {
           : 'aggregated browser runs'}
         {' · ' + ranked.length + ' tests'}
       </p>
+    </SlideShell>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Slide: Speed animation                                             */
+/* ------------------------------------------------------------------ */
+
+const SPEED_BALL_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#f43f5e', '#06b6d4']
+const FASTEST_BALL_LAP_SECONDS = 1.4
+const SLOWEST_BALL_LAP_SECONDS = 9
+
+function SpeedAnimationSlide({ report }) {
+  const ranked = useMemo(() => rankEntries(report?.summary?.entries || []), [report])
+  if (ranked.length < 2) return null
+
+  const visible = ranked.slice(0, 6)
+  const fastest = visible[0]?.opsPerSec || 1
+  const sourceLabel = report?.summary?.dataSource === 'v8'
+    ? 'Controlled V8 analysis'
+    : report?.summary?.dataSource === 'quickjs'
+      ? 'QuickJS baseline'
+      : 'Aggregated browser runs'
+
+  return (
+    <SlideShell
+      accent="radial-gradient(closest-side, rgba(16,185,129,0.25), transparent)"
+      className="bg-gradient-to-br from-slate-50 via-white to-emerald-50 dark:from-slate-950 dark:via-slate-950 dark:to-emerald-950/30"
+    >
+      <SlideHeader icon={Activity} eyebrow="Speed animation" title="Watch the relative pace" />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[0.72fr_1.28fr] print:grid-cols-[0.72fr_1.28fr] gap-6 flex-1 min-h-0">
+        <div className="flex flex-col justify-center gap-4">
+          <div className="rounded-3xl border-2 border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/80 dark:bg-emerald-950/30 p-6">
+            <div className="text-xs uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-semibold">Fastest case</div>
+            <div className="mt-2 text-4xl font-black tracking-tight">{visible[0].title}</div>
+            <div className="mt-3 text-5xl font-black text-emerald-700 dark:text-emerald-300">
+              {formatOps(visible[0].opsPerSec)}
+              <span className="ml-2 text-base font-semibold text-foreground/65">ops/sec</span>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-6 text-sm leading-relaxed text-foreground/80">
+            Every ball crosses the same lane. Faster snippets get shorter lap
+            times, so the visual rhythm matches the throughput spread in the report.
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Source: {sourceLabel} · top {visible.length} of {ranked.length} ranked tests.
+          </p>
+        </div>
+
+        <div className="rounded-3xl border-2 border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-6 flex flex-col justify-center gap-5 overflow-hidden">
+          {visible.map((entry, index) => {
+            const color = SPEED_BALL_COLORS[index % SPEED_BALL_COLORS.length]
+            const ratio = fastest > 0 ? entry.opsPerSec / fastest : 0
+            const slowerRatio = ratio > 0 ? fastest / entry.opsPerSec : 1
+            const lapSeconds = Math.min(
+              SLOWEST_BALL_LAP_SECONDS,
+              Math.max(FASTEST_BALL_LAP_SECONDS, FASTEST_BALL_LAP_SECONDS * slowerRatio)
+            )
+            const widthPct = `${Math.max(5, Math.min(100, ratio * 100))}%`
+            const staticPosition = `${Math.max(7, Math.min(94, ratio * 100))}%`
+
+            return (
+              <div key={entry.testIndex ?? entry.title} className="space-y-2">
+                <div className="flex items-baseline justify-between gap-4">
+                  <div className="flex min-w-0 items-baseline gap-3">
+                    <span className="text-xs font-mono text-muted-foreground tabular-nums w-7">#{index + 1}</span>
+                    <span className="truncate text-lg font-bold tracking-tight">{entry.title}</span>
+                  </div>
+                  <div className="flex items-baseline gap-2 shrink-0">
+                    <span className="text-sm font-black tabular-nums" style={{ color }}>
+                      {formatOps(entry.opsPerSec)}
+                    </span>
+                    {index > 0 && (
+                      <span className="text-xs text-muted-foreground">
+                        {formatMultiplier(slowerRatio)} slower
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="relative h-12 overflow-hidden rounded-full border border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/60">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-full opacity-20"
+                    style={{
+                      width: widthPct,
+                      background: `linear-gradient(90deg, ${color}, transparent)`,
+                    }}
+                  />
+                  <div className="absolute inset-x-5 top-1/2 h-px -translate-y-1/2 border-t border-dashed border-slate-300 dark:border-slate-700" />
+                  <div
+                    className="report-speed-ball absolute top-1/2 h-8 w-8 -translate-y-1/2 rounded-full shadow-xl ring-2 ring-white/80 dark:ring-black/30"
+                    style={{
+                      background: color,
+                      '--lap-duration': `${lapSeconds}s`,
+                      '--lap-delay': `${index * -0.24}s`,
+                      '--static-position': staticPosition,
+                    }}
+                  >
+                    <span className="absolute left-2 top-2 h-2.5 w-2.5 rounded-full bg-white/75" />
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <style jsx>{`
+        .report-speed-ball {
+          left: 1rem;
+          animation: report-speed-lap var(--lap-duration) ease-in-out infinite alternate;
+          animation-delay: var(--lap-delay);
+        }
+
+        @keyframes report-speed-lap {
+          from {
+            left: 1rem;
+          }
+          to {
+            left: calc(100% - 3rem);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce), print {
+          .report-speed-ball {
+            animation: none;
+            left: clamp(1rem, calc(var(--static-position) - 2rem), calc(100% - 3rem));
+          }
+        }
+      `}</style>
     </SlideShell>
   )
 }
@@ -544,6 +681,191 @@ function matrixCellClass(cell) {
 
 function formatScore(score) {
   return score > 0 ? `+${score}` : String(score)
+}
+
+/* ------------------------------------------------------------------ */
+/*  Slide: Benchmark Doctor                                            */
+/* ------------------------------------------------------------------ */
+
+const DOCTOR_SEVERITY_META = {
+  danger: {
+    label: 'Danger',
+    icon: ShieldAlert,
+    card: 'border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100',
+    iconClass: 'text-rose-600 dark:text-rose-300',
+    pill: 'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-100',
+  },
+  warning: {
+    label: 'Warnings',
+    icon: AlertTriangle,
+    card: 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100',
+    iconClass: 'text-amber-600 dark:text-amber-300',
+    pill: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-100',
+  },
+  info: {
+    label: 'Notes',
+    icon: AlertTriangle,
+    card: 'border-slate-200 bg-white/80 text-slate-900 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-100',
+    iconClass: 'text-violet-600 dark:text-violet-300',
+    pill: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+  },
+}
+
+function BenchmarkDoctorSlide({ report }) {
+  const doctor = report?.analysis?.doctor
+  if (!doctor) return null
+
+  const diagnostics = Array.isArray(doctor.diagnostics) ? doctor.diagnostics : []
+  const summary = doctor.summary || {}
+  const danger = Number(summary.danger) || diagnostics.filter(d => d.severity === 'danger').length
+  const warning = Number(summary.warning) || diagnostics.filter(d => d.severity === 'warning').length
+  const info = Number(summary.info) || diagnostics.filter(d => d.severity === 'info').length
+  const total = Number(summary.total) || diagnostics.length
+  const verdict = summary.verdict || (danger > 0 ? 'misleading' : total > 0 ? 'review' : 'clean')
+  const isClean = verdict === 'clean' && total === 0
+  const visible = diagnostics.slice(0, 3)
+  const hidden = Math.max(0, diagnostics.length - visible.length)
+
+  const verdictCopy = isClean
+    ? {
+        title: 'No obvious benchmark-shape issues',
+        detail: 'Doctor did not detect dead-code, constant-folding, async, runtime, or variance warnings in this snapshot.',
+        className: 'border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100',
+        icon: CheckCircle2,
+      }
+    : danger > 0
+      ? {
+          title: 'Likely misleading without fixes',
+          detail: 'At least one finding can change what the benchmark appears to measure. Fix those before treating the winner as reliable.',
+          className: 'border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-100',
+          icon: ShieldAlert,
+        }
+      : {
+          title: 'Review before you trust the ranking',
+          detail: 'The benchmark is usable, but Doctor found shape or measurement warnings worth calling out with the results.',
+          className: 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100',
+          icon: Stethoscope,
+        }
+  const VerdictIcon = verdictCopy.icon
+
+  return (
+    <SlideShell
+      accent="radial-gradient(closest-side, rgba(245,158,11,0.25), transparent)"
+      className="bg-gradient-to-br from-amber-50 via-white to-violet-50 dark:from-amber-950/30 dark:via-slate-950 dark:to-violet-950/30"
+    >
+      <SlideHeader icon={Stethoscope} eyebrow="Benchmark Doctor" title="Can we trust the winner?" />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] print:grid-cols-[0.82fr_1.18fr] gap-6 flex-1 min-h-0">
+        <div className="flex flex-col gap-4">
+          <div className={`rounded-3xl border-2 p-6 ${verdictCopy.className}`}>
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 dark:bg-black/20">
+                <VerdictIcon className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.18em] font-semibold opacity-75">Verdict</div>
+                <div className="mt-1 text-3xl font-black tracking-tight capitalize">{verdict}</div>
+                <div className="mt-1 text-sm font-semibold opacity-85">{verdictCopy.title}</div>
+              </div>
+            </div>
+            <p className="mt-5 text-sm leading-relaxed opacity-85">{verdictCopy.detail}</p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              ['danger', danger],
+              ['warning', warning],
+              ['info', info],
+            ].map(([severity, count]) => {
+              const meta = DOCTOR_SEVERITY_META[severity]
+              const Icon = meta.icon
+              return (
+                <div key={severity} className={`rounded-2xl border-2 p-4 ${meta.card}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase tracking-[0.16em] font-semibold opacity-75">{meta.label}</span>
+                    <Icon className={`h-4 w-4 ${meta.iconClass}`} />
+                  </div>
+                  <div className="mt-2 text-4xl font-black tabular-nums">{count}</div>
+                </div>
+              )
+            })}
+          </div>
+
+          <p className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 p-4 text-sm leading-relaxed text-foreground/80">
+            Doctor checks for common microbenchmark traps before the deck asks anyone to trust an ops/sec winner.
+          </p>
+        </div>
+
+        <div className="rounded-3xl border-2 border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-5 flex flex-col min-h-0">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-semibold">Findings</div>
+              <div className="mt-1 text-2xl font-black tracking-tight">
+                {total} {total === 1 ? 'finding' : 'findings'}
+              </div>
+            </div>
+            {hidden > 0 && <Tag color="amber">+{hidden} more</Tag>}
+          </div>
+
+          {isClean ? (
+            <div className="flex flex-1 items-center justify-center rounded-2xl border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/70 dark:bg-emerald-950/30 p-8 text-center">
+              <div>
+                <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600 dark:text-emerald-300" />
+                <p className="mt-4 text-lg font-bold">Clean enough to present.</p>
+                <p className="mt-2 text-sm text-foreground/70">
+                  Keep validating with realistic data and the environments your users actually run.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2 overflow-hidden">
+              {visible.map((diagnostic) => {
+                const severity = diagnostic.severity || 'info'
+                const meta = DOCTOR_SEVERITY_META[severity] || DOCTOR_SEVERITY_META.info
+                const Icon = meta.icon
+                return (
+                  <div key={diagnostic.id || `${diagnostic.title}-${diagnostic.testIndex}`} className={`rounded-2xl border-2 p-3 ${meta.card}`}>
+                    <div className="flex items-start gap-2.5">
+                      <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.iconClass}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-bold leading-tight">{diagnostic.title}</div>
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.pill}`}>
+                            {severity}
+                          </span>
+                        </div>
+                        {diagnostic.testTitle && (
+                          <div className="mt-0.5 text-[11px] font-medium opacity-75 truncate">{diagnostic.testTitle}</div>
+                        )}
+                        <p className="doctor-finding-copy mt-1 text-xs leading-relaxed opacity-85">{diagnostic.message}</p>
+                        {diagnostic.recommendation && (
+                          <p className="doctor-finding-copy mt-0.5 text-[11px] leading-relaxed opacity-75">{diagnostic.recommendation}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {hidden > 0 && (
+                <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+                  Showing the first 3 highest-priority findings. Re-run after fixing them to reveal lower-priority issues.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <style jsx>{`
+        .doctor-finding-copy {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
+        }
+      `}</style>
+    </SlideShell>
+  )
 }
 
 /* ------------------------------------------------------------------ */
@@ -1327,10 +1649,12 @@ function CreditsSlide({ report }) {
 export const SLIDE_COMPONENTS = {
   title: TitleSlide,
   leaderboard: LeaderboardSlide,
+  speedAnimation: SpeedAnimationSlide,
   winner: WinnerSlide,
   headToHead: HeadToHeadSlide,
   runtimes: RuntimesSlide,
   compatibilityMatrix: CompatibilityMatrixSlide,
+  benchmarkDoctor: BenchmarkDoctorSlide,
   perfCounters: PerfCountersSlide,
   jitAmplification: JitAmplificationSlide,
   complexity: ComplexitySlide,
@@ -1343,10 +1667,12 @@ export const SLIDE_COMPONENTS = {
 export const SLIDE_LABELS = {
   title: 'Title',
   leaderboard: 'Leaderboard',
+  speedAnimation: 'Speed race',
   winner: 'Winner',
   headToHead: 'Head to head',
   runtimes: 'Runtimes',
   compatibilityMatrix: 'Matrix',
+  benchmarkDoctor: 'Doctor',
   perfCounters: 'Perf counters',
   jitAmplification: 'JIT boost',
   complexity: 'Complexity',

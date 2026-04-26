@@ -20,6 +20,7 @@ import {
   hasComplexityMetrics,
   hasJitMetrics,
   hasMemoryResponse,
+  hasBenchmarkDoctor,
   hasInsightContent,
 } from '../../components/report/slideUtils'
 
@@ -133,6 +134,7 @@ describe('slideUtils.buildDeck', () => {
       },
     })
     expect(deck).toContain('leaderboard')
+    expect(deck).toContain('speedAnimation')
     expect(deck).toContain('winner')
     expect(deck).not.toContain('insight')
     expect(deck).not.toContain('runtimes')
@@ -216,8 +218,36 @@ describe('slideUtils.buildDeck', () => {
 
     expect(deck).toContain('complexity')
     const slidesSource = readFileSync('components/report/Slides.tsx', 'utf8')
+    expect(slidesSource).toContain('speedAnimation: SpeedAnimationSlide')
+    expect(slidesSource).toContain("speedAnimation: 'Speed race'")
     expect(slidesSource).toContain('complexity: ComplexitySlide')
     expect(slidesSource).toContain("complexity: 'Complexity'")
+  })
+
+  it('includes Benchmark Doctor when diagnostics are snapshotted', () => {
+    const report = {
+      summary: {},
+      analysis: {
+        doctor: {
+          summary: { total: 1, info: 0, warning: 1, danger: 0, verdict: 'review' },
+          diagnostics: [
+            {
+              id: 'constant-folding:0',
+              severity: 'warning',
+              title: 'Constant input can be folded',
+              message: 'Literal inputs can be precomputed.',
+              recommendation: 'Move inputs into setup variables.',
+            },
+          ],
+        },
+      },
+    }
+    const deck = buildDeck(report)
+    expect(hasBenchmarkDoctor(report)).toBe(true)
+    expect(deck).toContain('benchmarkDoctor')
+    const slidesSource = readFileSync('components/report/Slides.tsx', 'utf8')
+    expect(slidesSource).toContain('benchmarkDoctor: BenchmarkDoctorSlide')
+    expect(slidesSource).toContain("benchmarkDoctor: 'Doctor'")
   })
 
   it('includes methodology when only controlled runtime data is present', () => {

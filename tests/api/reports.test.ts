@@ -118,6 +118,10 @@ describe('createReport', () => {
     expect(stored.summary.lagger.title).toBe('Slow loop')
     expect(stored.summary.dataSource).toBe('v8')
     expect(stored.analysis.comparison).toMatchObject({ fastestByAlgorithm: 0, fastestByRuntime: 0 })
+    expect(stored.analysis.doctor.summary).toMatchObject({
+      total: expect.any(Number),
+      verdict: expect.any(String),
+    })
     expect(stored.analysis.results[0].complexity.time.notation).toBe('O(n)')
   })
 

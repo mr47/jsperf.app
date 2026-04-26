@@ -31,6 +31,10 @@ import {
   Check,
   ExternalLink,
   Presentation,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldAlert,
+  Stethoscope,
 } from 'lucide-react'
 import {
   formatOps,
@@ -420,6 +424,105 @@ function mobileMatrixTextClass(cell) {
 
 function formatScore(score) {
   return score > 0 ? `+${score}` : String(score)
+}
+
+const MOBILE_DOCTOR_SEVERITY = {
+  danger: {
+    icon: ShieldAlert,
+    row: 'border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/25',
+    iconClass: 'text-rose-600 dark:text-rose-300',
+    pill: 'bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-100',
+  },
+  warning: {
+    icon: AlertTriangle,
+    row: 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/25',
+    iconClass: 'text-amber-600 dark:text-amber-300',
+    pill: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-100',
+  },
+  info: {
+    icon: AlertTriangle,
+    row: 'border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900/50',
+    iconClass: 'text-violet-600 dark:text-violet-300',
+    pill: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+  },
+}
+
+function BenchmarkDoctorSection({ report }) {
+  const doctor = report?.analysis?.doctor
+  if (!doctor) return null
+
+  const diagnostics = Array.isArray(doctor.diagnostics) ? doctor.diagnostics : []
+  const summary = doctor.summary || {}
+  const danger = Number(summary.danger) || diagnostics.filter(d => d.severity === 'danger').length
+  const total = Number(summary.total) || diagnostics.length
+  const verdict = summary.verdict || (danger > 0 ? 'misleading' : total > 0 ? 'review' : 'clean')
+  const isClean = verdict === 'clean' && total === 0
+  const visible = diagnostics.slice(0, 4)
+
+  return (
+    <SectionCard icon={Stethoscope} eyebrow="Benchmark Doctor" title="Trust check" accent={danger > 0 ? 'rose' : isClean ? 'emerald' : 'amber'}>
+      <div className={`rounded-xl border-2 p-4 ${
+        isClean
+          ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/25'
+          : danger > 0
+            ? 'border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/25'
+            : 'border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/25'
+      }`}>
+        <div className="flex items-center gap-2">
+          {isClean ? (
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
+          ) : danger > 0 ? (
+            <ShieldAlert className="h-4 w-4 text-rose-600 dark:text-rose-300" />
+          ) : (
+            <Stethoscope className="h-4 w-4 text-amber-600 dark:text-amber-300" />
+          )}
+          <span className="text-sm font-semibold capitalize">{verdict}</span>
+          <Pill color={danger > 0 ? 'rose' : isClean ? 'emerald' : 'amber'}>
+            {total} {total === 1 ? 'finding' : 'findings'}
+          </Pill>
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-foreground/75">
+          {isClean
+            ? 'No dead-code, constant-folding, async, runtime, or variance warnings were detected.'
+            : 'Review these benchmark-shape warnings before treating the ranking as settled.'}
+        </p>
+      </div>
+
+      {!isClean && (
+        <div className="mt-3 space-y-2">
+          {visible.map((diagnostic) => {
+            const severity = diagnostic.severity || 'info'
+            const meta = MOBILE_DOCTOR_SEVERITY[severity] || MOBILE_DOCTOR_SEVERITY.info
+            const Icon = meta.icon
+            return (
+              <div key={diagnostic.id || `${diagnostic.title}-${diagnostic.testIndex}`} className={`rounded-xl border p-3 ${meta.row}`}>
+                <div className="flex items-start gap-2">
+                  <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.iconClass}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <p className="text-xs font-semibold leading-snug">{diagnostic.title}</p>
+                      <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${meta.pill}`}>
+                        {severity}
+                      </span>
+                    </div>
+                    {diagnostic.testTitle && (
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{diagnostic.testTitle}</p>
+                    )}
+                    <p className="mt-1 text-[11px] leading-relaxed text-foreground/75">{diagnostic.message}</p>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+          {diagnostics.length > visible.length && (
+            <p className="text-[11px] text-muted-foreground">
+              +{diagnostics.length - visible.length} more finding{diagnostics.length - visible.length === 1 ? '' : 's'} in the full report data.
+            </p>
+          )}
+        </div>
+      )}
+    </SectionCard>
+  )
 }
 
 function PerfCountersSection({ report }) {
@@ -896,6 +999,7 @@ export default function MobileReportViewer({
         <HeadToHeadSection report={report} />
         <RuntimesSection report={report} />
         <CompatibilityMatrixSection report={report} />
+        <BenchmarkDoctorSection report={report} />
         <PerfCountersSection report={report} />
         <JitAmplificationSection report={report} />
         <ComplexitySection report={report} />
