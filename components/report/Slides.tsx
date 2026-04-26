@@ -59,7 +59,7 @@ import {
   collectMemoryResponseSeries,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
-import { highlightSanitizedCode } from '../../utils/hljs'
+import { codeLanguageClass, highlightSanitizedCode } from '../../utils/hljs'
 import SafeResponsiveContainer from '../SafeResponsiveContainer'
 import MathNotation from '../MathNotation'
 
@@ -158,8 +158,8 @@ function CodeBlock({ code, maxLines = 12, language = 'javascript' }) {
   return (
     <pre className="block w-full h-full max-h-full overflow-hidden print:overflow-visible print:h-auto print:max-h-none rounded-lg text-xs sm:text-sm p-4 font-mono leading-relaxed border bg-[#f6f8fa] dark:bg-[#0d1117] border-slate-200 dark:border-slate-800 m-0 whitespace-pre">
       {html
-        ? <code className="hljs language-javascript block" dangerouslySetInnerHTML={{ __html: html }} />
-        : <code className="hljs language-javascript block">{shown}</code>}
+        ? <code className={`${codeLanguageClass(language, shown)} block`} dangerouslySetInnerHTML={{ __html: html }} />
+        : <code className={`${codeLanguageClass(language, shown)} block`}>{shown}</code>}
     </pre>
   )
 }

@@ -15,6 +15,29 @@ hljs.registerLanguage('xml', xml);
 
 hljs.configure({ ignoreUnescapedHTML: true })
 
+const TYPESCRIPT_SYNTAX_RE = [
+  /\btype\s+[$A-Z_a-z][$\w]*(?:\s*<[^>{}]*>)?\s*=/,
+  /\binterface\s+[$A-Z_a-z][$\w]*(?:\s*<[^>{}]*>)?\s*{/,
+  /\benum\s+[$A-Z_a-z][$\w]*\s*{/,
+  /\b(?:const|let|var)\s+[$A-Z_a-z][$\w]*\s*:\s*[^=;\n]+[=;]/,
+  /\bfunction\s+[$A-Z_a-z][$\w]*\s*(?:<[^>{}]*>)?\([^)]*:\s*[^)]*\)\s*(?::\s*[^{]+)?{/,
+  /\)\s*:\s*[$A-Z_a-z][$\w]*(?:\[\])?\s*=>/,
+  /\bas\s+const\b/,
+  /\bas\s+[$A-Z_a-z][$\w]*(?:<[^>{}]*>)?/,
+]
+
+function normalizeCodeLanguage(language = 'javascript', code = '') {
+  if (language === 'typescript' || language === 'ts') return 'ts'
+  if (TYPESCRIPT_SYNTAX_RE.some(pattern => pattern.test(code || ''))) return 'ts'
+  return 'js'
+}
+
+export function codeLanguageClass(language = 'javascript', code = '') {
+  return normalizeCodeLanguage(language, code) === 'ts'
+    ? 'hljs language-typescript'
+    : 'hljs language-javascript'
+}
+
 export const highlightSanitizedJS = js => {
   return DOMPurify.sanitize(hljs.highlight(js, {
     language: 'js', ignoreIllegals: true
@@ -22,7 +45,7 @@ export const highlightSanitizedJS = js => {
 }
 
 export const highlightSanitizedCode = (code, language = 'javascript') => {
-  const normalized = language === 'typescript' || language === 'ts' ? 'ts' : 'js'
+  const normalized = normalizeCodeLanguage(language, code)
   return DOMPurify.sanitize(hljs.highlight(code, {
     language: normalized, ignoreIllegals: true
   }).value)

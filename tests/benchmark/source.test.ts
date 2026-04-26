@@ -7,6 +7,7 @@ import {
   SourcePreparationError,
 } from '../../lib/benchmark/source'
 import { TYPESCRIPT_SEED_BENCHMARKS } from '../../lib/benchmark/typescriptSeeds'
+import { codeLanguageClass, highlightSanitizedCode } from '../../utils/hljs'
 
 describe('benchmark source preparation', () => {
   it('defaults unknown languages to JavaScript', () => {
@@ -54,6 +55,15 @@ describe('benchmark source preparation', () => {
       language: 'javascript',
       setup: 'type ClickEvent = { x: number }',
     })).toBe('javascript')
+  })
+
+  it('highlights TypeScript syntax even when legacy metadata is missing', () => {
+    const setup = TYPESCRIPT_SEED_BENCHMARKS[0].setup
+    const html = highlightSanitizedCode(setup)
+
+    expect(codeLanguageClass('javascript', setup)).toBe('hljs language-typescript')
+    expect(html).toContain('<span class="hljs-keyword">type</span>')
+    expect(html).toContain('<span class="hljs-built_in">number</span>')
   })
 
   it('passes JavaScript through without a compiler', () => {

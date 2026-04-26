@@ -1,5 +1,5 @@
 // @ts-nocheck
-import {highlightSanitizedCode} from '../../utils/hljs'
+import {codeLanguageClass, highlightSanitizedCode} from '../../utils/hljs'
 
 const Teardown = (props) => {
   const {teardown, language = 'javascript'} = props
@@ -8,7 +8,7 @@ const Teardown = (props) => {
       <h2 className="font-bold text-xl mb-4 tracking-tight">Teardown</h2>
       <div className="bg-muted border border-border rounded-lg p-4 overflow-auto max-h-80">
         <pre>
-          <code className="text-sm font-mono text-muted-foreground" dangerouslySetInnerHTML={{__html: highlightSanitizedCode(teardown, language)}} />
+          <code className={`${codeLanguageClass(language, teardown)} text-sm font-mono text-muted-foreground`} dangerouslySetInnerHTML={{__html: highlightSanitizedCode(teardown, language)}} />
         </pre>
       </div>
     </div>

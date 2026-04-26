@@ -1,5 +1,5 @@
 // @ts-nocheck
-import {highlightSanitizedCode} from '../utils/hljs'
+import {codeLanguageClass, highlightSanitizedCode} from '../utils/hljs'
 import { formatNumber, formatLatency } from '../utils/ArrayUtils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -92,7 +92,7 @@ export default function Test(props) {
       </td>
       <td className="py-4 px-4 border-r border-border align-top">
         <pre className="w-full whitespace-pre-wrap break-words">
-          <code className="text-sm font-mono text-muted-foreground" dangerouslySetInnerHTML={
+          <code className={`${codeLanguageClass(language, code)} text-sm font-mono text-muted-foreground`} dangerouslySetInnerHTML={
             {__html: highlightSanitizedCode(code, language)}} />
         </pre>
         {status === 'error' && error && (

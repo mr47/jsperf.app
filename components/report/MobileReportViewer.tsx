@@ -49,7 +49,7 @@ import {
   formatPercent,
 } from './slideUtils'
 import { runtimeHexColor, runtimePalette } from '../../lib/runtimePalette'
-import { highlightSanitizedCode } from '../../utils/hljs'
+import { codeLanguageClass, highlightSanitizedCode } from '../../utils/hljs'
 import MathNotation from '../MathNotation'
 
 /* --------------------------------- atoms --------------------------------- */
@@ -145,8 +145,8 @@ function MobileCode({ code, defaultOpen = false, language = 'javascript' }) {
       {open && (
         <pre className="m-0 px-3 pb-3 pt-0 text-[11.5px] leading-relaxed font-mono overflow-x-auto whitespace-pre">
           {html
-            ? <code className="hljs language-javascript block" dangerouslySetInnerHTML={{ __html: html }} />
-            : <code className="hljs language-javascript block">{trimmed}</code>}
+            ? <code className={`${codeLanguageClass(language, trimmed)} block`} dangerouslySetInnerHTML={{ __html: html }} />
+            : <code className={`${codeLanguageClass(language, trimmed)} block`}>{trimmed}</code>}
         </pre>
       )}
     </div>
