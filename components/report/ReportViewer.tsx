@@ -8,7 +8,7 @@
  * the global header/footer out — the host page renders this directly
  * inside <main>.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Head from 'next/head'
 import Link from 'next/link'
 import { useTheme } from 'next-themes'
@@ -28,6 +28,9 @@ import { buildDeck } from './slideUtils'
 import MobileReportViewer from './MobileReportViewer'
 import SlideProgress from './SlideProgress'
 
+const PRESENTATION_SLIDE_WIDTH = 1280
+const PRESENTATION_SLIDE_HEIGHT = 720
+
 export default function ReportViewer({ report }) {
   const deck = buildDeck(report)
   const [index, setIndex] = useState(0)
@@ -35,6 +38,8 @@ export default function ReportViewer({ report }) {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [chromeVisible, setChromeVisible] = useState(true)
   const [shareUrl, setShareUrl] = useState('')
+  const [stageViewport, setStageViewport] = useState({ width: 0, height: 0 })
+  const stageViewportRef = useRef(null)
   const { resolvedTheme } = useTheme()
 
   // The viewer page bypasses <Layout>, so we inject the highlight.js
@@ -142,6 +147,38 @@ export default function ReportViewer({ report }) {
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
+  // Fullscreen should behave like a projected 1280x720 slide, not a
+  // responsive webpage stretched across every pixel of a 4k monitor.
+  useEffect(() => {
+    const node = stageViewportRef.current
+    if (!node || typeof window === 'undefined') return
+
+    const update = () => {
+      const rect = node.getBoundingClientRect()
+      setStageViewport(prev => {
+        const width = Math.round(rect.width)
+        const height = Math.round(rect.height)
+        return prev.width === width && prev.height === height
+          ? prev
+          : { width, height }
+      })
+    }
+
+    update()
+    window.addEventListener('resize', update)
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => window.removeEventListener('resize', update)
+    }
+
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [])
+
   // Auto-hide the on-screen chevrons + slide counter while presenting.
   // Mirrors PowerPoint/Keynote: chrome reappears on mouse move and
   // fades out again after ~2s of stillness. Only active in fullscreen
@@ -200,6 +237,29 @@ export default function ReportViewer({ report }) {
   }, [shareUrl, report.title, onCopyLink])
 
   const onPrint = useCallback(() => window.print(), [])
+
+  const fullscreenScale = (() => {
+    if (!stageViewport.width || !stageViewport.height) return 1
+    const fitScale = Math.min(
+      stageViewport.width / PRESENTATION_SLIDE_WIDTH,
+      stageViewport.height / PRESENTATION_SLIDE_HEIGHT,
+    )
+    return Number.isFinite(fitScale) && fitScale > 0 ? fitScale : 1
+  })()
+  const fullscreenStageStyle = isFullscreen
+    ? {
+        width: `${PRESENTATION_SLIDE_WIDTH * fullscreenScale}px`,
+        height: `${PRESENTATION_SLIDE_HEIGHT * fullscreenScale}px`,
+      }
+    : undefined
+  const fullscreenSlideStyle = isFullscreen
+    ? {
+        width: `${PRESENTATION_SLIDE_WIDTH}px`,
+        height: `${PRESENTATION_SLIDE_HEIGHT}px`,
+        transform: `scale(${fullscreenScale})`,
+        transformOrigin: 'top left',
+      }
+    : undefined
 
   if (!SlideComponent) {
     return (
@@ -441,24 +501,31 @@ export default function ReportViewer({ report }) {
       </div>
 
       {/* On screen: a single 16:9 stage with the active slide.
-          In fullscreen we drop padding/border/shadow and let the
-          stage fill the viewport (letterboxed by aspect-ratio so
-          the slide stays 16:9 regardless of the screen shape). */}
+          In fullscreen the slide keeps its 1280x720 layout and scales
+          uniformly to the viewport, so 4k monitors don't stretch chart
+          panels while leaving text at normal CSS sizes. */}
       <div
+        ref={stageViewportRef}
         className={`flex-1 flex items-center justify-center ${
           isFullscreen ? 'p-0' : 'p-3 sm:p-6'
         }`}
       >
         <div
-          className={`relative w-full aspect-[16/9] bg-white dark:bg-slate-900 text-foreground overflow-hidden ${
+          className={`relative bg-white dark:bg-slate-900 text-foreground overflow-hidden ${
             isFullscreen
-              ? 'max-h-screen'
-              : 'max-w-[1280px] rounded-2xl shadow-xl border'
+              ? ''
+              : 'w-full aspect-[16/9] max-w-[1280px] rounded-2xl shadow-xl border'
           } ${isFullscreen && !chromeVisible ? 'cursor-none' : ''}`}
+          style={fullscreenStageStyle}
           role="region"
           aria-label={`Slide ${index + 1} of ${deck.length}`}
         >
-          <SlideComponent report={report} />
+          <div
+            className={isFullscreen ? 'absolute left-0 top-0' : 'h-full w-full'}
+            style={fullscreenSlideStyle}
+          >
+            <SlideComponent report={report} />
+          </div>
 
           <button
             type="button"
