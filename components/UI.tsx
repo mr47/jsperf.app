@@ -274,6 +274,7 @@ export default (props) => {
         return {
           id: i,
           hz: hzFormatted,
+          opsPerSec: hz,
           hzFinite: Number.isFinite(hz),
           rme: rmeFormatted,
           fastest: !allInfinityTie && i === fastestEntry?.index,

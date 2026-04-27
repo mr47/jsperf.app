@@ -41,11 +41,13 @@ const LANE_STYLES = [
 ]
 
 export default function BrowserRunAnimation({ tests, benchStatus }) {
+  if (benchStatus !== 'complete') return null
+
   const entries = (Array.isArray(tests) ? tests : [])
     .map((test, index) => {
       const opsPerSec = Number(test?.opsPerSec)
       if (!Number.isFinite(opsPerSec) || opsPerSec <= 0) return null
-      if (!['running', 'completed', 'finished'].includes(test?.status)) return null
+      if (test?.status !== 'finished') return null
       return {
         index,
         title: test?.title || `Test ${index + 1}`,
@@ -59,7 +61,6 @@ export default function BrowserRunAnimation({ tests, benchStatus }) {
   if (entries.length < 2) return null
 
   const fastest = entries[0].opsPerSec
-  const isLive = benchStatus === 'running' || entries.some(entry => entry.status === 'running')
 
   return (
     <Card className="mt-6 border-border/60 shadow-sm overflow-hidden">
@@ -78,7 +79,7 @@ export default function BrowserRunAnimation({ tests, benchStatus }) {
             </p>
           </div>
           <div className="w-fit rounded-full border border-border/60 bg-muted/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {isLive ? 'Live browser run' : 'Final browser run'}
+            Final browser run
           </div>
         </div>
 
