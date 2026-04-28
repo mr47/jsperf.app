@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { signIn, useSession } from "next-auth/react"
 import { useState, useEffect } from 'react'
 import GitHubIcon from './GitHubIcon'
@@ -25,7 +24,8 @@ export default function Header(props) {
     setNavState({...navState});
   };
 
-  const { login } = session?.user?.profile || {}
+  const sessionUser = session?.user as any
+  const { login } = sessionUser?.profile || {}
   const sessionLoading = status === 'loading'
 
   return (
@@ -82,7 +82,7 @@ export default function Header(props) {
                   <GitHubIcon fill="currentColor" width={16} height={16} />
                 </Button>
               ) : (
-                <Link href={`/u/${session?.user?.id}`} className="font-medium text-sm hover:text-primary transition-colors truncate text-right">
+                <Link href={`/u/${sessionUser?.id}`} className="font-medium text-sm hover:text-primary transition-colors truncate text-right">
                   { login }
                 </Link>
               )}

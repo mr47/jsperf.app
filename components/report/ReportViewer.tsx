@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Self-contained slide-deck viewer for a single report.
  *
@@ -60,7 +59,7 @@ export default function ReportViewer({ report }) {
     const wantLight = resolvedTheme === 'light'
 
     const ensureLink = (id, href, media) => {
-      let link = document.getElementById(id)
+      let link = document.getElementById(id) as HTMLLinkElement | null
       if (!link) {
         link = document.createElement('link')
         link.id = id

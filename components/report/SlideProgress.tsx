@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Compact dot-style progress / navigation indicator for the report
  * slide deck. One dot per slide, the active one is enlarged and

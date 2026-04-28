@@ -1,6 +1,5 @@
-// @ts-nocheck
 import * as React from "react"
-import { cva } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority";
 import { Tabs as TabsPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
@@ -9,7 +8,7 @@ function Tabs({
   className,
   orientation = "horizontal",
   ...props
-}) {
+}: React.ComponentProps<typeof TabsPrimitive.Root>) {
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
@@ -35,11 +34,14 @@ const tabsListVariants = cva(
   }
 )
 
+type TabsListProps = React.ComponentProps<typeof TabsPrimitive.List> &
+  VariantProps<typeof tabsListVariants>
+
 function TabsList({
   className,
   variant = "default",
   ...props
-}) {
+}: TabsListProps) {
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
@@ -52,7 +54,7 @@ function TabsList({
 function TabsTrigger({
   className,
   ...props
-}) {
+}: React.ComponentProps<typeof TabsPrimitive.Trigger>) {
   return (
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
@@ -70,7 +72,7 @@ function TabsTrigger({
 function TabsContent({
   className,
   ...props
-}) {
+}: React.ComponentProps<typeof TabsPrimitive.Content>) {
   return (
     <TabsPrimitive.Content
       data-slot="tabs-content"

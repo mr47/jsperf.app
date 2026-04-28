@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * "Generate report" CTA + result modal for a single benchmark
  * revision. Donor-gated server-side; this component just relays the
@@ -73,7 +72,7 @@ export default function GenerateReportButton({ slug, revision, className = '' })
       // (multi-runtime + perf counters live only on the client).
       const live = typeof window !== 'undefined' ? window.__jsperfLiveAnalysis : null
       const matchesPage = live && String(live.slug) === String(slug) && Number(live.revision) === Number(revision)
-      const body = { slug, revision }
+      const body: any = { slug, revision }
       if (matchesPage) {
         body.clientAnalysis = live.analysis
         body.clientMultiRuntime = live.multiRuntime

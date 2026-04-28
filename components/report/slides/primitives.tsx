@@ -1,7 +1,14 @@
-// @ts-nocheck
 import React, { useMemo } from 'react'
 
 import { codeLanguageClass, highlightSanitizedCode } from '../../../utils/hljs'
+
+const TAG_PALETTE = {
+  slate: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
+  emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
+  rose: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
+  violet: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
+  amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
+}
 
 export function SlideShell({ children, className = '', accent }) {
   return (
@@ -41,13 +48,7 @@ export function SlideHeader({ icon: Icon, eyebrow, title }) {
 
 /** Inline ribbon tag, used for "fastest" / "slowest" / runtime labels. */
 export function Tag({ children, color = 'slate' }) {
-  const palette = {
-    slate: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200',
-    emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200',
-    rose: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200',
-    violet: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-200',
-    amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200',
-  }[color] || palette?.slate
+  const palette = TAG_PALETTE[color] || TAG_PALETTE.slate
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${palette}`}>
       {children}

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Cpu, Trophy } from 'lucide-react'
@@ -179,7 +178,7 @@ function TestRuntimePanel({ title, comparison }) {
     { key: 'rss',         label: 'Memory (RSS)', unit: 'resident',      direction: 'lower',  format: formatBytes, help: METRIC_HELP.rss },
   ]
 
-  const tableSections = [
+  const tableSections: any[] = [
     {
       label: 'Throughput',
       rows: [

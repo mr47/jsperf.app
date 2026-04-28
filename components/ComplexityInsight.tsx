@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Card, CardContent } from '@/components/ui/card'
 import MathNotation from '@/components/MathNotation'
 import { Boxes, GitBranch, Gauge, Zap } from 'lucide-react'

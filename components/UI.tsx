@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef } from 'react'
 import PostMessageBroker from '../utils/postMessageBroker'
 import { getRanked, formatNumber } from '../utils/ArrayUtils'

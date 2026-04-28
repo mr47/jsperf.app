@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { marked } from 'marked'
 import DOMPurify from 'isomorphic-dompurify'
 

@@ -18,3 +18,18 @@ declare namespace NodeJS {
     VERCEL_PROJECT_ID?: string
   }
 }
+
+interface Window {
+  __jsperfLiveAnalysis?: {
+    slug?: string | number
+    revision?: string | number
+    analysis?: unknown
+    multiRuntime?: unknown
+    multiRuntimeStatus?: string
+    capturedAt?: number
+  }
+}
+
+interface Navigator {
+  deviceMemory?: number
+}

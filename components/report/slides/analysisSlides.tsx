@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useMemo } from 'react'
 import { AlertTriangle, Brain, CheckCircle2, Gauge, Layers, ShieldAlert, Stethoscope } from 'lucide-react'
 

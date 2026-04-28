@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { signOut, useSession } from "next-auth/react"
 import Link from 'next/link'
 import { SEO_LANDING_PAGES } from '../lib/seo-pages'

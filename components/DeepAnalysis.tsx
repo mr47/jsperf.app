@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Button } from '@/components/ui/button'
 import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
@@ -345,7 +344,7 @@ function mergeMultiRuntime(baseResults, mrData) {
   if (!Array.isArray(baseResults)) return baseResults || []
   if (!mrData?.results) return baseResults
 
-  const byIndex = new Map(mrData.results.map(r => [r.testIndex, r]))
+  const byIndex = new Map<number, any>(mrData.results.map((r: any) => [r.testIndex, r]))
   return baseResults.map(r => {
     const mr = byIndex.get(r.testIndex)
     if (!mr) return r

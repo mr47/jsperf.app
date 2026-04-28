@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {codeLanguageClass, highlightSanitizedCode} from '../../utils/hljs'
 
 const Teardown = (props) => {

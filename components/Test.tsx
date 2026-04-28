@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {codeLanguageClass, highlightSanitizedCode} from '../utils/hljs'
 import { formatNumber, formatLatency } from '../utils/ArrayUtils'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'

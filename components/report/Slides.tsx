@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Public registry for report presentation slides.
  *

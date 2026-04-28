@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { DateTimeLong, toIsoDateTimeAttr } from '../../utils/Date'
 
 const Meta = (props) => {

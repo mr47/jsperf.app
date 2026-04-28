@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useEffect } from 'react'
 import Header from './Header'
 import Footer from './Footer'
@@ -14,7 +13,7 @@ const Layout = (props) => {
     
     const themeUrl = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.2.0/styles/${resolvedTheme === 'dark' ? 'github-dark' : 'github'}.min.css`
     
-    let link = document.getElementById('hljs-theme')
+    let link = document.getElementById('hljs-theme') as HTMLLinkElement | null
     if (!link) {
       link = document.createElement('link')
       link.id = 'hljs-theme'

@@ -1,4 +1,3 @@
-// @ts-nocheck
 const GitHubIcon = props => {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" version="1.1" data-view-component="true" {...props}>

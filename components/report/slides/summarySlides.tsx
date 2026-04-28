@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useMemo } from 'react'
 import { Activity, Crown, Gauge, Rocket, Sparkles, Trophy, Zap } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, Tooltip, XAxis, YAxis } from 'recharts'
@@ -221,7 +220,7 @@ export function SpeedAnimationSlide({ report }) {
                       '--lap-duration': `${lapSeconds}s`,
                       '--lap-delay': `${index * -0.24}s`,
                       '--static-position': staticPosition,
-                    }}
+                    } as React.CSSProperties}
                   >
                     <span className="absolute left-2 top-2 h-2.5 w-2.5 rounded-full bg-white/75" />
                   </div>

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useRef, useEffect, useState } from 'react'
 import { useTheme } from 'next-themes'
@@ -86,32 +85,33 @@ function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_
 
   useEffect(() => {
     const c = gl.domElement
-    c.style.position = 'absolute'
-    c.style.top = '0'
-    c.style.left = '0'
-    c.style.width = '100%'
-    c.style.height = '100%'
-    c.style.opacity = '1'
-    c.style.imageRendering = 'pixelated'
-    c.style.pointerEvents = 'none'
-    c.style.maskMode = 'luminance'
-    c.style.webkitMaskMode = 'luminance'
-    c.style.maskRepeat = 'no-repeat'
-    c.style.webkitMaskRepeat = 'no-repeat'
-    c.style.contain = 'paint'
+    const style = c.style as CSSStyleDeclaration & { webkitMaskMode?: string }
+    style.position = 'absolute'
+    style.top = '0'
+    style.left = '0'
+    style.width = '100%'
+    style.height = '100%'
+    style.opacity = '1'
+    style.imageRendering = 'pixelated'
+    style.pointerEvents = 'none'
+    style.maskMode = 'luminance'
+    style.webkitMaskMode = 'luminance'
+    style.maskRepeat = 'no-repeat'
+    style.webkitMaskRepeat = 'no-repeat'
+    style.contain = 'paint'
     return () => {
       // Drop the mask data URL so the browser releases the decoded
       // image immediately instead of waiting for the canvas element
       // itself to be GC'd.
-      c.style.maskImage = ''
-      c.style.webkitMaskImage = ''
-      c.style.imageRendering = ''
-      c.style.maskMode = ''
-      c.style.webkitMaskMode = ''
-      c.style.maskRepeat = ''
-      c.style.webkitMaskRepeat = ''
-      c.style.pointerEvents = ''
-      c.style.contain = ''
+      style.maskImage = ''
+      style.webkitMaskImage = ''
+      style.imageRendering = ''
+      style.maskMode = ''
+      style.webkitMaskMode = ''
+      style.maskRepeat = ''
+      style.webkitMaskRepeat = ''
+      style.pointerEvents = ''
+      style.contain = ''
     }
   }, [gl])
 
@@ -210,7 +210,7 @@ function SvgMaskAsciiRenderer({ characters = CHAR_SET, refreshMs = MASK_REFRESH_
 }
 
 function CoolShape() {
-  const ref = useRef()
+  const ref = useRef<any>(null)
 
   useFrame((state, delta) => {
     if (!ref.current) return

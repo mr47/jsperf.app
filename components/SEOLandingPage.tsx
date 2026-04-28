@@ -1,4 +1,3 @@
-// @ts-nocheck
 import Link from 'next/link'
 import Layout from './Layout'
 import { Button } from '@/components/ui/button'

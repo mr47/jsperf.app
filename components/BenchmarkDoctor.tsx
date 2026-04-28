@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { AlertTriangle, CheckCircle2, ShieldAlert, Stethoscope } from 'lucide-react'
 
 const SEVERITY_STYLES = {

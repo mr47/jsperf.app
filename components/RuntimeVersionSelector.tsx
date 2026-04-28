@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ChevronDown, Loader2, SlidersHorizontal } from 'lucide-react'

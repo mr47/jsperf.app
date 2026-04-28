@@ -1,11 +1,10 @@
-// @ts-nocheck
 import React, { useEffect, useRef, useState } from 'react'
 import { ResponsiveContainer } from 'recharts'
 
 export default function SafeResponsiveContainer({
   children,
   className = '',
-  style,
+  style = undefined,
   minWidth = 0,
   minHeight = 0,
   ...props

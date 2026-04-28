@@ -1,4 +1,3 @@
-// @ts-nocheck
 // The content of the iframe which includes an API to interact with Benchmark.js
 
 import { SANDBOX_IFRAME_FLAGS } from '../utils/sandboxIframe'

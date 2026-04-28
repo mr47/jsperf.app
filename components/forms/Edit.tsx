@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useState, useEffect, useCallback, useRef } from 'react'
 import Router from 'next/router'
 import { Button } from '@/components/ui/button'
@@ -66,7 +65,7 @@ function clearDraft() {
   } catch {}
 }
 
-const TestCaseFieldset = ({index, remove, test, update, language}) => {
+const TestCaseFieldset = ({index, remove = null, test, update, language}) => {
   const label = languageLabel(language)
   const editorClass = editorClassFor(language)
   return (
@@ -240,14 +239,14 @@ export default function EditForm({pageData}) {
     info: '',
     slug: '',
     visible: false
-  }, pageData)
+  }, pageData) as any
 
   const submitFormHandler = async event => {
     event.preventDefault()
     setIsSaving(true)
     setSaveError(null)
 
-    const formData = {
+    const formData: any = {
       title: event.target.title.value,
       info: event.target.info.value
     }
@@ -323,10 +322,10 @@ export default function EditForm({pageData}) {
             <textarea 
               name="info" 
               id="info" 
-              rows="4" 
+              rows={4}
               placeholder="Explain what you are benchmarking and why..."
               className="flex min-h-[120px] w-full rounded-md border border-input bg-background/50 px-4 py-3 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:border-primary/50 transition-all shadow-inner"
-              maxLength="16777215" 
+              maxLength={16777215}
               defaultValue={formDefaults.info} 
             />
           </div>
@@ -512,7 +511,7 @@ export default function EditForm({pageData}) {
         </div>
         <div className="space-y-6">
           {testsState.map((test, index) => {
-            const optionalProps = {}
+            const optionalProps: any = {}
             if (testsState.length > 2) {
               optionalProps.remove = testsRemove
             }

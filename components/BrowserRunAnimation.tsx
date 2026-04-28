@@ -1,4 +1,4 @@
-// @ts-nocheck
+import type { CSSProperties } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Activity, Trophy } from 'lucide-react'
@@ -141,7 +141,7 @@ export default function BrowserRunAnimation({ tests, benchStatus }) {
                           '--lap-duration': `${lapSeconds}s`,
                           '--lap-delay': `${sortedIndex * -0.28}s`,
                           '--static-position': staticPosition,
-                        }}
+                        } as CSSProperties}
                       >
                         <span className="absolute left-1.5 top-1.5 h-2 w-2 rounded-full bg-white/70" />
                       </div>

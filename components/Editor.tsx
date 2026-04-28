@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef } from 'react'
 
 import hljs from '../utils/hljs'
@@ -8,12 +7,13 @@ import {CodeJar} from 'codejar'
 export const Editor = (props) => {
   const {code, onUpdate, style, className} = props
 
-  const editorRef = useRef(<div></div>)
-  const jarRef = useRef(null)
+  const editorRef = useRef<HTMLElement | null>(null)
+  const jarRef = useRef<ReturnType<typeof CodeJar> | null>(null)
   const latestCodeRef = useRef(code || '')
   const suppressUpdateRef = useRef(false)
 
   useEffect(() => {
+    if (!editorRef.current) return undefined
     jarRef.current = CodeJar(editorRef.current, hljs.highlightElement)
 
     suppressUpdateRef.current = true

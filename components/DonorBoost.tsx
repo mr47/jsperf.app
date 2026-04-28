@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { signIn, useSession } from 'next-auth/react'
@@ -535,7 +534,7 @@ function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
   )
 }
 
-function Path({ step, title, description, action, done }) {
+function Path({ step, title, description, action, done = false }) {
   return (
     <div className={`rounded-xl border p-4 sm:p-5 transition-colors ${done ? 'border-emerald-500/40 bg-emerald-500/5' : 'bg-card hover:bg-muted/20'}`}>
       <div className="flex items-start gap-3 sm:gap-4">

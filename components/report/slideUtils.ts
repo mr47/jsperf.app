@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Shared helpers for report slides. Pure functions only — kept
  * separate so they can be unit-tested without rendering React.
@@ -131,7 +130,7 @@ export function flattenRuntimes(report) {
   for (const r of report?.analysis?.results || []) {
     const byRuntime = r?.multiRuntime?.byRuntime
     if (!byRuntime || typeof byRuntime !== 'object') continue
-    for (const [runtime, data] of Object.entries(byRuntime)) {
+    for (const [runtime, data] of Object.entries(byRuntime) as [string, any][]) {
       if (!data || data.hasError) continue
       out.push({
         testIndex: r.testIndex,
@@ -245,7 +244,7 @@ export function collectPerfSamples(report) {
   for (const r of report?.analysis?.results || []) {
     const byRuntime = r?.multiRuntime?.byRuntime
     if (!byRuntime) continue
-    for (const [runtime, data] of Object.entries(byRuntime)) {
+    for (const [runtime, data] of Object.entries(byRuntime) as [string, any][]) {
       for (const p of (data?.profiles || [])) {
         if (p?.perfCounters && Object.keys(p.perfCounters).length) {
           samples.push({

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import React, { useMemo } from 'react'
 import { Activity, Cpu, Gauge, Microscope, Monitor } from 'lucide-react'
 import {
@@ -42,8 +41,8 @@ export function RuntimesSlide({ report }) {
   const data = useMemo(() => {
     const flat = flattenRuntimes(report)
     if (!flat.length) return { rows: [], runtimes: [] }
-    const rowsByTest = new Map()
-    const runtimes = new Set()
+    const rowsByTest = new Map<number, any>()
+    const runtimes = new Set<string>()
     for (const slot of flat) {
       if (!rowsByTest.has(slot.testIndex)) {
         rowsByTest.set(slot.testIndex, { name: slot.testTitle })

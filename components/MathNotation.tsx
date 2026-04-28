@@ -1,4 +1,3 @@
-// @ts-nocheck
 function renderTerm(term, key) {
   const power = term.match(/^([a-zA-Z]+|\d+)\^(-?\d+)$/)
 

@@ -1,4 +1,3 @@
-// @ts-nocheck
 import PostMessageBroker from '../utils/postMessageBroker'
 import { SANDBOX_IFRAME_FLAGS } from '../utils/sandboxIframe'
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -735,9 +734,10 @@ export default function Tests(props) {
               const canvas = document.createElement('canvas')
               const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
               if (gl) {
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info')
+                const webgl = gl as WebGLRenderingContext
+                const debugInfo = webgl.getExtension('WEBGL_debug_renderer_info')
                 if (debugInfo) {
-                  renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
+                  renderer = webgl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)
                 }
               }
             } catch (e) {}
@@ -796,7 +796,7 @@ export default function Tests(props) {
 
   const sandboxUrl = `/sandbox/${id}`
 
-  const run = (options) => {
+  const run = (options = null) => {
     clearInterval(watchdogTimerRef.current)
 
     if (!options) {
@@ -1098,7 +1098,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
           </caption>
           <thead className="bg-primary text-primary-foreground">
             <tr>
-              <th colSpan="2" className="py-3 px-4 font-semibold border-r border-primary-foreground/20">Test Case</th>
+              <th colSpan={2} className="py-3 px-4 font-semibold border-r border-primary-foreground/20">Test Case</th>
               <th className="py-3 px-4 font-semibold text-center">
                 <Tooltip>
                   <TooltipTrigger asChild>

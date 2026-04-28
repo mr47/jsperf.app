@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { Card, CardContent } from '@/components/ui/card'
 import {
   LineChart,
@@ -26,7 +25,7 @@ const SCALING_LABELS = {
   'insufficient-data': 'not enough data points',
 }
 
-function CustomTooltip({ active, payload, label, memoryMap }) {
+function CustomTooltip({ active = false, payload = [], label = '', memoryMap }) {
   if (!active || !payload?.length) return null
 
   const memLabel = memoryMap?.[label]

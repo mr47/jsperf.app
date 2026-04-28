@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {DateTimeLong} from '../../utils/Date'
 import Link from 'next/link'
 

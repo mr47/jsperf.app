@@ -1,4 +1,3 @@
-// @ts-nocheck
 import {highlightSanitizedHTML} from '../../utils/hljs'
 
 const PrepCode = (props) => {

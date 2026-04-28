@@ -44,6 +44,13 @@ function tValue(df) {
 
 const yieldToEventLoop = () => new Promise((r) => setTimeout(r, 0))
 
+type BenchmarkOptions = {
+  time?: number
+  isAsync?: boolean
+  signal?: AbortSignal
+  onProgress?: (elapsed: number, samples: number, runs: number, currentHz: number) => void
+}
+
 /**
  * Run `fn` using tinybench in multiple ~200ms passes with automatic
  * iteration batching for fast sync functions.
@@ -56,7 +63,7 @@ const yieldToEventLoop = () => new Promise((r) => setTimeout(r, 0))
  * @param {Function} opts.onProgress  (elapsed, samples, runs, currentHz).
  * @returns {Promise<object>}  Statistics result object.
  */
-export async function runBenchmark(fn, { time = 5000, isAsync = false, signal, onProgress } = {}) {
+export async function runBenchmark(fn: () => unknown, { time = 5000, isAsync = false, signal, onProgress }: BenchmarkOptions = {}) {
   // ── calibrate batch size (sync only) ──
   // For fast functions, batching many calls per timing measurement
   // amortises the ~50-100ns performance.now() overhead.
