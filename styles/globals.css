@@ -125,6 +125,8 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
   body {
     @apply bg-background text-foreground;
@@ -135,6 +137,16 @@
   button svg {
     display: inline;
     vertical-align: middle;
+  }
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
   }
 }
 
@@ -151,7 +163,6 @@
     background-image: linear-gradient(to bottom, #6ca5dd, #1a6ab9);
   }
 }
-
 
 @layer components {
   .hljs {
