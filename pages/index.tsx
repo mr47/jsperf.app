@@ -10,6 +10,7 @@ import dynamic from 'next/dynamic'
 import { highlightSanitizedCode } from '../utils/hljs'
 import { SEO_LANDING_PAGES } from '../lib/seo-pages'
 import { softwareApplicationSchema, websiteSchema } from '../lib/seo'
+import BorderGlow from '../components/BorderGlow'
 
 const HeroBackground = dynamic(() => import('../components/HeroBackground'), { ssr: false })
 const TYPESCRIPT_PREVIEW_CODE = `type Product = {
@@ -180,17 +181,30 @@ export default function Home(props) {
               </CardHeader>
             </Card>
 
-            <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm">
-              <CardHeader>
-                <div className="h-12 w-12 rounded-lg bg-violet-500/10 flex items-center justify-center mb-4">
-                  <Microscope className="h-6 w-6 text-violet-600 dark:text-violet-500" />
-                </div>
-                <CardTitle className="text-xl">Deep Analysis Engine</CardTitle>
-                <CardDescription className="text-base mt-2 leading-relaxed">
-                  Go beyond browser results with server-side analysis using dual engines &mdash; QuickJS-WASM for deterministic baselines and V8 Firecracker microVMs for realistic JIT profiling.
-                </CardDescription>
-              </CardHeader>
-            </Card>
+            <BorderGlow
+              className="group h-full"
+              edgeSensitivity={24}
+              glowColor="268 92 78"
+              backgroundColor="var(--card)"
+              borderRadius={16}
+              glowRadius={32}
+              glowIntensity={0.85}
+              coneSpread={28}
+              colors={['#c084fc', '#38bdf8', '#f472b6']}
+              fillOpacity={0.32}
+            >
+              <Card className="h-full border-0 bg-card/50 backdrop-blur-sm shadow-sm transition-colors group-hover:bg-card/70">
+                <CardHeader>
+                  <div className="h-12 w-12 rounded-lg bg-violet-500/10 flex items-center justify-center mb-4">
+                    <Microscope className="h-6 w-6 text-violet-600 dark:text-violet-500" />
+                  </div>
+                  <CardTitle className="text-xl">Deep Analysis Engine</CardTitle>
+                  <CardDescription className="text-base mt-2 leading-relaxed">
+                    Go beyond browser results with server-side analysis using dual engines &mdash; QuickJS-WASM for deterministic baselines and V8 Firecracker microVMs for realistic JIT profiling.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </BorderGlow>
 
             <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm">
               <CardHeader>
