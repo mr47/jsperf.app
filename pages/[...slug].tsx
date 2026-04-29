@@ -19,6 +19,7 @@ import Teardown from '../components/sections/Teardown'
 import PrepCode from '../components/sections/PrepCode'
 import { Separator } from '@/components/ui/separator'
 import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../lib/benchmark/source'
+import { benchmarkOgImagePath, benchmarkOgVersion } from '../lib/benchmarkOg'
 import { absoluteUrl, breadcrumbSchema } from '../lib/seo'
 
 export default function Slug(props) {
@@ -44,6 +45,11 @@ export default function Slug(props) {
   const benchmarkPath = `/${slug}${revision > 1 ? `/${revision}` : ''}`
   const benchmarkTitle = `${title}${revision > 1 ? ` (v${revision})` : ''}`
   const benchmarkDescription = `${benchmarkTitle} - online JavaScript${language === 'typescript' ? ' and TypeScript' : ''} benchmark with ${tests.length} test${tests.length === 1 ? '' : 's'}${mirror ? ' from the jsPerf.com mirror' : ''}.`
+  const benchmarkOgImage = benchmarkOgImagePath({
+    slug,
+    revision,
+    version: benchmarkOgVersion(props.pageData),
+  })
   const benchmarkSchema = {
     '@context': 'https://schema.org',
     '@type': 'TechArticle',
@@ -68,6 +74,7 @@ export default function Slug(props) {
         title={benchmarkTitle}
         description={benchmarkDescription}
         canonical={benchmarkPath}
+        ogImage={benchmarkOgImage}
         keywords={[
           title,
           'online javascript benchmark',
