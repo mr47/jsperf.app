@@ -17,16 +17,18 @@ function emailDomains(emails) {
   ))
 }
 
+function truncateLogValue(value, max = 500) {
+  if (!value) return ''
+  const text = String(value)
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
 export default NextAuth({
   providers: [
     GitHubProvider({
       clientId: process.env.GITHUB_ID,
       clientSecret: process.env.GITHUB_SECRET,
-      authorization: {
-        params: {
-          scope: 'read:user user:email',
-        },
-      },
+      authorization: 'https://github.com/login/oauth/authorize?scope=read:user%20user:email',
     })
   ],
 
@@ -101,7 +103,16 @@ export default NextAuth({
             })
           }
         } else {
-          console.warn('GitHub /user/emails returned', res.status)
+          const body = await res.text().catch(() => '')
+          console.warn('[auth-github] /user/emails failed', {
+            status: res.status,
+            statusText: res.statusText,
+            oauthScopes: res.headers.get('x-oauth-scopes'),
+            acceptedOauthScopes: res.headers.get('x-accepted-oauth-scopes'),
+            rateLimitRemaining: res.headers.get('x-ratelimit-remaining'),
+            rateLimitReset: res.headers.get('x-ratelimit-reset'),
+            body: truncateLogValue(body),
+          })
         }
       } catch (err) {
         console.warn('GitHub email lookup failed:', err?.message || err)
