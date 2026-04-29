@@ -20,6 +20,21 @@ const promoRatelimit = new Ratelimit({
   prefix: 'rl:donor-promo',
 })
 
+function maskEmail(email: string | null | undefined) {
+  if (!email || typeof email !== 'string') return null
+  const [local, domain] = email.toLowerCase().split('@')
+  if (!domain) return 'invalid-email'
+  return `${local?.slice(0, 2) || '**'}***@${domain}`
+}
+
+function emailDomains(emails: Array<string | null | undefined>) {
+  return Array.from(new Set(
+    emails
+      .map((email) => String(email || '').toLowerCase().split('@')[1])
+      .filter(Boolean)
+  ))
+}
+
 function parseBody(req) {
   if (!req.body) return {}
   if (typeof req.body === 'string') {
@@ -33,12 +48,21 @@ async function readSessionUser(req) {
   try {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
     const user = (token?.user || {}) as { email?: string; emails?: string[]; name?: string }
+    console.info('[donor-promo] session token resolved', {
+      tokenEmail: maskEmail(token?.email as string | undefined),
+      userEmail: maskEmail(user.email),
+      emailListCount: Array.isArray(user.emails) ? user.emails.length : 0,
+      emailDomains: emailDomains(Array.isArray(user.emails) ? user.emails : []),
+      hasAgileEngineEmail: [user.email, ...(Array.isArray(user.emails) ? user.emails : [])]
+        .some((email) => String(email || '').toLowerCase().endsWith('@agileengine.com')),
+    })
     return {
       email: user.email || token?.email || null,
       emails: Array.isArray(user.emails) ? user.emails : [],
       name: user.name || token?.name || null,
     }
-  } catch (_) {
+  } catch (error) {
+    console.warn('[donor-promo] failed to read session token', error?.message || error)
     return null
   }
 }
@@ -69,6 +93,13 @@ export default async function handler(req, res) {
     }
 
     const user = await readSessionUser(req)
+    console.info('[donor-promo] claim attempt', {
+      code: String(code).trim().toUpperCase(),
+      hasSessionUser: !!user,
+      email: maskEmail(user?.email),
+      emailListCount: Array.isArray(user?.emails) ? user.emails.length : 0,
+      emailDomains: emailDomains(Array.isArray(user?.emails) ? user.emails : []),
+    })
     if (!user?.email && !user?.emails?.length) {
       return res.status(401).json({
         success: false,
@@ -85,6 +116,10 @@ export default async function handler(req, res) {
 
     if (!claim.ok) {
       const failedClaim = claim as { status?: number; error?: string }
+      console.info('[donor-promo] claim rejected', {
+        status: failedClaim.status || 400,
+        error: failedClaim.error || 'Could not redeem promo code.',
+      })
       return res.status(failedClaim.status || 400).json({
         success: false,
         error: failedClaim.error || 'Could not redeem promo code.',
@@ -93,6 +128,13 @@ export default async function handler(req, res) {
 
     const { token, session, ttl } = await createDonorSession(claim.match, claim.ttlSeconds)
     setDonorCookie(res, token, ttl)
+
+    console.info('[donor-promo] claim accepted', {
+      email: maskEmail(session.email),
+      promoCode: session.promoCode,
+      ttl,
+      alreadyRedeemed: !!claim.alreadyRedeemed,
+    })
 
     return res.status(200).json({
       success: true,

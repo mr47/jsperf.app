@@ -22,6 +22,22 @@ function normalizeEmail(email) {
   return email.trim().toLowerCase()
 }
 
+function maskEmail(email) {
+  const normalizedEmail = normalizeEmail(email)
+  if (!normalizedEmail) return null
+  const [local, domain] = normalizedEmail.split('@')
+  if (!domain) return 'invalid-email'
+  return `${local?.slice(0, 2) || '**'}***@${domain}`
+}
+
+function emailDomains(emails) {
+  return Array.from(new Set(
+    (Array.isArray(emails) ? emails : [])
+      .map((email) => normalizeEmail(email).split('@')[1])
+      .filter(Boolean)
+  ))
+}
+
 function isAllowedEmail(email, domain) {
   if (!domain) return true
   return normalizeEmail(email).endsWith(`@${String(domain).toLowerCase()}`)
@@ -96,6 +112,13 @@ export async function claimPromoCode({ code, email, emails = [], name }) {
       .filter(Boolean)
   ))
 
+  console.info('[promo-code] claim candidates', {
+    code: normalizedCode,
+    candidateCount: candidateEmails.length,
+    candidateDomains: emailDomains(candidateEmails),
+    hasAgileEngineEmail: candidateEmails.some((candidateEmail) => candidateEmail.endsWith('@agileengine.com')),
+  })
+
   if (candidateEmails.length === 0) {
     return {
       ok: false,
@@ -108,6 +131,7 @@ export async function claimPromoCode({ code, email, emails = [], name }) {
   const promo = await getPromo(collection, normalizedCode)
 
   if (!promo) {
+    console.info('[promo-code] missing promo config', { code: normalizedCode })
     return {
       ok: false,
       status: 404,
@@ -120,6 +144,11 @@ export async function claimPromoCode({ code, email, emails = [], name }) {
     : candidateEmails[0]
 
   if (!isAllowedEmail(normalizedEmail, promo.allowedEmailDomain)) {
+    console.info('[promo-code] email domain rejected', {
+      code: normalizedCode,
+      allowedEmailDomain: promo.allowedEmailDomain,
+      candidateDomains: emailDomains(candidateEmails),
+    })
     return {
       ok: false,
       status: 403,
@@ -135,6 +164,11 @@ export async function claimPromoCode({ code, email, emails = [], name }) {
   })
 
   if (existing) {
+    console.info('[promo-code] found existing redemption', {
+      code: promo.code,
+      email: maskEmail(normalizedEmail),
+      expiresAt: existing.expiresAt,
+    })
     return claimFromRedemption({ promo, redemption: existing, now, fallbackName: name })
   }
 
@@ -153,6 +187,10 @@ export async function claimPromoCode({ code, email, emails = [], name }) {
     })
   } catch (err) {
     if (err?.code !== 11000) throw err
+    console.info('[promo-code] redemption insert race', {
+      code: promo.code,
+      email: maskEmail(normalizedEmail),
+    })
     const redemption = await collection.findOne({
       type: 'redemption',
       code: promo.code,
