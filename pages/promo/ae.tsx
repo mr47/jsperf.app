@@ -11,6 +11,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const PROMO_CODE = 'AE'
+const GITHUB_EMAIL_AUTH_PARAMS = { scope: 'read:user user:email' }
+
+type PromoSessionUser = {
+  name?: string | null
+  email?: string | null
+  emails?: string[]
+}
 
 function emitDonorUpdate(donor: unknown) {
   if (typeof window === 'undefined') return
@@ -27,9 +34,16 @@ export default function AgileEnginePromoPage() {
   const [success, setSuccess] = useState<string | null>(null)
 
   const signedIn = !!session?.user
-  const email = session?.user?.email || ''
-  const isAgileEngineEmail = email.toLowerCase().endsWith('@agileengine.com')
+  const user = session?.user as PromoSessionUser | undefined
+  const emailCandidates = Array.from(new Set([
+    user?.email,
+    ...(Array.isArray(user?.emails) ? user.emails : []),
+  ].map((candidate) => String(candidate || '').trim().toLowerCase()).filter(Boolean)))
+  const agileEngineEmail = emailCandidates.find((candidate) => candidate.endsWith('@agileengine.com')) || ''
+  const hasSharedEmail = emailCandidates.length > 0
+  const isAgileEngineEmail = !!agileEngineEmail
   const loadingSession = status === 'loading'
+  const signInWithEmailAccess = () => signIn('github', { callbackUrl: '/promo/ae' }, GITHUB_EMAIL_AUTH_PARAMS)
 
   const handleClaim = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -105,7 +119,7 @@ export default function AgileEnginePromoPage() {
                     <p className="text-sm text-muted-foreground mb-3">
                       Start by signing in with GitHub. Your GitHub account must expose an AgileEngine email.
                     </p>
-                    <Button onClick={() => signIn('github')} className="w-full sm:w-auto gap-2" disabled={loadingSession}>
+                    <Button onClick={signInWithEmailAccess} className="w-full sm:w-auto gap-2" disabled={loadingSession}>
                       <GitHubIcon fill="currentColor" width={16} height={16} />
                       Sign in with GitHub
                     </Button>
@@ -115,13 +129,26 @@ export default function AgileEnginePromoPage() {
                 {signedIn && (
                   <div className={`rounded-xl border p-4 ${isAgileEngineEmail ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-destructive/30 bg-destructive/5'}`}>
                     <div className="text-sm font-medium">
-                      Signed in as {email || session?.user?.name || 'GitHub user'}
+                      Signed in as {agileEngineEmail || user?.email || user?.name || 'GitHub user'}
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                       {isAgileEngineEmail
                         ? 'This email is eligible for the AE promo.'
-                        : 'Use a GitHub account with an @agileengine.com email to claim this promo.'}
+                        : hasSharedEmail
+                        ? 'Use a GitHub account with an @agileengine.com email to claim this promo.'
+                        : 'GitHub did not share an email with jsPerf. Reconnect and approve email access, then try again.'}
                     </p>
+                    {!isAgileEngineEmail && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={signInWithEmailAccess}
+                        className="mt-3 w-full sm:w-auto gap-2"
+                      >
+                        <GitHubIcon fill="currentColor" width={16} height={16} />
+                        Reconnect GitHub email access
+                      </Button>
+                    )}
                   </div>
                 )}
 
@@ -134,7 +161,7 @@ export default function AgileEnginePromoPage() {
                       onChange={(event) => setCode(event.target.value)}
                       autoComplete="off"
                       maxLength={100}
-                      disabled={!signedIn || submitting}
+                      disabled={!signedIn || !isAgileEngineEmail || submitting}
                       className="h-12 text-lg font-mono"
                     />
                   </div>
@@ -152,7 +179,7 @@ export default function AgileEnginePromoPage() {
                     </div>
                   )}
 
-                  <Button type="submit" size="lg" disabled={!signedIn || submitting} className="w-full gap-2">
+                  <Button type="submit" size="lg" disabled={!signedIn || !isAgileEngineEmail || submitting} className="w-full gap-2">
                     {submitting ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />

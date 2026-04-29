@@ -88,18 +88,22 @@ function claimFromRedemption({ promo, redemption, now, fallbackName }) {
   }
 }
 
-export async function claimPromoCode({ code, email, name }) {
+export async function claimPromoCode({ code, email, emails = [], name }) {
   const normalizedCode = normalizeCode(code)
+  const candidateEmails = Array.from(new Set(
+    [email, ...(Array.isArray(emails) ? emails : [])]
+      .map(normalizeEmail)
+      .filter(Boolean)
+  ))
 
-  if (!email || typeof email !== 'string') {
+  if (candidateEmails.length === 0) {
     return {
       ok: false,
       status: 401,
-      error: 'Sign in with GitHub before redeeming a promo code.',
+      error: 'GitHub did not provide an email. Please reconnect GitHub and approve email access.',
     }
   }
 
-  const normalizedEmail = normalizeEmail(email)
   const collection = await promoCodesCollection()
   const promo = await getPromo(collection, normalizedCode)
 
@@ -110,6 +114,10 @@ export async function claimPromoCode({ code, email, name }) {
       error: 'Promo code not found.',
     }
   }
+
+  const normalizedEmail = promo.allowedEmailDomain
+    ? candidateEmails.find((candidateEmail) => isAllowedEmail(candidateEmail, promo.allowedEmailDomain))
+    : candidateEmails[0]
 
   if (!isAllowedEmail(normalizedEmail, promo.allowedEmailDomain)) {
     return {

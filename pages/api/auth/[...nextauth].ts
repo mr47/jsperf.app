@@ -6,7 +6,12 @@ export default NextAuth({
   providers: [
     GitHubProvider({
       clientId: process.env.GITHUB_ID,
-      clientSecret: process.env.GITHUB_SECRET
+      clientSecret: process.env.GITHUB_SECRET,
+      authorization: {
+        params: {
+          scope: 'read:user user:email',
+        },
+      },
     })
   ],
 
@@ -42,10 +47,16 @@ export default NextAuth({
         if (res.ok) {
           const emails = await res.json().catch(() => null)
           if (Array.isArray(emails) && emails.length > 0) {
+            const verifiedEmails = emails
+              .filter((entry) => entry?.email && entry?.verified !== false)
+              .map((entry) => String(entry.email).toLowerCase())
+            const agileEngineEmail = verifiedEmails.find((email) => email.endsWith('@agileengine.com'))
             const primary = [...emails].sort((a, b) =>
               (b?.primary === true) - (a?.primary === true)
             )[0]
-            if (primary?.email) user.email = primary.email
+            user.emails = verifiedEmails
+            if (agileEngineEmail) user.email = agileEngineEmail
+            else if (primary?.email) user.email = primary.email
           }
         } else {
           console.warn('GitHub /user/emails returned', res.status)

@@ -32,9 +32,10 @@ async function readSessionUser(req) {
   if (!process.env.NEXTAUTH_SECRET) return null
   try {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
-    const user = (token?.user || {}) as { email?: string; name?: string }
+    const user = (token?.user || {}) as { email?: string; emails?: string[]; name?: string }
     return {
       email: user.email || token?.email || null,
+      emails: Array.isArray(user.emails) ? user.emails : [],
       name: user.name || token?.name || null,
     }
   } catch (_) {
@@ -68,16 +69,17 @@ export default async function handler(req, res) {
     }
 
     const user = await readSessionUser(req)
-    if (!user?.email) {
+    if (!user?.email && !user?.emails?.length) {
       return res.status(401).json({
         success: false,
-        error: 'Sign in with GitHub before redeeming a promo code.',
+        error: 'GitHub did not provide an email. Please reconnect GitHub and approve email access.',
       })
     }
 
     const claim = await claimPromoCode({
       code,
       email: user.email,
+      emails: user.emails,
       name: user.name,
     })
 

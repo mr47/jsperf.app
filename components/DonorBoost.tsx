@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const DONATELLO_URL = 'https://donatello.to/mr47'
+const GITHUB_EMAIL_AUTH_PARAMS = { scope: 'read:user user:email' }
 
 const DONOR_PERKS = [
   {
@@ -272,7 +273,7 @@ export default function DonorBoost() {
           setShowForm={(v) => { setShowForm(v); setError(null) }}
           signedIn={signedIn}
           onClose={() => setOpen(false)}
-          onSignIn={() => signIn('github')}
+          onSignIn={() => signIn('github', undefined, GITHUB_EMAIL_AUTH_PARAMS)}
           onSignOut={handleSignOut}
           onSubmitVerify={handleVerify}
           onSubmitPromo={handleRedeemPromo}

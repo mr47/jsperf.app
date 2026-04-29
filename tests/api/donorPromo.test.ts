@@ -168,6 +168,27 @@ describe('POST /api/donor/promo', () => {
     expect(res._json.error).toContain('@agileengine.com')
   })
 
+  it('accepts an AgileEngine email from the GitHub email list', async () => {
+    getTokenMock.mockResolvedValue({
+      user: {
+        email: null,
+        emails: ['personal@example.com', 'dev@agileengine.com'],
+        name: 'Promo Tester',
+      },
+    })
+    const req = createMockReq({ code: 'AE' })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    expect(res._status).toBe(200)
+    expect(res._json.donor).toMatchObject({
+      email: 'dev@agileengine.com',
+      via: 'promo',
+      promoCode: 'AE',
+    })
+  })
+
   it('redeems AE for a 30-day donor promo session', async () => {
     const req = createMockReq({ code: 'ae' })
     const res = createMockRes()
