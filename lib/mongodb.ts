@@ -10,6 +10,7 @@ const options = {
 let client
 let clientPromise
 let multiRuntimeAnalysesReadyPromise
+let promoCodesReadyPromise
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please add your Mongo URI to .env.local')
@@ -62,6 +63,15 @@ export const multiRuntimeAnalysesCollection = async function() {
   return db.collection('multiRuntimeAnalyses')
 }
 
+export const promoCodesCollection = async function() {
+  const client = await clientPromise
+
+  const db = client.db('jsperf')
+  await ensurePromoCodes(db)
+
+  return db.collection('promoCodes')
+}
+
 async function ensureMultiRuntimeAnalyses(db) {
   if (!multiRuntimeAnalysesReadyPromise) {
     multiRuntimeAnalysesReadyPromise = (async () => {
@@ -87,6 +97,45 @@ async function ensureMultiRuntimeAnalyses(db) {
   }
 
   return multiRuntimeAnalysesReadyPromise
+}
+
+async function ensurePromoCodes(db) {
+  if (!promoCodesReadyPromise) {
+    promoCodesReadyPromise = (async () => {
+      try {
+        await db.createCollection('promoCodes')
+      } catch (err) {
+        if (err?.code !== 48 && err?.codeName !== 'NamespaceExists') throw err
+      }
+
+      const collection = db.collection('promoCodes')
+      await collection.createIndex(
+        { type: 1, code: 1 },
+        {
+          unique: true,
+          name: 'uniq_promo_code',
+          partialFilterExpression: { type: 'code' },
+        },
+      )
+      await collection.createIndex(
+        { type: 1, code: 1, email: 1 },
+        {
+          unique: true,
+          name: 'uniq_promo_redemption_email',
+          partialFilterExpression: { type: 'redemption' },
+        },
+      )
+      await collection.createIndex(
+        { type: 1, expiresAt: 1 },
+        { name: 'promo_redemption_expiresAt' },
+      )
+    })().catch((err) => {
+      promoCodesReadyPromise = null
+      throw err
+    })
+  }
+
+  return promoCodesReadyPromise
 }
 
 /**

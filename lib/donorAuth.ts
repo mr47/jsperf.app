@@ -33,6 +33,9 @@ export async function createDonorSession(match, ttlSeconds = DONOR_SESSION_TTL_S
     amount: match.amount || 0,
     currency: match.currency || 'UAH',
     tierName: match.tierName || null,
+    email: match.email || null,
+    via: match.via || null,
+    promoCode: match.promoCode || null,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
   }

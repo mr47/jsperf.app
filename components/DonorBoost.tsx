@@ -85,6 +85,7 @@ export default function DonorBoost() {
 
   const [name, setName] = useState('')
   const [code, setCode] = useState('')
+  const [promoCode, setPromoCode] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
@@ -177,6 +178,41 @@ export default function DonorBoost() {
     }
   }
 
+  const handleRedeemPromo = async (e) => {
+    e?.preventDefault?.()
+    if (!signedIn) {
+      setError('Sign in with GitHub before redeeming a promo code.')
+      return
+    }
+    if (!promoCode.trim()) {
+      setError('Enter your promo code.')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    setSuccess(null)
+    try {
+      const res = await fetch('/api/donor/promo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: promoCode.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data?.success) {
+        setError(data?.error || 'Could not redeem promo code.')
+        return
+      }
+      setDonor(data.donor)
+      emitDonorUpdate(data.donor)
+      setSuccess(data.alreadyRedeemed ? 'Promo boost restored.' : 'Promo boost activated for 30 days.')
+      setPromoCode('')
+    } catch (err) {
+      setError(err?.message || 'Network error — please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   const handleSignOut = async () => {
     try { await fetch('/api/donor/me', { method: 'DELETE' }) } catch (_) { /* ignore */ }
     setDonor(null)
@@ -239,10 +275,13 @@ export default function DonorBoost() {
           onSignIn={() => signIn('github')}
           onSignOut={handleSignOut}
           onSubmitVerify={handleVerify}
+          onSubmitPromo={handleRedeemPromo}
           name={name}
           code={code}
+          promoCode={promoCode}
           setName={setName}
           setCode={setCode}
+          setPromoCode={setPromoCode}
           nameInputRef={nameInputRef}
           submitting={submitting}
           error={error}
@@ -257,8 +296,8 @@ export default function DonorBoost() {
 function DonorBoostModal(props) {
   const {
     donor, isDonor, loadingMe, showForm, setShowForm, signedIn,
-    onClose, onSignIn, onSignOut, onSubmitVerify,
-    name, code, setName, setCode, nameInputRef,
+    onClose, onSignIn, onSignOut, onSubmitVerify, onSubmitPromo,
+    name, code, promoCode, setName, setCode, setPromoCode, nameInputRef,
     submitting, error, success,
   } = props
 
@@ -314,6 +353,11 @@ function DonorBoostModal(props) {
                 signedIn={signedIn}
                 onSignIn={onSignIn}
                 onShowForm={() => setShowForm(true)}
+                onSubmitPromo={onSubmitPromo}
+                promoCode={promoCode}
+                setPromoCode={setPromoCode}
+                submitting={submitting}
+                error={error}
                 success={success}
               />
             )}
@@ -438,7 +482,11 @@ function DonorView({ donor, onSignOut }) {
         <div className="rounded-lg border bg-muted/30 px-3 py-2.5">
           <dt className="text-xs uppercase tracking-wider text-muted-foreground">Matched via</dt>
           <dd className="font-semibold mt-0.5">
-            {donor?.via === 'email' ? 'GitHub email' : 'Donation code'}
+            {donor?.via === 'email'
+              ? 'GitHub email'
+              : donor?.via === 'promo'
+              ? 'Promo code'
+              : 'Donation code'}
           </dd>
         </div>
       </dl>
@@ -458,7 +506,10 @@ function DonorView({ donor, onSignOut }) {
   )
 }
 
-function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
+function ClaimView({
+  signedIn, onSignIn, onShowForm, onSubmitPromo,
+  promoCode, setPromoCode, submitting, error, success,
+}) {
   return (
     <div className="space-y-6">
       {/* Perks card */}
@@ -482,6 +533,16 @@ function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
           <span>Donate on Donatello</span>
         </Button>
       </a>
+
+      <PromoClaim
+        signedIn={signedIn}
+        onSignIn={onSignIn}
+        code={promoCode}
+        setCode={setPromoCode}
+        onSubmit={onSubmitPromo}
+        submitting={submitting}
+        error={error}
+      />
 
       {/* Two paths */}
       <div className="space-y-3">
@@ -531,6 +592,57 @@ function ClaimView({ signedIn, onSignIn, onShowForm, success }) {
         </div>
       )}
     </div>
+  )
+}
+
+function PromoClaim({ signedIn, onSignIn, code, setCode, onSubmit, submitting, error }) {
+  return (
+    <form onSubmit={onSubmit} className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 sm:p-5 space-y-3">
+      <div>
+        <div className="text-xs uppercase tracking-wider text-amber-700 dark:text-amber-400 font-semibold">
+          Promo code
+        </div>
+        <p className="text-sm text-muted-foreground mt-1">
+          AgileEngine folks can use <code className="font-mono text-foreground">AE</code> for one free month
+          of donor perks with an <code className="font-mono text-foreground">@agileengine.com</code> GitHub email.
+        </p>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex-1 space-y-1.5">
+          <Label htmlFor="promo-code" className="sr-only">Promo code</Label>
+          <Input
+            id="promo-code"
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            placeholder="AE"
+            autoComplete="off"
+            maxLength={100}
+            disabled={!signedIn || submitting}
+            className="h-11"
+          />
+        </div>
+        <Button
+          type={signedIn ? 'submit' : 'button'}
+          variant="outline"
+          onClick={signedIn ? undefined : onSignIn}
+          disabled={submitting}
+          className="h-11 sm:min-w-40"
+        >
+          {submitting ? (
+            <span className="flex items-center gap-1.5"><Loader2 className="w-4 h-4 animate-spin" /> Claiming…</span>
+          ) : signedIn ? (
+            'Claim free month'
+          ) : (
+            'Sign in to claim'
+          )}
+        </Button>
+      </div>
+      {error && (
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+    </form>
   )
 }
 
