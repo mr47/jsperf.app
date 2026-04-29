@@ -23,6 +23,12 @@ function truncateLogValue(value, max = 500) {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
+function tokenPrefix(token) {
+  if (!token || typeof token !== 'string') return null
+  const [prefix] = token.split('_')
+  return prefix || null
+}
+
 export default NextAuth({
   providers: [
     GitHubProvider({
@@ -48,6 +54,9 @@ export default NextAuth({
 
       console.info('[auth-github] signIn start', {
         scope: account?.scope || null,
+        accountType: account?.type || null,
+        tokenType: account?.token_type || null,
+        accessTokenPrefix: tokenPrefix(account?.access_token),
         hasAccessToken: !!account?.access_token,
         profileEmail: maskEmail(profile?.email),
         initialUserEmail: maskEmail(user?.email),
