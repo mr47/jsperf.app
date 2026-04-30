@@ -49,6 +49,7 @@ export default async function handler(req: NextApiRequest, res: SseResponse) {
     'X-Accel-Buffering': 'no',
   })
   res.flushHeaders?.()
+  res.write(`retry: ${POLL_INTERVAL_MS}\n\n`)
 
   let closed = false
   req.on?.('close', () => { closed = true })

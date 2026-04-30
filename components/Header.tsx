@@ -7,7 +7,8 @@ import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import DonorBoost from './DonorBoost'
-import logoSmall from '../public/logo-small-transparent.png'
+import logoBigDark from '../public/logo-big-dark-transparent.png'
+import logoBig from '../public/logo-big-transparent.png'
 
 export default function Header(props) {
   const { data: session, status } = useSession()
@@ -34,16 +35,22 @@ export default function Header(props) {
     <header className="border-b border-border mb-6">
       <nav className="flex items-center justify-between flex-wrap py-4">
         <div className="flex items-center flex-shrink-0 mr-6">
-          <Link href="/" className="flex items-center gap-2 no-underline text-foreground hover:text-foreground">
+          <Link href="/" className="flex items-center no-underline text-foreground hover:text-foreground">
             <span className="sr-only">jsPerf Home Page</span>
             <Image
-              src={logoSmall}
+              src={logoBig}
               alt=""
-              className="h-8 w-auto object-contain transition-[filter] dark:[filter:invert(1)_hue-rotate(180deg)]"
+              className="h-10 w-auto object-contain dark:hidden"
               preload
               aria-hidden="true"
             />
-            <span className="font-bold text-2xl tracking-tight">jsPerf.net</span>
+            <Image
+              src={logoBigDark}
+              alt=""
+              className="hidden h-10 w-auto object-contain dark:block"
+              preload
+              aria-hidden="true"
+            />
           </Link>
         </div>
         <div className="block lg:hidden">

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const DEFAULT_WORKER_POLL_DEADLINE_MS = 60_000
+const WORKER_STREAM_GRACE_MS = 30_000
+const WORKER_STREAM_RECONNECT_BASE_MS = 1500
+const WORKER_STREAM_RECONNECT_MAX_MS = 5000
 
 export function useDeepAnalysis({
   tests,
@@ -51,12 +54,18 @@ export function useDeepAnalysis({
     if (deadlineAt) params.set('deadlineAt', String(deadlineAt))
     else params.set('deadlineMs', String(Number(deadlineMs) || DEFAULT_WORKER_POLL_DEADLINE_MS))
 
-    const source = new EventSource(`/api/benchmark/multi-runtime/events?${params.toString()}`)
-    multiRuntimeAbortRef.current = { abort: () => source.close() }
-
     const collected = new Map()
     let firstError: string | null = null
     const remaining = new Set(jobs.map(j => j.testIndex))
+    const workerDeadlineAt = Number(deadlineAt) || (
+      Date.now() + (Number(deadlineMs) || DEFAULT_WORKER_POLL_DEADLINE_MS)
+    )
+    const reconnectUntil = workerDeadlineAt + WORKER_STREAM_GRACE_MS
+    const streamUrl = `/api/benchmark/multi-runtime/events?${params.toString()}`
+    let source: EventSource | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let reconnectAttempts = 0
+    let stopped = false
 
     const publishSnapshot = () => {
       setMultiRuntimeData({
@@ -66,7 +75,55 @@ export function useDeepAnalysis({
       })
     }
 
-    source.addEventListener('multi-runtime', (event) => {
+    const stopStream = () => {
+      stopped = true
+      source?.close()
+      source = null
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+
+    multiRuntimeAbortRef.current = { abort: stopStream }
+
+    const finishStream = () => {
+      stopStream()
+      multiRuntimeAbortRef.current = null
+
+      if (remaining.size > 0) {
+        setMultiRuntimeStatus('errored')
+        setMultiRuntimeError('Multi-runtime comparison is still running on the worker. Please try again in a moment.')
+        return
+      }
+
+      const allErrored = Array.from(collected.values()).every(r => r.state === 'errored')
+      if (allErrored) {
+        setMultiRuntimeStatus('errored')
+        setMultiRuntimeError(firstError || 'All multi-runtime jobs failed')
+      } else {
+        setMultiRuntimeStatus('done')
+        setMultiRuntimeError(null)
+      }
+    }
+
+    const scheduleReconnect = () => {
+      if (stopped || remaining.size === 0) {
+        finishStream()
+        return
+      }
+      if (Date.now() >= reconnectUntil) {
+        finishStream()
+        return
+      }
+
+      reconnectAttempts += 1
+      const delay = Math.min(
+        WORKER_STREAM_RECONNECT_MAX_MS,
+        WORKER_STREAM_RECONNECT_BASE_MS * reconnectAttempts,
+      )
+      reconnectTimer = setTimeout(openStream, delay)
+    }
+
+    const handleUpdate = (event: MessageEvent) => {
       const body = JSON.parse(event.data || '{}')
       if (body.state === 'done') {
         collected.set(body.testIndex, {
@@ -93,35 +150,36 @@ export function useDeepAnalysis({
       }
 
       publishSnapshot()
-    })
+    }
 
-    source.addEventListener('done', () => {
-      source.close()
-      multiRuntimeAbortRef.current = null
+    function openStream() {
+      if (stopped || remaining.size === 0) return
+      source = new EventSource(streamUrl)
+      reconnectTimer = null
+      setMultiRuntimeStatus('pending')
 
-      if (remaining.size > 0) {
-        setMultiRuntimeStatus('errored')
-        setMultiRuntimeError('Multi-runtime comparison is still running on the worker. Please try again in a moment.')
-        return
-      }
+      source.addEventListener('multi-runtime', handleUpdate)
+      source.addEventListener('done', () => {
+        source?.close()
+        source = null
+        reconnectAttempts = 0
+        if (remaining.size > 0 && Date.now() < reconnectUntil) {
+          scheduleReconnect()
+          return
+        }
+        finishStream()
+      })
 
-      const allErrored = Array.from(collected.values()).every(r => r.state === 'errored')
-      if (allErrored) {
-        setMultiRuntimeStatus('errored')
-        setMultiRuntimeError(firstError || 'All multi-runtime jobs failed')
-      } else {
-        setMultiRuntimeStatus('done')
-      }
-    })
-
-    source.onerror = () => {
-      source.close()
-      multiRuntimeAbortRef.current = null
-      if (remaining.size > 0) {
-        setMultiRuntimeStatus('errored')
-        setMultiRuntimeError('Lost connection to multi-runtime update stream.')
+      source.onerror = () => {
+        source?.close()
+        source = null
+        if (remaining.size > 0) {
+          scheduleReconnect()
+        }
       }
     }
+
+    openStream()
   }, [])
 
   const runDeepAnalysis = useCallback(async ({ force = false } = {}) => {
