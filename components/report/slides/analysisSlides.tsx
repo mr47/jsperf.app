@@ -49,8 +49,10 @@ export function BenchmarkDoctorSlide({ report }) {
   const total = Number(summary.total) || diagnostics.length
   const verdict = summary.verdict || (danger > 0 ? 'misleading' : total > 0 ? 'review' : 'clean')
   const isClean = verdict === 'clean' && total === 0
-  const visible = diagnostics.slice(0, 3)
-  const hidden = Math.max(0, diagnostics.length - visible.length)
+  const groups = groupDoctorDiagnostics(diagnostics)
+  const visibleGroups = groups.slice(0, 4)
+  const visibleFindings = visibleGroups.reduce((sum, group) => sum + group.count, 0)
+  const hidden = Math.max(0, diagnostics.length - visibleFindings)
 
   const verdictCopy = isClean
     ? {
@@ -83,10 +85,10 @@ export function BenchmarkDoctorSlide({ report }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-[0.82fr_1.18fr] print:grid-cols-[0.82fr_1.18fr] gap-6 flex-1 min-h-0">
         <div className="flex flex-col gap-4">
-          <div className={`rounded-3xl border-2 p-6 ${verdictCopy.className}`}>
+          <div className={`rounded-3xl border-2 p-5 ${verdictCopy.className}`}>
             <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/70 dark:bg-black/20">
-                <VerdictIcon className="h-6 w-6" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/70 dark:bg-black/20">
+                <VerdictIcon className="h-5 w-5" />
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] font-semibold opacity-75">Verdict</div>
@@ -94,7 +96,7 @@ export function BenchmarkDoctorSlide({ report }) {
                 <div className="mt-1 text-sm font-semibold opacity-85">{verdictCopy.title}</div>
               </div>
             </div>
-            <p className="mt-5 text-sm leading-relaxed opacity-85">{verdictCopy.detail}</p>
+            <p className="mt-4 text-sm leading-relaxed opacity-85">{verdictCopy.detail}</p>
           </div>
 
           <div className="grid grid-cols-3 gap-3">
@@ -106,28 +108,28 @@ export function BenchmarkDoctorSlide({ report }) {
               const meta = DOCTOR_SEVERITY_META[severity]
               const Icon = meta.icon
               return (
-                <div key={severity} className={`rounded-2xl border-2 p-4 ${meta.card}`}>
+                <div key={severity} className={`rounded-2xl border-2 p-3 ${meta.card}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10px] uppercase tracking-[0.16em] font-semibold opacity-75">{meta.label}</span>
                     <Icon className={`h-4 w-4 ${meta.iconClass}`} />
                   </div>
-                  <div className="mt-2 text-4xl font-black tabular-nums">{count}</div>
+                  <div className="mt-1 text-4xl font-black tabular-nums">{count}</div>
                 </div>
               )
             })}
           </div>
 
           <p className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60 p-4 text-sm leading-relaxed text-foreground/80">
-            Doctor checks for common microbenchmark traps before the deck asks anyone to trust an ops/sec winner.
+            The slide shows issue groups, not every repeated finding. Full evidence stays in the report details.
           </p>
         </div>
 
         <div className="rounded-3xl border-2 border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-5 flex flex-col min-h-0">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-semibold">Findings</div>
+              <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground font-semibold">Issue groups</div>
               <div className="mt-1 text-2xl font-black tracking-tight">
-                {total} {total === 1 ? 'finding' : 'findings'}
+                {groups.length} {groups.length === 1 ? 'group' : 'groups'}
               </div>
             </div>
             {hidden > 0 && <Tag color="amber">+{hidden} more</Tag>}
@@ -144,28 +146,30 @@ export function BenchmarkDoctorSlide({ report }) {
               </div>
             </div>
           ) : (
-            <div className="space-y-2 overflow-hidden">
-              {visible.map((diagnostic) => {
-                const severity = diagnostic.severity || 'info'
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden">
+              {visibleGroups.map((group) => {
+                const severity = group.severity || 'info'
                 const meta = DOCTOR_SEVERITY_META[severity] || DOCTOR_SEVERITY_META.info
                 const Icon = meta.icon
                 return (
-                  <div key={diagnostic.id || `${diagnostic.title}-${diagnostic.testIndex}`} className={`rounded-2xl border-2 p-3 ${meta.card}`}>
-                    <div className="flex items-start gap-2.5">
-                      <Icon className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${meta.iconClass}`} />
+                  <div key={group.key} className={`rounded-2xl border-2 p-3 ${meta.card}`}>
+                    <div className="flex items-start gap-3">
+                      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${meta.iconClass}`} />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-bold leading-tight">{diagnostic.title}</div>
+                          <div className="truncate text-sm font-bold leading-tight">{group.title}</div>
+                          {group.count > 1 && (
+                            <span className="rounded-full bg-white/60 px-2 py-0.5 text-[10px] font-semibold dark:bg-black/20">
+                              {group.count} findings
+                            </span>
+                          )}
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.pill}`}>
-                            {severity}
+                            {meta.label}
                           </span>
                         </div>
-                        {diagnostic.testTitle && (
-                          <div className="mt-0.5 text-[11px] font-medium opacity-75 truncate">{diagnostic.testTitle}</div>
-                        )}
-                        <p className="doctor-finding-copy mt-1 text-xs leading-relaxed opacity-85">{diagnostic.message}</p>
-                        {diagnostic.recommendation && (
-                          <p className="doctor-finding-copy mt-0.5 text-[11px] leading-relaxed opacity-75">{diagnostic.recommendation}</p>
+                        <div className="mt-1 truncate text-[11px] font-medium opacity-75">{formatDoctorAffectedTests(group.diagnostics)}</div>
+                        {group.recommendation && (
+                          <p className="doctor-finding-copy mt-1 text-xs leading-relaxed opacity-85">{group.recommendation}</p>
                         )}
                       </div>
                     </div>
@@ -174,7 +178,7 @@ export function BenchmarkDoctorSlide({ report }) {
               })}
               {hidden > 0 && (
                 <p className="rounded-xl border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
-                  Showing the first 3 highest-priority findings. Re-run after fixing them to reveal lower-priority issues.
+                  {hidden} additional findings are available in the full report details.
                 </p>
               )}
             </div>
@@ -192,6 +196,47 @@ export function BenchmarkDoctorSlide({ report }) {
       `}</style>
     </SlideShell>
   )
+}
+
+function groupDoctorDiagnostics(diagnostics) {
+  const groups = new Map()
+
+  for (const diagnostic of diagnostics) {
+    const severity = diagnostic.severity || 'info'
+    const key = `${severity}:${diagnostic.category || 'general'}:${diagnostic.title}`
+    const existing = groups.get(key)
+
+    if (existing) {
+      existing.count += 1
+      existing.diagnostics.push(diagnostic)
+      continue
+    }
+
+    groups.set(key, {
+      key,
+      title: diagnostic.title,
+      severity,
+      count: 1,
+      recommendation: diagnostic.recommendation,
+      diagnostics: [diagnostic],
+    })
+  }
+
+  return Array.from(groups.values())
+}
+
+function formatDoctorAffectedTests(diagnostics) {
+  const titles = diagnostics
+    .map(diagnostic => diagnostic.testTitle)
+    .filter(Boolean)
+
+  if (titles.length === 0) return 'Run-level check'
+
+  const uniqueTitles = Array.from(new Set(titles))
+  const shown = uniqueTitles.slice(0, 3).join(', ')
+  const hidden = uniqueTitles.length - 3
+
+  return hidden > 0 ? `${shown} + ${hidden} more` : shown
 }
 
 /* ------------------------------------------------------------------ */

@@ -27,8 +27,8 @@ function formatRelativeTime(value) {
 const STEP_META = {
   quickjs: { label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
   v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
-  'multi-runtime': { label: 'Queueing Node / Deno / Bun worker', desc: 'Worker job IDs stream live through an SSE proxy' },
-  complexity: { label: 'Estimating complexity', desc: 'Static time, space and async heuristics from the worker route' },
+  'multi-runtime': { label: 'Running Node / Deno / Bun', desc: 'Compares the same tests across server runtimes' },
+  complexity: { label: 'Estimating complexity', desc: 'Checks time, space, and async behavior from the code shape' },
   prediction: { label: 'Building prediction model', desc: 'JIT amplification and memory-response analysis' },
 }
 

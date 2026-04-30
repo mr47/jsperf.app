@@ -90,7 +90,7 @@ export default function Header(props) {
             )}
             
             <div className="flex min-w-24 max-w-40 justify-end">
-              {sessionLoading ? (
+              {!mounted || sessionLoading ? (
                 <div className="h-9 w-full" aria-hidden="true" />
               ) : !session ? (
                 <Button variant="outline" onClick={() => signIn("github")} className="w-full flex items-center gap-2">

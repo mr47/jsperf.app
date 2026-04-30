@@ -111,15 +111,23 @@ export function CompatibilityMatrixSlide({ report }) {
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border bg-white/80 dark:bg-slate-900/70">
-        <table className="h-full w-full text-[11px]">
+        <table className="h-full w-full table-fixed text-[10px]">
+          <colgroup>
+            <col className="w-[4%]" />
+            <col className="w-[39%]" />
+            <col className="w-[7%]" />
+            {environments.map(env => (
+              <col key={env.key} style={{ width: `${50 / environments.length}%` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr className="border-b bg-slate-50 dark:bg-slate-800/60">
-              <th className="w-10 px-2 py-2 text-left font-semibold text-muted-foreground">#</th>
+              <th className="px-2 py-2 text-left font-semibold text-muted-foreground">#</th>
               <th className="px-2 py-2 text-left font-semibold text-muted-foreground">Test</th>
-              <th className="w-16 px-2 py-2 text-right font-semibold text-muted-foreground">Score</th>
+              <th className="px-1 py-2 text-right font-semibold text-muted-foreground">Score</th>
               {environments.map(env => (
-                <th key={env.key} className="px-1.5 py-2 text-right font-semibold text-muted-foreground">
-                  {env.shortLabel}
+                <th key={env.key} className="px-1 py-2 text-right font-semibold text-muted-foreground">
+                  <span className="block truncate">{env.shortLabel}</span>
                 </th>
               ))}
             </tr>
@@ -129,15 +137,15 @@ export function CompatibilityMatrixSlide({ report }) {
               <tr key={row.testIndex} className="align-middle">
                 <td className="px-2 py-2 font-bold text-violet-600 dark:text-violet-300">{row.rank}</td>
                 <td className="px-2 py-2">
-                  <div className="truncate text-sm font-semibold">{row.title}</div>
+                  <div className="truncate text-xs font-semibold">{row.title}</div>
                   <div className="truncate text-[10px] text-muted-foreground">{row.insight}</div>
                 </td>
-                <td className="px-2 py-2 text-right font-bold tabular-nums">{formatScore(row.score)}</td>
+                <td className="px-1 py-2 text-right font-bold tabular-nums">{formatScore(row.score)}</td>
                 {environments.map(env => {
                   const cell = row.cells.find(entry => entry.environmentKey === env.key)
                   return (
-                    <td key={env.key} className="px-1.5 py-2 text-right">
-                      <span className={`inline-flex min-w-14 justify-center rounded-full border px-1.5 py-0.5 font-semibold tabular-nums ${matrixCellClass(cell)}`}>
+                    <td key={env.key} className="px-1 py-2 text-right">
+                      <span className={`inline-flex max-w-full justify-center rounded-full border px-1 py-0.5 font-semibold tabular-nums ${matrixCellClass(cell)}`}>
                         {matrixCellLabel(cell)}
                       </span>
                     </td>

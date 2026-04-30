@@ -173,7 +173,7 @@ export function SpeedAnimationSlide({ report }) {
           </p>
         </div>
 
-        <div className="rounded-3xl border-2 border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-6 flex flex-col justify-center gap-5 overflow-hidden">
+        <div className="rounded-3xl border-2 border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/60 p-5 flex min-h-0 flex-col gap-3 overflow-hidden">
           {visible.map((entry, index) => {
             const color = SPEED_BALL_COLORS[index % SPEED_BALL_COLORS.length]
             const ratio = fastest > 0 ? entry.opsPerSec / fastest : 0
@@ -186,25 +186,25 @@ export function SpeedAnimationSlide({ report }) {
             const staticPosition = `${Math.max(7, Math.min(94, ratio * 100))}%`
 
             return (
-              <div key={entry.testIndex ?? entry.title} className="space-y-2">
+              <div key={entry.testIndex ?? entry.title} className="flex min-h-0 flex-1 flex-col justify-center gap-2">
                 <div className="flex items-baseline justify-between gap-4">
                   <div className="flex min-w-0 items-baseline gap-3">
                     <span className="text-xs font-mono text-muted-foreground tabular-nums w-7">#{index + 1}</span>
-                    <span className="truncate text-lg font-bold tracking-tight">{entry.title}</span>
+                    <span className="truncate text-base font-bold tracking-tight">{entry.title}</span>
                   </div>
                   <div className="flex items-baseline gap-2 shrink-0">
-                    <span className="text-sm font-black tabular-nums" style={{ color }}>
+                    <span className="text-xs font-black tabular-nums" style={{ color }}>
                       {formatOps(entry.opsPerSec)}
                     </span>
                     {index > 0 && (
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-[11px] text-muted-foreground">
                         {formatMultiplier(slowerRatio)} slower
                       </span>
                     )}
                   </div>
                 </div>
 
-                <div className="relative h-12 overflow-hidden rounded-full border border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/60">
+                <div className="relative h-9 overflow-hidden rounded-full border border-slate-200 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-950/60">
                   <div
                     className="absolute inset-y-0 left-0 rounded-full opacity-20"
                     style={{
@@ -214,7 +214,7 @@ export function SpeedAnimationSlide({ report }) {
                   />
                   <div className="absolute inset-x-5 top-1/2 h-px -translate-y-1/2 border-t border-dashed border-slate-300 dark:border-slate-700" />
                   <div
-                    className="report-speed-ball absolute top-1/2 h-8 w-8 -translate-y-1/2 rounded-full shadow-xl ring-2 ring-white/80 dark:ring-black/30"
+                    className="report-speed-ball absolute top-1/2 h-6 w-6 -translate-y-1/2 rounded-full shadow-xl ring-2 ring-white/80 dark:ring-black/30"
                     style={{
                       background: color,
                       '--lap-duration': `${lapSeconds}s`,
@@ -222,7 +222,7 @@ export function SpeedAnimationSlide({ report }) {
                       '--static-position': staticPosition,
                     } as React.CSSProperties}
                   >
-                    <span className="absolute left-2 top-2 h-2.5 w-2.5 rounded-full bg-white/75" />
+                    <span className="absolute left-1.5 top-1.5 h-2 w-2 rounded-full bg-white/75" />
                   </div>
                 </div>
               </div>
@@ -243,14 +243,14 @@ export function SpeedAnimationSlide({ report }) {
             left: 1rem;
           }
           to {
-            left: calc(100% - 3rem);
+            left: calc(100% - 2.5rem);
           }
         }
 
         @media (prefers-reduced-motion: reduce), print {
           .report-speed-ball {
             animation: none;
-            left: clamp(1rem, calc(var(--static-position) - 2rem), calc(100% - 3rem));
+            left: clamp(1rem, calc(var(--static-position) - 1.75rem), calc(100% - 2.5rem));
           }
         }
       `}</style>
