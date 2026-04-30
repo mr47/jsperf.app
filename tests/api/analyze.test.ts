@@ -297,6 +297,23 @@ describe('POST /api/benchmark/analyze', () => {
     expect(resultMsg.data.hasErrors).toBe(true)
   })
 
+  it('streams a clear 60 second non-donor limit message when analysis aborts', async () => {
+    const { runAnalysis } = await import('../../lib/engines/runner')
+    const err = new Error('timeout')
+    err.name = 'TimeoutError'
+    runAnalysis.mockRejectedValueOnce(err)
+
+    const req = createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] })
+    const res = createMockRes()
+
+    await handler(req, res)
+
+    const messages = parseNdjsonLines(res)
+    const errorMsg = messages.find(m => m.type === 'error')
+    expect(errorMsg.error).toContain('60 seconds for non-donors')
+    expect(res.end).toHaveBeenCalled()
+  })
+
   it('forwards requested runtime versions to multi-runtime jobs', async () => {
     process.env.BENCHMARK_WORKER_URL = 'http://worker.test'
     globalThis.fetch = vi.fn(async () => ({

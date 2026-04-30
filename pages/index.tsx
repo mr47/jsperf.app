@@ -2,6 +2,7 @@
 import SEO from '../components/SEO'
 import Layout from '../components/Layout'
 import Link from 'next/link'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Zap, Share2, Code2, Sparkles, TrendingUp, Users, Microscope, Cpu, BarChart3, ArrowRight, Presentation, Heart, Coffee, Rocket, Check, GitBranch } from 'lucide-react'
@@ -11,6 +12,7 @@ import { highlightSanitizedCode } from '../utils/hljs'
 import { SEO_LANDING_PAGES } from '../lib/seo-pages'
 import { softwareApplicationSchema, websiteSchema } from '../lib/seo'
 import BorderGlow from '../components/BorderGlow'
+import logoSmall from '../public/logo-small-transparent.png'
 
 const HeroBackground = dynamic(() => import('../components/HeroBackground'), { ssr: false })
 const TYPESCRIPT_PREVIEW_CODE = `type Product = {
@@ -240,24 +242,42 @@ export default function Home(props) {
           </div>
         </section>
 
-        <section className="py-20 border-t border-border/50">
-          <div className="text-center mb-10 space-y-4">
-            <h2 className="text-3xl md:text-4xl font-bold tracking-tight">Popular JavaScript benchmark resources</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Start from a focused guide, compare functions online, or explore runtime-specific JavaScript performance questions.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {SEO_LANDING_PAGES.map((page) => (
-              <Link href={page.href} key={page.href} className="group block">
-                <Card className="h-full border-border bg-card/50 transition-colors hover:bg-muted/50">
-                  <CardHeader>
-                    <CardTitle className="text-lg group-hover:text-primary transition-colors">{page.label}</CardTitle>
-                    <CardDescription className="leading-6">{page.description}</CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
-            ))}
+        <section className="relative z-10 py-16 border-t border-border/50">
+          <div className="rounded-3xl border border-border/70 bg-background/95 p-6 shadow-sm backdrop-blur-sm dark:bg-card/90 sm:p-8 lg:p-10">
+            <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div className="max-w-2xl space-y-3">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-700 dark:text-blue-300">
+                  Guides and examples
+                </p>
+                <h2 className="text-3xl font-bold tracking-tight md:text-4xl">
+                  Explore practical benchmark paths
+                </h2>
+                <p className="text-base leading-relaxed text-muted-foreground">
+                  Jump into focused examples, runtime comparisons, and measurement guides when you want a starting point instead of a blank benchmark.
+                </p>
+              </div>
+              <Button asChild variant="outline" className="w-full rounded-full sm:w-auto">
+                <Link href="/latest">
+                  Browse latest tests
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {SEO_LANDING_PAGES.map((page) => (
+                <Link href={page.href} key={page.href} className="group block">
+                  <Card className="h-full border-border/70 bg-card shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between gap-3 text-lg transition-colors group-hover:text-primary">
+                        <span>{page.label}</span>
+                        <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                      </CardTitle>
+                      <CardDescription className="leading-6">{page.description}</CardDescription>
+                    </CardHeader>
+                  </Card>
+                </Link>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -312,14 +332,20 @@ export default function Home(props) {
                     <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
-                    <span className="ml-3 text-xs text-muted-foreground font-mono truncate">jsperf.net/yepawu</span>
+                    <Image
+                      src={logoSmall}
+                      alt=""
+                      className="ml-3 h-4 w-auto object-contain transition-[filter] dark:[filter:invert(1)_hue-rotate(180deg)]"
+                      aria-hidden="true"
+                    />
+                    <span className="text-xs text-muted-foreground font-mono truncate">jsperf.net/yepawu</span>
                   </div>
                   <div className="p-6 sm:p-8 bg-gradient-to-br from-blue-50 via-white to-violet-50/40 dark:from-slate-900 dark:via-slate-950 dark:to-blue-950/30">
                     <div className="flex items-center justify-between mb-5">
                       <span className="text-[10px] uppercase tracking-widest text-blue-700 dark:text-blue-300 font-semibold">TypeScript benchmark</span>
                       <span className="text-[10px] rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-blue-700 dark:text-blue-300">TS</span>
                     </div>
-                    <pre className="text-left rounded-xl border border-border/60 bg-slate-950 p-4 overflow-hidden text-xs leading-relaxed shadow-inner">
+                    <pre className="text-left rounded-xl border border-border/60 bg-white p-4 overflow-hidden text-xs leading-relaxed text-slate-950 shadow-sm dark:bg-slate-950 dark:text-slate-100 dark:shadow-inner">
                       <code className="language-typescript hljs" dangerouslySetInnerHTML={{ __html: highlightedTypeScriptPreview }} />
                     </pre>
                     <div className="grid grid-cols-3 gap-2 pt-5">

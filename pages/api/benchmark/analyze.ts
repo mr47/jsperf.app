@@ -21,20 +21,22 @@ import crypto from 'crypto'
 // caps free users at 24/hour while still allowing a quick iteration burst,
 // and donors get 10 per 5 minutes for comfortable back-to-back tweaking.
 const RATE_LIMIT = { free: 2, donor: 10, window: '5 m' }
+const DEEP_ANALYSIS_LIMIT_MS = 60_000
+// Keep a small response window before Vercel's 60s function ceiling so the
+// client receives a friendly NDJSON error instead of a platform timeout.
+const DEEP_ANALYSIS_ABORT_MS = 58_000
 
 // Next.js requires segment config to be statically analyzable, so this
-// has to be a literal — no env-conditional expression. 60s is the Hobby
-// plan ceiling; we deliberately stay inside it by NOT running multi-runtime
-// inline. The multi-runtime worker is enqueued asynchronously and the
-// browser polls /api/benchmark/multi-runtime/[jobId] for results, so the
-// length of the worker run does not contribute to this function's wall time.
+// has to be a literal — no env-conditional expression. 60s is the non-donor
+// deep-analysis limit and the Hobby plan ceiling. Multi-runtime work is
+// enqueued asynchronously and the base QuickJS/V8/complexity phases run in
+// parallel under the same deadline.
 //
 // Synchronous budget:
-//   - QuickJS:    4 memory profiles × ~1.5s ≈ 6s
-//   - V8 sandbox: 1 canonical single-vCPU run × ~5-8s
-//   - Complexity: <100ms worker static pass
-//   - Prediction: <100ms
-//   - Total:      ~35s, leaving headroom for slow cold starts.
+//   - QuickJS:    4 memory profiles × ~1.5s, sequential inside its phase
+//   - V8 sandbox: 1 canonical single-vCPU run per test, sequential inside phase
+//   - Worker:     multi-runtime enqueue + complexity request
+//   - Prediction: built after the parallel phases resolve
 export const config = {
   maxDuration: 60,
 }
@@ -45,8 +47,11 @@ export default async function handler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`)
   }
 
+  let rateLimitTier = 'free'
+
   try {
     const rl = await applyTieredRateLimit(req, 'analyze', RATE_LIMIT)
+    rateLimitTier = rl.tier || 'free'
     setRateLimitHeaders(res, rl)
     if (!rl.success) {
       const cap = rl.tier === 'donor' ? RATE_LIMIT.donor : RATE_LIMIT.free
@@ -114,7 +119,12 @@ export default async function handler(req, res) {
       const cachedWithDoctor = attachBenchmarkDoctor(cachedData, prepared)
       // On cache HIT we still attach durable MR results when available, or
       // give the client fresh MR jobIds so it can poll for missing data.
-      const mrInfo = await maybeEnqueueMultiRuntime(prepared, multiRuntimeCacheKey, multiRuntimeOptions)
+      const mrInfo = await maybeEnqueueMultiRuntime(
+        prepared,
+        multiRuntimeCacheKey,
+        multiRuntimeOptions,
+        { signal: AbortSignal.timeout(DEEP_ANALYSIS_ABORT_MS) },
+      )
       const merged = { ...mergeMultiRuntimeMeta(cachedWithDoctor, mrInfo), codeHash, multiRuntimeCacheKey }
       res.setHeader('X-Analysis-Cache', 'HIT')
       return res.status(200).json(merged)
@@ -142,10 +152,17 @@ export default async function handler(req, res) {
     enabledEngines.push('prediction')
     sendLine({ type: 'pipeline', engines: enabledEngines })
 
+    const analysisSignal = AbortSignal.timeout(DEEP_ANALYSIS_ABORT_MS)
+
     // Kick off MR jobs FIRST so they run on the worker concurrently with
-    // QuickJS+V8 here. By the time we finish those phases the worker is
-    // typically already done, so the client's first poll gets results.
-    const mrInfo = await maybeEnqueueMultiRuntime(prepared, multiRuntimeCacheKey, multiRuntimeOptions)
+    // QuickJS+V8+complexity here. By the time we finish those phases the
+    // worker is typically already done, so the client's first poll gets results.
+    const mrInfo = await maybeEnqueueMultiRuntime(
+      prepared,
+      multiRuntimeCacheKey,
+      multiRuntimeOptions,
+      { signal: analysisSignal },
+    )
     if (mrInfo?.stored) {
       sendLine({
         type: 'multi-runtime-stored',
@@ -157,6 +174,7 @@ export default async function handler(req, res) {
         jobs: mrInfo.jobs,
         codeHash: multiRuntimeCacheKey,
         deadlineMs: mrInfo.deadlineMs,
+        deadlineAt: mrInfo.deadlineAt,
       })
     } else if (mrInfo?.error) {
       sendLine({ type: 'multi-runtime-unavailable', error: mrInfo.error })
@@ -166,6 +184,7 @@ export default async function handler(req, res) {
       setup: prepared.runtime.setup || undefined,
       teardown: prepared.runtime.teardown || undefined,
       timeMs: 2000,
+      signal: analysisSignal,
       onProgress: (step) => sendLine({ type: 'progress', ...step }),
       estimateComplexities: process.env.BENCHMARK_WORKER_URL
         ? (runtimeTests, opts) => estimateComplexitiesOnWorker(runtimeTests, {
@@ -216,13 +235,15 @@ export default async function handler(req, res) {
     console.error('Analysis error:', error)
 
     if (res.headersSent) {
-      const errMsg = error.name === 'AbortError' ? 'Analysis timed out' : 'Internal Server Error'
+      const errMsg = isAbortError(error)
+        ? formatAnalysisTimeoutMessage(rateLimitTier)
+        : 'Internal Server Error'
       res.write(JSON.stringify({ type: 'error', error: errMsg }) + '\n')
       return res.end()
     }
 
-    if (error.name === 'AbortError') {
-      return res.status(504).json({ error: 'Analysis timed out' })
+    if (isAbortError(error)) {
+      return res.status(504).json({ error: formatAnalysisTimeoutMessage(rateLimitTier) })
     }
 
     return res.status(500).json({ error: 'Internal Server Error' })
@@ -238,7 +259,7 @@ export default async function handler(req, res) {
  *   null                                                  when the worker
  *                                                         is not configured
  */
-async function maybeEnqueueMultiRuntime(prepared, cacheKey, options = {}) {
+async function maybeEnqueueMultiRuntime(prepared, cacheKey, options = {}, { signal } = {}) {
   const setup = prepared.original.setup
   const teardown = prepared.original.teardown
   const runnableTests = prepared.original.tests
@@ -277,10 +298,14 @@ async function maybeEnqueueMultiRuntime(prepared, cacheKey, options = {}) {
       sourcePrepVersion: prepared.sourcePrepVersion,
       timeMs: 1500,
       isAsync: isPreparedAsync(originalTest, runtimeTest),
+      signal,
       ...options,
     })
       .then(res => ({ testIndex: i, res }))
-      .catch(err => ({ testIndex: i, res: { unavailable: true, error: err.message || String(err) } }))
+      .catch(err => {
+        if (isAbortError(err)) throw err
+        return { testIndex: i, res: { unavailable: true, error: err.message || String(err) } }
+      })
   ))
 
   const successes = enqueues.filter(e => e.res?.jobId)
@@ -289,9 +314,11 @@ async function maybeEnqueueMultiRuntime(prepared, cacheKey, options = {}) {
     return { error: firstError || 'Failed to enqueue multi-runtime jobs' }
   }
 
+  const deadlineMs = successes[0].res.deadlineMs || DEEP_ANALYSIS_LIMIT_MS
   return {
     jobs: successes.map(s => ({ testIndex: s.testIndex, jobId: s.res.jobId })),
-    deadlineMs: successes[0].res.deadlineMs,
+    deadlineMs,
+    deadlineAt: Date.now() + deadlineMs,
     cacheKey,
   }
 }
@@ -300,7 +327,7 @@ function mergeMultiRuntimeMeta(analysis, mrInfo) {
   if (!mrInfo) return analysis
   let multiRuntime
   if (mrInfo.jobs) {
-    multiRuntime = { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs, cacheKey: mrInfo.cacheKey }
+    multiRuntime = { jobs: mrInfo.jobs, deadlineMs: mrInfo.deadlineMs, deadlineAt: mrInfo.deadlineAt, cacheKey: mrInfo.cacheKey }
   } else if (mrInfo.stored) {
     multiRuntime = { results: mrInfo.results, fromStore: true, cacheKey: mrInfo.cacheKey }
   } else {
@@ -380,6 +407,17 @@ function formatBrowserApiSkip(tests, setup, teardown) {
   return names
     ? `Skipped Node / Deno / Bun comparison because browser APIs were detected (${names}).`
     : 'Skipped Node / Deno / Bun comparison because browser APIs were detected.'
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError' || error?.name === 'TimeoutError'
+}
+
+function formatAnalysisTimeoutMessage(tier) {
+  const seconds = Math.round(DEEP_ANALYSIS_LIMIT_MS / 1000)
+  return tier === 'donor'
+    ? `Deep analysis exceeded the ${seconds} second execution limit. Please try fewer tests or simplify the benchmark.`
+    : `Deep analysis is limited to ${seconds} seconds for non-donors. Please try fewer tests or simplify the benchmark.`
 }
 
 function parseMultiRuntimeOptions(body) {

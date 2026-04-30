@@ -7,12 +7,14 @@ import Test from './Test'
 import StatsChart from './StatsChart'
 import DeepAnalysis from './DeepAnalysis'
 import BrowserRunAnimation from './BrowserRunAnimation'
-import RuntimeVersionSelector from './RuntimeVersionSelector'
+import RuntimeAnalysisModal from './RuntimeAnalysisModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { formatNumber } from '../utils/ArrayUtils'
-import { ChevronDown, Microscope, Loader2, X } from 'lucide-react'
+import { generateAIPrompt as generateBenchmarkAIPrompt } from '../utils/aiPrompt'
+import { useDeepAnalysis } from '../hooks/useDeepAnalysis'
+import { ChevronDown, Microscope, Loader2 } from 'lucide-react'
 
 // Simple SVG logos
 const ClaudeLogo = ({ className }) => (
@@ -22,206 +24,6 @@ const ClaudeLogo = ({ className }) => (
 const ChatGPTLogo = ({ className }) => (
   <img src="/openai.webp" alt="ChatGPT Logo" className={`object-contain ${className}`} />
 )
-
-const RUNTIME_LABELS_FOR_PROMPT = { node: 'Node.js (V8)', deno: 'Deno (V8)', bun: 'Bun (JSC)' }
-const RUNTIME_ORDER_FOR_PROMPT = ['node', 'deno', 'bun']
-
-/**
- * Render a compact, prompt-friendly multi-runtime block for the LLM.
- *
- * We only include data for tests where the comparison is `available` (at
- * least one runtime returned numbers). Hardware perf counters are added
- * inline only when at least one runtime captured them — most snippets
- * won't need them, and this keeps the prompt small enough to paste.
- *
- * Returns '' when there's no useful data to include, so the caller can
- * cheaply concatenate without checking.
- */
-function formatMultiRuntimeForPrompt(multiRuntimeData) {
-  const results = multiRuntimeData?.results
-  if (!Array.isArray(results) || results.length === 0) return ''
-
-  const ready = results.filter(r => r?.state === 'done' && r.runtimeComparison?.available)
-  if (ready.length === 0) return ''
-
-  const blocks = ready.map((r) => {
-    const cmp = r.runtimeComparison
-    const ordered = [...cmp.runtimes].sort(compareRuntimeForPrompt)
-
-    const runtimeLines = ordered.map((rt) => {
-      const p = rt.profiles?.[0] || {}
-      const c = p.perfCounters || {}
-
-      const fmtLatency = (ms) => {
-        if (ms == null || !Number.isFinite(ms)) return 'n/a'
-        if (ms < 0.001) return `${(ms * 1_000_000).toFixed(0)}ns`
-        if (ms < 1) return `${(ms * 1000).toFixed(2)}µs`
-        return `${ms.toFixed(2)}ms`
-      }
-      const fmtBytes = (n) => {
-        if (n == null) return 'n/a'
-        if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)}MB`
-        if (n >= 1024) return `${(n / 1024).toFixed(1)}KB`
-        return `${n}B`
-      }
-      const fmtBig = (n) => {
-        if (n == null || !Number.isFinite(n)) return 'n/a'
-        if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`
-        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
-        if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
-        return String(Math.round(n))
-      }
-
-      const ipc = (c.instructions != null && c.cycles != null && c.cycles > 0)
-        ? (c.instructions / c.cycles).toFixed(2)
-        : null
-
-      const perfBits = []
-      if (ipc != null) perfBits.push(`IPC=${ipc}`)
-      if (c.instructions != null) perfBits.push(`instr=${fmtBig(c.instructions)}`)
-      if (c['cache-misses'] != null) perfBits.push(`cache-miss=${fmtBig(c['cache-misses'])}`)
-      if (c['branch-misses'] != null) perfBits.push(`branch-miss=${fmtBig(c['branch-misses'])}`)
-
-      const perfStr = perfBits.length > 0 ? `; ${perfBits.join(', ')}` : ''
-      const opsStr = `${formatNumber(rt.avgOpsPerSec)} ops/s`
-      const latStr = `p50=${fmtLatency(p.latencyMean)} p99=${fmtLatency(p.latencyP99)}`
-      const memStr = p.rss != null ? ` rss=${fmtBytes(p.rss)}` : ''
-
-      return `    ${runtimeLabelForPrompt(rt)}: ${opsStr}; ${latStr}${memStr}${perfStr}`
-    }).join('\n')
-
-    const fastest = runtimeLabelForPrompt(cmp.runtimes.find(rt => rt.runtime === cmp.fastestRuntime) || { runtime: cmp.fastestRuntime })
-    const slowest = runtimeLabelForPrompt(cmp.runtimes.find(rt => rt.runtime === cmp.slowestRuntime) || { runtime: cmp.slowestRuntime })
-    const spreadLine = (cmp.spread > 1 && fastest && slowest)
-      ? `\n    ➜ ${cmp.spread}x throughput spread (fastest: ${fastest}, slowest: ${slowest})`
-      : ''
-
-    return `--- Test ${r.testIndex + 1} ---\n${runtimeLines}${spreadLine}`
-  }).join('\n\n')
-
-  return `
-
-### Multi-Runtime Comparison (Node.js / Deno / Bun, same isolated single-core CPU+memory budget):
-Each runtime ran the same snippet inside its own Docker container with identical resource limits. V8 powers Node and Deno; Bun uses JavaScriptCore. Differences are real engine/runtime effects, not hardware noise.
-
-${blocks}`
-}
-
-function compareRuntimeForPrompt(a, b) {
-  const orderA = RUNTIME_ORDER_FOR_PROMPT.indexOf(runtimeBaseForPrompt(a))
-  const orderB = RUNTIME_ORDER_FOR_PROMPT.indexOf(runtimeBaseForPrompt(b))
-  const normalizedA = orderA === -1 ? Number.MAX_SAFE_INTEGER : orderA
-  const normalizedB = orderB === -1 ? Number.MAX_SAFE_INTEGER : orderB
-  if (normalizedA !== normalizedB) return normalizedA - normalizedB
-  return runtimeLabelForPrompt(a).localeCompare(runtimeLabelForPrompt(b), undefined, { numeric: true })
-}
-
-function runtimeLabelForPrompt(entry) {
-  const base = runtimeBaseForPrompt(entry)
-  const version = entry?.version || runtimeVersionForPrompt(entry?.runtime)
-  const label = RUNTIME_LABELS_FOR_PROMPT[base] || base || entry?.runtime || 'runtime'
-  return version ? `${label} ${version}` : label
-}
-
-function runtimeBaseForPrompt(entry) {
-  return (entry?.runtimeName || entry?.runtime || '').split('@')[0]
-}
-
-function runtimeVersionForPrompt(runtimeId) {
-  if (typeof runtimeId !== 'string') return null
-  const marker = runtimeId.indexOf('@')
-  return marker === -1 ? null : runtimeId.slice(marker + 1)
-}
-
-function RuntimeAnalysisModal({
-  open,
-  force,
-  loading,
-  runtimeTargets,
-  onRuntimeTargetsChange,
-  onClose,
-  onConfirm,
-}) {
-  useEffect(() => {
-    if (!open) return undefined
-    const onKey = (event) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-
-  if (!open) return null
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="runtime-analysis-title"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-border/60 p-5">
-          <div>
-            <h2 id="runtime-analysis-title" className="text-lg font-semibold text-foreground">
-              {force ? 'Re-run deep analysis' : 'Deep analysis setup'}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Choose which Node, Deno, and Bun versions the container worker should benchmark.
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={onClose}
-            disabled={loading}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="p-5">
-          <RuntimeVersionSelector
-            value={runtimeTargets}
-            onChange={onRuntimeTargetsChange}
-            disabled={loading}
-            compact={false}
-          />
-        </div>
-
-        <div className="flex flex-col-reverse gap-2 border-t border-border/60 p-5 sm:flex-row sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            disabled={loading}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            className="font-bold"
-            onClick={onConfirm}
-            disabled={loading}
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Microscope className="h-4 w-4" />
-            )}
-            {loading ? 'Starting...' : force ? 'Re-run analysis' : 'Start analysis'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default function Tests(props) {
   const {id, slug, revision, setup, teardown, language = 'javascript', languageOptions = null} = props
@@ -238,28 +40,33 @@ export default function Tests(props) {
   const [donor, setDonor] = useState(null)
   const [donorStatus, setDonorStatus] = useState('loading')
 
-  const [analysisStatus, setAnalysisStatus] = useState('idle')
-  const [analysis, setAnalysis] = useState(null)
-  const [analysisError, setAnalysisError] = useState(null)
-  const [analysisProgress, setAnalysisProgress] = useState(null)
-  const [analysisPipeline, setAnalysisPipeline] = useState(null)
-  // When the analysis came from the persisted snapshot rather than a
-  // live run, we surface a small banner with the snapshot date and a
-  // "re-run" affordance. `null` means it's a fresh run from this session.
-  const [analysisCachedAt, setAnalysisCachedAt] = useState(null)
-
-  // Multi-runtime is asynchronous: the analyze endpoint enqueues jobs on
-  // the worker and returns immediately with jobIds. We poll those jobs
-  // here while the user is already looking at the base results.
-  //   status: 'idle' | 'pending' | 'done' | 'errored' | 'unavailable'
-  //   data:   { results: [{ testIndex, runtimes, runtimeComparison }, ...] }
-  const [multiRuntimeStatus, setMultiRuntimeStatus] = useState('idle')
-  const [multiRuntimeData, setMultiRuntimeData] = useState(null)
-  const [multiRuntimeError, setMultiRuntimeError] = useState(null)
-  const [runtimeTargets, setRuntimeTargets] = useState(null)
-  const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
-  const [runtimeModalForce, setRuntimeModalForce] = useState(false)
-  const multiRuntimeAbortRef = useRef(null)
+  const {
+    analysisStatus,
+    analysis,
+    analysisError,
+    analysisProgress,
+    analysisPipeline,
+    analysisStepStatuses,
+    analysisCachedAt,
+    multiRuntimeStatus,
+    multiRuntimeData,
+    multiRuntimeError,
+    runtimeTargets,
+    runtimeModalOpen,
+    runtimeModalForce,
+    setRuntimeTargets,
+    openRuntimeAnalysisModal,
+    closeRuntimeAnalysisModal,
+    confirmRuntimeAnalysis,
+  } = useDeepAnalysis({
+    tests,
+    setup,
+    teardown,
+    language,
+    languageOptions,
+    slug,
+    revision,
+  })
 
   const windowRef = useRef(null)
   const isQuickRunRef = useRef(false)
@@ -316,308 +123,6 @@ export default function Tests(props) {
       window.removeEventListener('jsperf:donor-updated', onDonorUpdated)
     }
   }, [])
-
-  // Poll the multi-runtime proxy endpoint until every enqueued job
-  // resolves (or the deadline is hit). Updates state incrementally so
-  // the per-test panels can render as soon as their job finishes,
-  // instead of waiting for the slowest one.
-  const pollMultiRuntime = useCallback(async ({ jobs, codeHash, deadlineMs }) => {
-    if (!Array.isArray(jobs) || jobs.length === 0) return
-
-    setMultiRuntimeStatus('pending')
-    setMultiRuntimeData({ results: jobs.map(j => ({ testIndex: j.testIndex, state: 'pending' })) })
-
-    const controller = new AbortController()
-    multiRuntimeAbortRef.current?.abort()
-    multiRuntimeAbortRef.current = controller
-
-    // Soft client-side ceiling. The worker enforces its own deadline; we
-    // add ~30s of slack on top to cover network jitter and queueing.
-    const overallDeadline = Date.now() + (Number(deadlineMs) || 30_000) + 30_000
-    const remaining = new Map(jobs.map(j => [j.testIndex, j.jobId]))
-    const collected = new Map()
-    let firstError = null
-
-    const sleep = (ms) => new Promise(r => setTimeout(r, ms))
-
-    while (remaining.size > 0 && Date.now() < overallDeadline && !controller.signal.aborted) {
-      const polls = await Promise.all(
-        Array.from(remaining.entries()).map(async ([testIndex, jobId]) => {
-          try {
-            const url = `/api/benchmark/multi-runtime/${encodeURIComponent(jobId)}`
-              + `?testIndex=${testIndex}`
-              + (codeHash ? `&codeHash=${encodeURIComponent(codeHash)}` : '')
-            const res = await fetch(url, { signal: controller.signal })
-            if (!res.ok) return { testIndex, transient: true }
-            const body = await res.json()
-            return { testIndex, body }
-          } catch (err) {
-            if (err.name === 'AbortError') throw err
-            return { testIndex, transient: true }
-          }
-        })
-      )
-
-      for (const p of polls) {
-        if (!p.body) continue
-        if (p.body.state === 'done') {
-          collected.set(p.testIndex, {
-            testIndex: p.testIndex,
-            state: 'done',
-            runtimes: p.body.runtimes,
-            runtimeComparison: p.body.runtimeComparison,
-          })
-          remaining.delete(p.testIndex)
-        } else if (p.body.state === 'errored') {
-          collected.set(p.testIndex, {
-            testIndex: p.testIndex,
-            state: 'errored',
-            error: p.body.error,
-          })
-          if (!firstError) firstError = p.body.error
-          remaining.delete(p.testIndex)
-        } else {
-          collected.set(p.testIndex, {
-            testIndex: p.testIndex,
-            state: p.body.state,
-            partial: p.body.partial || null,
-          })
-        }
-      }
-
-      // Snapshot incremental state so per-test panels render as soon as
-      // they're ready (don't wait for the slowest job to finish).
-      setMultiRuntimeData({
-        results: jobs.map(j =>
-          collected.get(j.testIndex) || { testIndex: j.testIndex, state: 'pending' }
-        ),
-      })
-
-      if (remaining.size === 0) break
-      await sleep(1500)
-    }
-
-    if (controller.signal.aborted) return
-
-    if (remaining.size > 0) {
-      setMultiRuntimeStatus('errored')
-      setMultiRuntimeError('Multi-runtime polling timed out')
-      return
-    }
-
-    const allErrored = Array.from(collected.values()).every(r => r.state === 'errored')
-    if (allErrored) {
-      setMultiRuntimeStatus('errored')
-      setMultiRuntimeError(firstError || 'All multi-runtime jobs failed')
-    } else {
-      setMultiRuntimeStatus('done')
-    }
-  }, [])
-
-  // Publish the live analysis + multi-runtime snapshot to the window
-  // so the "Generate report" button (which lives in the page header,
-  // outside this component's tree) can grab the freshest data without
-  // us having to thread a context through Layout. This is intentionally
-  // scoped per-benchmark: keyed by slug+revision so reports for one
-  // page never leak data captured on another.
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    if (analysisStatus !== 'done' || !analysis) {
-      delete window.__jsperfLiveAnalysis
-      return
-    }
-    window.__jsperfLiveAnalysis = {
-      slug, revision,
-      analysis,
-      multiRuntime: multiRuntimeData || null,
-      multiRuntimeStatus,
-      capturedAt: Date.now(),
-    }
-    return () => { delete window.__jsperfLiveAnalysis }
-  }, [analysisStatus, analysis, multiRuntimeData, multiRuntimeStatus, slug, revision])
-
-  const runDeepAnalysis = useCallback(async ({ force = false } = {}) => {
-    setAnalysisStatus('loading')
-    setAnalysisError(null)
-    setAnalysisProgress(null)
-    setAnalysisPipeline(null)
-    setAnalysisCachedAt(null)
-    setMultiRuntimeStatus('idle')
-    setMultiRuntimeData(null)
-    setMultiRuntimeError(null)
-    multiRuntimeAbortRef.current?.abort()
-    multiRuntimeAbortRef.current = null
-
-    try {
-      const res = await fetch('/api/benchmark/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tests: tests.map(t => ({ code: t.code, title: t.title, async: !!t.async })),
-          setup,
-          teardown,
-          language,
-          languageOptions,
-          slug,
-          revision,
-          force,
-          ...(Array.isArray(runtimeTargets) && runtimeTargets.length > 0
-            ? { runtimes: runtimeTargets }
-            : {}),
-        }),
-      })
-
-      if (res.status === 429) {
-        setAnalysisError('Rate limited — please wait a minute before trying again.')
-        setAnalysisStatus('error')
-        return
-      }
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        setAnalysisError(data.error || `Server error (${res.status})`)
-        setAnalysisStatus('error')
-        return
-      }
-
-      const contentType = res.headers.get('Content-Type') || ''
-
-      // Cache hits return standard JSON. Multi-runtime data may already be
-      // cached, or the API may return fresh worker jobIds to poll.
-      if (contentType.includes('application/json')) {
-        const data = await res.json()
-        setAnalysis(data)
-        setAnalysisStatus('done')
-        if (data?.multiRuntime?.results) {
-          setMultiRuntimeData({ results: data.multiRuntime.results })
-          setMultiRuntimeStatus('done')
-        } else if (data?.multiRuntime?.jobs) {
-          pollMultiRuntime({
-            jobs: data.multiRuntime.jobs,
-            codeHash: data.multiRuntime.cacheKey || data.codeHash || null,
-            deadlineMs: data.multiRuntime.deadlineMs,
-          })
-        } else if (data?.multiRuntime?.unavailable) {
-          setMultiRuntimeStatus('unavailable')
-          setMultiRuntimeError(data.multiRuntime.error || null)
-        }
-        return
-      }
-
-      // NDJSON streaming response
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let mrEnqueueInfo = null
-      let mrCodeHash = null
-
-      const handleMessage = (msg) => {
-        if (msg.type === 'pipeline') {
-          setAnalysisPipeline(Array.isArray(msg.engines) ? msg.engines : null)
-        } else if (msg.type === 'multi-runtime-enqueued') {
-          mrEnqueueInfo = { jobs: msg.jobs, deadlineMs: msg.deadlineMs }
-          mrCodeHash = msg.codeHash || null
-          setMultiRuntimeStatus('pending')
-          setMultiRuntimeData({
-            results: (msg.jobs || []).map(j => ({ testIndex: j.testIndex, state: 'pending' })),
-          })
-        } else if (msg.type === 'multi-runtime-stored' || msg.type === 'multi-runtime-cached') {
-          setMultiRuntimeData({ results: msg.results || [] })
-          setMultiRuntimeStatus('done')
-        } else if (msg.type === 'multi-runtime-unavailable') {
-          setMultiRuntimeStatus('unavailable')
-          setMultiRuntimeError(msg.error || null)
-        } else if (msg.type === 'progress') {
-          setAnalysisProgress({
-            engine: msg.engine,
-            testIndex: msg.testIndex,
-            status: msg.status,
-            runtime: msg.runtime,
-            profile: msg.profile,
-          })
-        } else if (msg.type === 'result') {
-          setAnalysis(msg.data)
-          setAnalysisStatus('done')
-        } else if (msg.type === 'error') {
-          setAnalysisError(msg.error)
-          setAnalysisStatus('error')
-        }
-      }
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop()
-
-        for (const line of lines) {
-          if (!line.trim()) continue
-          handleMessage(JSON.parse(line))
-        }
-      }
-
-      if (buffer.trim()) handleMessage(JSON.parse(buffer))
-
-      // Now that the base analysis is in, start polling the worker for
-      // multi-runtime results. The worker probably finished while we
-      // were running QuickJS+V8, so the first poll usually returns done.
-      if (mrEnqueueInfo) {
-        pollMultiRuntime({ ...mrEnqueueInfo, codeHash: mrCodeHash })
-      }
-    } catch (e) {
-      setAnalysisError(e.message || 'Failed to connect to analysis server')
-      setAnalysisStatus('error')
-    }
-  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, pollMultiRuntime])
-
-  const openRuntimeAnalysisModal = useCallback((force = false) => {
-    setRuntimeModalForce(force)
-    setRuntimeModalOpen(true)
-  }, [])
-
-  const closeRuntimeAnalysisModal = useCallback(() => {
-    if (analysisStatus === 'loading') return
-    setRuntimeModalOpen(false)
-  }, [analysisStatus])
-
-  const confirmRuntimeAnalysis = useCallback(() => {
-    const force = runtimeModalForce
-    setRuntimeModalOpen(false)
-    runDeepAnalysis({ force })
-  }, [runtimeModalForce, runDeepAnalysis])
-
-  useEffect(() => {
-    return () => {
-      multiRuntimeAbortRef.current?.abort()
-    }
-  }, [])
-
-  // Load any persisted deep-analysis snapshot for this benchmark
-  // revision so users see results immediately instead of waiting ~30s
-  // for QuickJS+V8 to re-run on every visit. The "Re-analyze" button
-  // can be used to force a fresh run.
-  useEffect(() => {
-    if (!slug || revision == null) return
-    let cancelled = false
-    fetch(`/api/benchmark/analysis?slug=${encodeURIComponent(slug)}&revision=${encodeURIComponent(revision)}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(data => {
-        if (cancelled || !data?.analysis) return
-        // Only adopt the cached snapshot if the user hasn't already
-        // triggered a live run while we were fetching.
-        setAnalysisStatus(prev => (prev === 'idle' ? 'done' : prev))
-        setAnalysis(prev => prev || data.analysis)
-        setAnalysisCachedAt(data.createdAt || null)
-        if (data.multiRuntime?.results?.length) {
-          setMultiRuntimeData(prev => prev || data.multiRuntime)
-          setMultiRuntimeStatus(prev => (prev === 'idle' ? 'done' : prev))
-        }
-      })
-      .catch(() => { /* no cache, no problem */ })
-    return () => { cancelled = true }
-  }, [slug, revision])
 
   useEffect(() => {
     fetchStats()
@@ -850,76 +355,14 @@ export default function Tests(props) {
   const showUnboundedNote =
     finishedTests.length > 0 && finishedTests.every((t) => t.tied)
 
-  const generateAIPrompt = (includeAnalysis = false) => {
-    const resultsText = tests
-      .map((t, idx) => `Test ${idx + 1} (${t.title}): ${t.opsPerSec ? formatNumber(Math.round(t.opsPerSec)) : 'Error or Infinity'} ops/sec`)
-      .join('\n')
-      
-    const codeText = tests
-      .map((t, idx) => `--- Test ${idx + 1} (${t.title}) ---\n${t.code}`)
-      .join('\n\n')
-
-    let analysisSection = ''
-    if (includeAnalysis && analysis?.results) {
-      const serverResults = analysis.results.map((r) => {
-        const chars = r.prediction?.characteristics || {}
-        const activeChars = Object.entries(chars)
-          .filter(([, v]) => v)
-          .map(([k]) => k)
-          .join(', ')
-
-        return [
-          `--- Test ${r.testIndex + 1} (${r.title}) ---`,
-          `  QuickJS (interpreter): ${formatNumber(Math.round(r.quickjs.opsPerSec))} ops/sec`,
-          `  V8 (JIT):              ${formatNumber(Math.round(r.v8.opsPerSec))} ops/sec`,
-          r.complexity ? `  Static Complexity:    time ${r.complexity.time?.notation || 'unknown'}, space ${r.complexity.space?.notation || 'unknown'}${r.complexity.async?.mode && r.complexity.async.mode !== 'none' ? `, async ${r.complexity.async.mode}` : ''}` : null,
-          r.complexity?.explanation ? `  Complexity Notes:     ${r.complexity.explanation}` : null,
-          `  JIT Amplification:     ${r.prediction?.jitBenefit ?? 'N/A'}x`,
-          `  Memory Response:       ${r.prediction?.scalingType ?? 'N/A'} (fit quality: ${r.prediction?.scalingConfidence != null ? (r.prediction.scalingConfidence * 100).toFixed(0) + '%' : 'N/A'})`,
-          `  Memory Sensitivity:    ${r.prediction?.memSensitivity ?? 'N/A'}`,
-          activeChars ? `  Characteristics:       ${activeChars}` : null,
-        ].filter(Boolean).join('\n')
-      }).join('\n\n')
-
-      const comp = analysis.comparison
-      const divergenceNote = comp?.divergence
-        ? `Note: The algorithmically fastest snippet (by interpreter) differs from the runtime fastest (by V8 JIT). The winner is determined by JIT optimization, not algorithm.`
-        : `The algorithmic ranking (interpreter) and runtime ranking (V8 JIT) agree.`
-
-      analysisSection = `
-
-### Deep Analysis (Server-Side Controlled Environment):
-These results come from isolated server runs — QuickJS-WASM provides a deterministic interpreter baseline and memory-limit sweep; V8 runs once in a single-vCPU Firecracker microVM for realistic canonical JIT profiling.
-
-${serverResults}
-
-${divergenceNote}`
-
-      const multiRuntimeSection = formatMultiRuntimeForPrompt(multiRuntimeData)
-      if (multiRuntimeSection) {
-        analysisSection += multiRuntimeSection
-      }
-    }
-
-    const promptHints = []
-    if (includeAnalysis) promptHints.push('JIT amplification, memory response, static complexity, characteristics')
-    if (includeAnalysis && multiRuntimeStatus === 'done') {
-      promptHints.push('cross-runtime variation (Node/Deno/Bun) and hardware perf counters where available')
-    }
-
-    const sourceLanguageLabel = language === 'typescript' ? 'TypeScript' : 'JavaScript'
-    const prompt = `I ran a ${sourceLanguageLabel} performance benchmark. Please analyze the results and explain why the fastest snippet is faster, focusing on V8/browser engine optimizations.
-
-### Browser Benchmark Results:
-${resultsText}
-
-### Code Snippets:
-${codeText}${analysisSection}
-
-Why is the fastest snippet performing better in modern JavaScript engines?${language === 'typescript' ? ' Note that some engines may run JavaScript compiled from the original TypeScript source.' : ''}${promptHints.length > 0 ? ` Use the deep analysis data (${promptHints.join('; ')}) to give a more precise explanation.` : ''}`
-
-    return encodeURIComponent(prompt)
-  }
+  const generateAIPrompt = (includeAnalysis = false) => generateBenchmarkAIPrompt({
+    tests,
+    analysis,
+    multiRuntimeData,
+    multiRuntimeStatus,
+    language,
+    includeAnalysis,
+  })
 
   return (
     <>
@@ -1145,6 +588,7 @@ Why is the fastest snippet performing better in modern JavaScript engines?${lang
           onRetry={() => openRuntimeAnalysisModal(true)}
           progress={analysisProgress}
           pipeline={analysisPipeline}
+          stepStatuses={analysisStepStatuses}
           testCount={tests.length}
           cachedAt={analysisCachedAt}
           stats={stats}

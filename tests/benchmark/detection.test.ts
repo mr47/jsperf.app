@@ -50,10 +50,19 @@ describe('benchmark detection', () => {
     `)).toEqual([])
   })
 
+  it('uses AST references for browser globals instead of token matches', () => {
+    expect(findBrowserApiGlobals(`
+      type ElementFactory = () => HTMLElement;
+      const document = makeDocument();
+      const item = { window: true, document };
+    `)).toEqual([])
+  })
+
   it('detects Promise-like work that the harness may not await', () => {
     expect(findAsyncNotAwaitedRisk({ code: 'return Promise.resolve(value)' })).toMatchObject({
       evidence: expect.stringContaining('Promise.resolve'),
     })
+    expect(findAsyncNotAwaitedRisk({ code: '"Promise.resolve(value)"' })).toBeNull()
     expect(findAsyncNotAwaitedRisk({ code: 'await Promise.resolve(value)' })).toBeNull()
     expect(findAsyncNotAwaitedRisk({ code: 'return new Promise(resolve => resolve(value))' })).toBeNull()
   })
@@ -74,6 +83,7 @@ describe('benchmark detection', () => {
       evidence: expect.stringContaining('Math.max'),
     })
     expect(findConstantFoldingRisk({ code: 'return Math.max(value, 2)' })).toBeNull()
+    expect(findConstantFoldingRisk({ code: 'return "2 * (10 + 5)"' })).toBeNull()
   })
 
   it('detects setup-looking work inside measured snippets', () => {

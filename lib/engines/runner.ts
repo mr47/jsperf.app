@@ -8,9 +8,10 @@
  *
  * Multi-runtime (Node/Deno/Bun) analysis used to live here as a third
  * phase but it has been moved out to the /api/benchmark/analyze handler
- * which enqueues an async job on the remote worker concurrently with
- * QuickJS+V8. That keeps the Vercel function inside its 60s ceiling
- * regardless of how long the worker takes — see lib/engines/multiruntime.js.
+ * which enqueues an async job on the remote worker concurrently with the
+ * QuickJS, V8, and complexity phases. That keeps the Vercel function inside
+ * its 60s ceiling regardless of how long the worker takes — see
+ * lib/engines/multiruntime.js.
  */
 
 import { runInQuickJS } from './quickjs'
@@ -59,94 +60,21 @@ export async function runAnalysis(tests, {
     throw new Error('At least one test is required')
   }
 
-  const allQuickjsProfiles = []
-  const allV8Profiles = []
+  const [allQuickjsProfiles, allV8Profiles, complexities] = await Promise.all([
+    runQuickJSAnalysis(tests, { setup, teardown, timeMs, signal, onProgress }),
+    runV8Analysis(tests, { setup, teardown, timeMs, snapshotId, signal, onProgress }),
+    runComplexityPhase(tests, { setup, signal, onProgress, estimateComplexities }),
+  ])
 
-  // Phase 1: QuickJS-WASM for all tests
-  for (let i = 0; i < tests.length; i++) {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  return buildAnalysisFromProfiles(tests, { quickjsProfiles: allQuickjsProfiles, v8Profiles: allV8Profiles, complexities, onProgress })
+}
 
-    onProgress?.({ engine: 'quickjs', testIndex: i, status: 'running' })
-
-    const profiles = []
-    for (let profileIndex = 0; profileIndex < QUICKJS_MEMORY_PROFILES.length; profileIndex++) {
-      const profile = QUICKJS_MEMORY_PROFILES[profileIndex]
-      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-
-      const qjsResult = await runInQuickJS(tests[i].code, {
-        setup,
-        teardown,
-        timeMs: Math.min(timeMs, 1500),
-        memoryLimit: profile.memoryLimit,
-        isAsync: isAsyncTest(tests[i]),
-      })
-
-      profiles.push({
-        label: profile.label,
-        resourceLevel: profile.resourceLevel,
-        memoryMB: profile.memoryLimit / (1024 * 1024),
-        opsPerSec: qjsResult.opsPerSec || 0,
-        latency: qjsResult.latency || null,
-        methodology: qjsResult.methodology || null,
-        memoryUsed: qjsResult.memoryUsed,
-        state: qjsResult.state,
-        error: qjsResult.error,
-      })
-    }
-
-    allQuickjsProfiles.push(profiles)
-    onProgress?.({ engine: 'quickjs', testIndex: i, status: 'done' })
-  }
-
-  // Phase 2: V8 Sandbox for all tests
-  for (let i = 0; i < tests.length; i++) {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
-
-    onProgress?.({ engine: 'v8', testIndex: i, status: 'running' })
-
-    const profile = V8_CANONICAL_PROFILE
-    const v8Result = await runInV8Sandbox(tests[i].code, {
-      setup,
-      teardown,
-      timeMs: Math.min(timeMs, 1500),
-      snapshotId,
-      vcpus: profile.vcpus,
-      isAsync: isAsyncTest(tests[i]),
-      signal,
-    })
-
-    const profiles = [{
-      label: profile.label,
-      resourceLevel: profile.resourceLevel,
-      vcpus: profile.vcpus,
-      opsPerSec: v8Result.opsPerSec || 0,
-      latency: v8Result.latency || null,
-      methodology: v8Result.methodology || null,
-      heapUsed: v8Result.heapUsed || 0,
-      state: v8Result.state,
-      error: v8Result.error,
-    }]
-
-    allV8Profiles.push(profiles)
-    onProgress?.({ engine: 'v8', testIndex: i, status: 'done' })
-  }
-
-  // Phase 3: Static complexity estimates for all tests
-  let complexities = Array(tests.length).fill(null)
-  if (estimateComplexities) {
-    for (let i = 0; i < tests.length; i++) {
-      onProgress?.({ engine: 'complexity', testIndex: i, status: 'running' })
-    }
-    const remoteComplexities = await estimateComplexities(tests, { setup, signal })
-    if (Array.isArray(remoteComplexities)) {
-      complexities = remoteComplexities
-    }
-    for (let i = 0; i < tests.length; i++) {
-      onProgress?.({ engine: 'complexity', testIndex: i, status: 'done' })
-    }
-  }
-
-  // Phase 4: Build predictions for all tests
+export function buildAnalysisFromProfiles(tests: any[], {
+  quickjsProfiles: allQuickjsProfiles,
+  v8Profiles: allV8Profiles,
+  complexities = Array(tests.length).fill(null),
+  onProgress,
+}: any = {}) {
   const results = []
   for (let i = 0; i < tests.length; i++) {
     onProgress?.({ engine: 'prediction', testIndex: i, status: 'running' })
@@ -184,6 +112,128 @@ export async function runAnalysis(tests, {
   )
 
   return { results, comparison, hasErrors }
+}
+
+export async function runQuickJSAnalysis(tests: any[], {
+  setup,
+  teardown,
+  timeMs,
+  signal,
+  onProgress,
+}: any = {}) {
+  const allProfiles = []
+
+  for (let i = 0; i < tests.length; i++) {
+    throwIfAborted(signal)
+
+    onProgress?.({ engine: 'quickjs', testIndex: i, status: 'running' })
+
+    const profiles = []
+    for (let profileIndex = 0; profileIndex < QUICKJS_MEMORY_PROFILES.length; profileIndex++) {
+      const profile = QUICKJS_MEMORY_PROFILES[profileIndex]
+      throwIfAborted(signal)
+
+      const qjsResult = await runInQuickJS(tests[i].code, {
+        setup,
+        teardown,
+        timeMs: Math.min(timeMs, 1500),
+        memoryLimit: profile.memoryLimit,
+        isAsync: isAsyncTest(tests[i]),
+      })
+
+      profiles.push({
+        label: profile.label,
+        resourceLevel: profile.resourceLevel,
+        memoryMB: profile.memoryLimit / (1024 * 1024),
+        opsPerSec: qjsResult.opsPerSec || 0,
+        latency: qjsResult.latency || null,
+        methodology: qjsResult.methodology || null,
+        memoryUsed: qjsResult.memoryUsed,
+        state: qjsResult.state,
+        error: qjsResult.error,
+      })
+    }
+
+    allProfiles.push(profiles)
+    onProgress?.({ engine: 'quickjs', testIndex: i, status: 'done' })
+  }
+
+  return allProfiles
+}
+
+export async function runV8Analysis(tests: any[], {
+  setup,
+  teardown,
+  timeMs,
+  snapshotId,
+  signal,
+  onProgress,
+}: any = {}) {
+  const allProfiles = []
+
+  for (let i = 0; i < tests.length; i++) {
+    throwIfAborted(signal)
+
+    onProgress?.({ engine: 'v8', testIndex: i, status: 'running' })
+
+    const profile = V8_CANONICAL_PROFILE
+    const v8Result = await runInV8Sandbox(tests[i].code, {
+      setup,
+      teardown,
+      timeMs: Math.min(timeMs, 1500),
+      snapshotId,
+      vcpus: profile.vcpus,
+      isAsync: isAsyncTest(tests[i]),
+      signal,
+    })
+
+    allProfiles.push([{
+      label: profile.label,
+      resourceLevel: profile.resourceLevel,
+      vcpus: profile.vcpus,
+      opsPerSec: v8Result.opsPerSec || 0,
+      latency: v8Result.latency || null,
+      methodology: v8Result.methodology || null,
+      heapUsed: v8Result.heapUsed || 0,
+      state: v8Result.state,
+      error: v8Result.error,
+    }])
+
+    onProgress?.({ engine: 'v8', testIndex: i, status: 'done' })
+  }
+
+  return allProfiles
+}
+
+async function runComplexityPhase(tests, {
+  setup,
+  signal,
+  onProgress,
+  estimateComplexities,
+}) {
+  let complexities = Array(tests.length).fill(null)
+  if (!estimateComplexities) return complexities
+
+  throwIfAborted(signal)
+  for (let i = 0; i < tests.length; i++) {
+    onProgress?.({ engine: 'complexity', testIndex: i, status: 'running' })
+  }
+
+  const remoteComplexities = await estimateComplexities(tests, { setup, signal })
+  if (Array.isArray(remoteComplexities)) {
+    complexities = remoteComplexities
+  }
+
+  throwIfAborted(signal)
+  for (let i = 0; i < tests.length; i++) {
+    onProgress?.({ engine: 'complexity', testIndex: i, status: 'done' })
+  }
+
+  return complexities
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
 }
 
 function average(arr) {

@@ -129,6 +129,35 @@ Most JavaScript files are now intentional exceptions: config files, generated co
 
 The `worker/` package runs benchmark snippets in Node.js, Deno, and Bun inside resource-limited Docker containers. The main app uses it asynchronously when `BENCHMARK_WORKER_URL` is configured.
 
+## Deep Analysis Data Flow
+
+Deep Analysis is split across small API routes so slow phases do not block one Vercel request. The browser is the orchestrator:
+
+```text
+Browser
+  │
+  ├─ POST /api/benchmark/analyze/start
+  │    validate, rate-limit, prepare JS/TS sources, create Redis session,
+  │    check base-analysis cache
+  │
+  ├─ parallel when cache miss
+  │    ├─ POST /api/benchmark/analyze/quickjs  -> QuickJS-WASM profiles
+  │    ├─ POST /api/benchmark/analyze/v8       -> V8 in Vercel Sandbox
+  │    └─ POST /api/benchmark/analyze/worker   -> complexity + worker job IDs
+  │
+  ├─ POST /api/benchmark/analyze/finalize
+  │    merge QuickJS/V8/complexity, build prediction + Benchmark Doctor,
+  │    persist MongoDB snapshot and Redis cache
+  │
+  └─ EventSource /api/benchmark/multi-runtime/events
+       server-side proxy polls worker jobs, emits per-test SSE updates,
+       persists completed Node/Deno/Bun results by multi-runtime cache key
+```
+
+The 60 second Vercel route limit applies to the local QuickJS/V8/finalize work. Multi-runtime worker jobs can run longer: `/api/benchmark/analyze/worker` only enqueues jobs and returns their deadlines, while `/api/benchmark/multi-runtime/events` keeps a lightweight server-sent-events connection open and streams updates until the worker finishes or its advertised deadline expires.
+
+The legacy `/api/benchmark/analyze` route remains for compatibility, but the UI uses the split route flow above.
+
 Local worker setup:
 
 ```bash

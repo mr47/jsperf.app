@@ -4,7 +4,7 @@ A long-running HTTP service that benchmarks JavaScript snippets in **Node.js**, 
 
 This is the optional multi-runtime layer of the Deep Analysis pipeline. The rest of the analysis (QuickJS-WASM, V8 sandbox, prediction model) runs unchanged whether or not this worker is reachable.
 
-`jsperf.net` uses the **async job API** (`POST /api/jobs` + polling) so its serverless function returns inside Vercel's 60s ceiling regardless of how long the worker takes to finish. The streaming `/api/run` endpoint is kept for local development and ad-hoc curl-driven debugging.
+`jsperf.net` uses the **async job API** (`POST /api/jobs` + `GET /api/jobs/:id`) so its serverless functions return inside Vercel's 60s ceiling regardless of how long the worker takes to finish. The browser subscribes to a Vercel-side SSE proxy, `/api/benchmark/multi-runtime/events`, which performs the worker status checks server-side and pushes realtime updates to the UI. The streaming `/api/run` endpoint is kept for local development and ad-hoc curl-driven debugging.
 
 ## What it does
 
@@ -33,20 +33,21 @@ For every benchmark request:
 jsperf.net (Vercel)                                   Hostinger KVM 2 + Dokploy
 ─────────────────────                                 ──────────────────────────────
 
-POST /api/benchmark/analyze ─┬─ POST  /api/jobs ──▶ jsperf-worker
-                             │                          │
-   QuickJS + V8 + prediction │   (returns 202           │  docker run --rm ...
-   run synchronously here    │    immediately)          ▼
-                             │                  ┌────────────────────┐
-   returns multiRuntime jobIds                  │ jsperf-bench-node  │
-                                                │ jsperf-bench-deno  │
-browser polls ──▶ GET /api/benchmark/           │ jsperf-bench-bun   │
-                  multi-runtime/:jobId          └────────────────────┘
-                       │
-                       └─ proxies ──▶ GET /api/jobs/:id
+POST /api/benchmark/analyze/start
+  │
+  ├─ POST /api/benchmark/analyze/quickjs
+  ├─ POST /api/benchmark/analyze/v8
+  └─ POST /api/benchmark/analyze/worker ── POST /api/jobs ──▶ jsperf-worker
+                                            (returns 202)          │
+                                                                   ▼
+                                                           ┌────────────────────┐
+EventSource /api/benchmark/multi-runtime/events           │ jsperf-bench-node  │
+  │                                                        │ jsperf-bench-deno  │
+  └─ SSE proxy checks GET /api/jobs/:id ─────────────────▶ │ jsperf-bench-bun   │
+                                                           └────────────────────┘
 ```
 
-`/api/benchmark/analyze` enqueues the multi-runtime job **before** running QuickJS+V8 so the worker runs concurrently with the synchronous phases. By the time base analysis finishes (~30s), the worker is usually already done — the browser's first poll typically returns the result.
+`/api/benchmark/analyze/worker` enqueues the multi-runtime job while the browser runs the QuickJS and V8 routes in parallel. Base analysis can finish and render while the worker continues. The SSE proxy keeps pushing per-test updates until each Node/Deno/Bun comparison is done, then completed results are persisted by multi-runtime cache key for future visits.
 
 The worker is a thin orchestrator. It does not persist any state; benchmark scripts are written to a per-run tmpdir, mounted read-write into one container, then deleted. Cold-start cost per run is dominated by container creation (~150–400ms on a KVM 2 box).
 
@@ -188,7 +189,7 @@ In **Vercel → Project → Settings → Environment Variables** add:
 | `BENCHMARK_WORKER_URL` | `https://worker.your-domain.tld` |
 | `BENCHMARK_WORKER_SECRET` | (the same token you set on the worker) |
 
-Re-deploy. The Deep Analysis pipeline will now enqueue an async job on the worker for every analyze request and the browser will poll `/api/benchmark/multi-runtime/[jobId]` for the result. If the worker is offline, returns an error, or polling times out, the rest of the analysis still completes — the multi-runtime panel just shows a small "worker unreachable" notice and base results render normally.
+Re-deploy. The Deep Analysis pipeline will now enqueue async jobs on the worker and stream updates to the browser through `/api/benchmark/multi-runtime/events`. If the worker is offline, returns an error, or the SSE proxy reaches the worker deadline, the rest of the analysis still completes — the multi-runtime panel shows the worker error while base results render normally. The JSON polling endpoint `/api/benchmark/multi-runtime/[jobId]` remains available as a compatibility fallback.
 
 ## Health check
 

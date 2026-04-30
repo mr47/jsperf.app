@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Browser-facing polling endpoint for an asynchronous multi-runtime job.
  *
@@ -17,12 +16,8 @@
  *   503 { error: 'Worker unreachable' }
  */
 
-import { getMultiRuntimeJob } from '../../../../lib/engines/multiruntime'
-import { buildRuntimeComparison } from '../../../../lib/prediction/model'
-import {
-  loadStoredMultiRuntimeResults,
-  persistMultiRuntimeResult,
-} from '../../../../lib/multiRuntimeResults'
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { getShapedMultiRuntimeJob } from '../../../../lib/multiRuntimeJobResult'
 
 // Polling endpoint is intentionally tiny — it should always finish well
 // inside any timeout. Hobby's 60s default is fine.
@@ -30,13 +25,13 @@ export const config = {
   maxDuration: 30,
 }
 
-export default async function handler(req, res) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET'])
     return res.status(405).end(`Method ${req.method} Not Allowed`)
   }
 
-  const { jobId } = req.query
+  const jobId = Array.isArray(req.query.jobId) ? req.query.jobId[0] : req.query.jobId
   if (!jobId || typeof jobId !== 'string') {
     return res.status(400).json({ error: 'jobId is required' })
   }
@@ -46,80 +41,16 @@ export default async function handler(req, res) {
   // /api/benchmark/analyze.
   const cacheKey = typeof req.query.codeHash === 'string' ? req.query.codeHash : null
 
-  // Fast path: if we've already stored a "done" MR result for this key,
-  // serve it without bothering the worker.
-  const testIndex = Number.parseInt(req.query.testIndex, 10)
-  if (cacheKey && Number.isFinite(testIndex)) {
-    try {
-      const stored = await loadStoredMultiRuntimeResults(cacheKey, [{ testIndex }], { requireAll: true })
-      const storedResult = stored?.results?.[0]
-      if (storedResult) {
-        res.setHeader('X-MR-Store', 'HIT')
-        return res.status(200).json({
-          state: 'done',
-          runtimes: storedResult.runtimes,
-          runtimeComparison: storedResult.runtimeComparison,
-        })
-      }
-    } catch (err) {
-      console.warn('multi-runtime store read failed:', err?.message || err)
-    }
-  }
-
-  let job
+  const testIndexRaw = Array.isArray(req.query.testIndex) ? req.query.testIndex[0] : req.query.testIndex
+  const testIndex = Number.parseInt(testIndexRaw || '', 10)
   try {
-    job = await getMultiRuntimeJob(jobId)
+    const result = await getShapedMultiRuntimeJob(jobId, {
+      cacheKey,
+      testIndex,
+    })
+    if (result.storeHit) res.setHeader('X-MR-Store', 'HIT')
+    return res.status(result.status || 200).json(result.payload)
   } catch (err) {
     return res.status(503).json({ error: `Worker error: ${err.message || String(err)}` })
   }
-
-  if (job === null) return res.status(404).json({ error: 'Unknown job' })
-  if (job.unavailable) return res.status(503).json({ error: job.error })
-
-  if (job.state === 'errored') {
-    return res.status(200).json({ state: 'errored', error: job.error || 'unknown error' })
-  }
-
-  if (job.state === 'pending' || job.state === 'running') {
-    return res.status(200).json({
-      state: job.state,
-      partial: shapePartial(job.partial),
-    })
-  }
-
-  // state === 'done' — shape into the runtimeComparison schema the UI
-  // already knows how to render.
-  const runtimes = job.result?.runtimes || {}
-  const runtimeComparison = buildRuntimeComparison(runtimes)
-  const payload = { runtimes, runtimeComparison }
-
-  if (cacheKey && Number.isFinite(testIndex) && runtimeComparison?.available) {
-    try {
-      await persistMultiRuntimeResult({
-        cacheKey,
-        testIndex,
-        runtimes,
-        runtimeComparison,
-      })
-    } catch (err) {
-      console.warn('multi-runtime store write failed:', err?.message || err)
-    }
-  }
-
-  return res.status(200).json({ state: 'done', ...payload })
-}
-
-// Trim the worker's in-memory accumulator down to what the UI actually
-// shows during the "running" state — currently just per-runtime progress
-// counts so we can drive a partial spinner.
-function shapePartial(partial) {
-  if (!partial) return null
-  const out = {}
-  for (const [runtime, data] of Object.entries(partial)) {
-    out[runtime] = {
-      profilesCompleted: (data.profiles || []).length,
-      hasError: Boolean(data.error),
-    }
-  }
-  return out
 }

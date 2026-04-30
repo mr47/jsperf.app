@@ -27,8 +27,8 @@ function formatRelativeTime(value) {
 const STEP_META = {
   quickjs: { label: 'Running QuickJS-WASM', desc: 'Deterministic interpreter baseline' },
   v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
-  'multi-runtime': { label: 'Comparing Node / Deno / Bun', desc: 'Single-core runtime comparison + hardware perf counters' },
-  complexity: { label: 'Estimating complexity', desc: 'Static time, space and async heuristics' },
+  'multi-runtime': { label: 'Queueing Node / Deno / Bun worker', desc: 'Worker job IDs stream live through an SSE proxy' },
+  complexity: { label: 'Estimating complexity', desc: 'Static time, space and async heuristics from the worker route' },
   prediction: { label: 'Building prediction model', desc: 'JIT amplification and memory-response analysis' },
 }
 
@@ -46,18 +46,23 @@ function buildSteps(pipeline, seenMultiRuntime) {
   return keys.map(key => ({ key, ...STEP_META[key] }))
 }
 
-function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
+function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, stepStatuses }) {
   const currentEngine = progress?.engine || 'quickjs'
   const currentStatus = progress?.status || 'running'
   const testIndex = progress?.testIndex ?? 0
 
   const steps = buildSteps(pipeline, seenMultiRuntime)
-  const idx = steps.findIndex(s => s.key === currentEngine)
-  const baseIndex = idx >= 0 ? idx : 0
-  const stepIndex = currentStatus === 'done' ? baseIndex + 1 : baseIndex
-
   const totalSteps = steps.length
-  const progressPct = (stepIndex / totalSteps) * 100
+  const hasStepStatuses = stepStatuses && Object.keys(stepStatuses).length > 0
+  const fallbackIdx = steps.findIndex(s => s.key === currentEngine)
+  const fallbackStepIndex = currentStatus === 'done' ? fallbackIdx + 1 : Math.max(0, fallbackIdx)
+  const doneCount = hasStepStatuses
+    ? steps.filter(step => stepStatuses[step.key] === 'done').length
+    : fallbackStepIndex
+  const runningCount = hasStepStatuses
+    ? steps.filter(step => stepStatuses[step.key] === 'running').length
+    : currentStatus === 'running' ? 1 : 0
+  const progressPct = (doneCount / totalSteps) * 100
 
   return (
     <div className="mt-8">
@@ -66,7 +71,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
         <div className="flex items-center gap-1.5 px-2">
           <Microscope className="h-3.5 w-3.5 text-violet-500" />
           <span className="text-xs font-medium text-muted-foreground">
-            Server Analysis
+            Deep Analysis Orchestration
             {testCount > 1 && ` — Test ${testIndex + 1}/${testCount}`}
           </span>
         </div>
@@ -77,9 +82,13 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
         <div className="w-full bg-muted rounded-full h-1.5 mb-5 overflow-hidden">
           <div
             className="bg-violet-500 h-1.5 rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${Math.max(8, progressPct)}%` }}
+            style={{ width: `${Math.max(runningCount > 0 ? 8 : 0, progressPct)}%` }}
           />
         </div>
+
+        <p className="text-xs text-muted-foreground mb-4 -mt-2">
+          QuickJS, V8 Sandbox, and worker setup run through separate API routes. The multi-runtime worker can keep streaming after base results are ready.
+        </p>
 
         {progress?.runtime && (
           <p className="text-[11px] text-muted-foreground mb-3 -mt-2">
@@ -90,9 +99,12 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
 
         <div className="space-y-3">
           {steps.map((step, i) => {
-            let state = 'pending'
-            if (i < stepIndex) state = 'done'
-            else if (i === stepIndex && currentStatus !== 'done') state = 'running'
+            let state = stepStatuses?.[step.key] || 'pending'
+            if (!hasStepStatuses) {
+              state = 'pending'
+              if (i < fallbackStepIndex) state = 'done'
+              else if (i === fallbackStepIndex && currentStatus !== 'done') state = 'running'
+            }
 
             return (
               <div key={step.key} className="flex items-center gap-3">
@@ -107,12 +119,17 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
                   {state === 'running' && (
                     <div className="h-5 w-5 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
                   )}
+                  {state === 'error' && (
+                    <div className="h-5 w-5 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-[11px] font-bold text-amber-700 dark:text-amber-300">
+                      !
+                    </div>
+                  )}
                   {state === 'pending' && (
                     <div className="h-5 w-5 rounded-full border-2 border-border/60" />
                   )}
                 </div>
                 <div className="min-w-0">
-                  <span className={`text-sm font-medium leading-5 ${state === 'pending' ? 'text-muted-foreground/60' : 'text-foreground'}`}>
+                  <span className={`text-sm font-medium leading-5 ${state === 'pending' ? 'text-muted-foreground/60' : state === 'error' ? 'text-amber-700 dark:text-amber-300' : 'text-foreground'}`}>
                     {step.label}
                   </span>
                   <p className={`text-xs leading-4 ${state === 'pending' ? 'text-muted-foreground/40' : 'text-muted-foreground'}`}>
@@ -129,7 +146,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime }) {
 }
 
 export default function DeepAnalysis({
-  status, analysis, error, onRetry, progress, pipeline, testCount,
+  status, analysis, error, onRetry, progress, pipeline, stepStatuses, testCount,
   multiRuntime, cachedAt, stats, tests, setup, teardown, showCompatibilityMatrix = false,
 }) {
   const mrStatus = multiRuntime?.status || 'idle'
@@ -142,6 +159,7 @@ export default function DeepAnalysis({
       <AnalysisProgress
         progress={progress}
         pipeline={pipeline}
+        stepStatuses={stepStatuses}
         testCount={testCount || 1}
         seenMultiRuntime={seenMultiRuntime}
       />
@@ -372,10 +390,10 @@ function MultiRuntimeSection({ results, status, error }) {
         <div className="h-4 w-4 rounded-full border-2 border-violet-500 border-t-transparent animate-spin flex-shrink-0" />
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground leading-tight">
-            Comparing Node / Deno / Bun
+            Streaming Node / Deno / Bun updates
           </p>
           <p className="text-xs text-muted-foreground leading-tight">
-            Running on the remote worker with a matched single-core budget — hardware perf counters incoming.
+            Base QuickJS/V8 results are ready. This panel stays subscribed to worker updates through SSE until each runtime comparison finishes.
           </p>
         </div>
       </div>
