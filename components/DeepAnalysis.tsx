@@ -62,7 +62,11 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
   const runningCount = hasStepStatuses
     ? steps.filter(step => stepStatuses[step.key] === 'running').length
     : currentStatus === 'running' ? 1 : 0
-  const progressPct = (doneCount / totalSteps) * 100
+  const heartbeatTick = Number(progress?.heartbeat) || 0
+  const runningStepCredit = runningCount > 0
+    ? Math.min(0.85, 0.18 + heartbeatTick * 0.08)
+    : 0
+  const progressPct = ((doneCount + runningStepCredit) / totalSteps) * 100
 
   return (
     <div className="mt-8">
@@ -87,7 +91,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
         </div>
 
         <p className="text-xs text-muted-foreground mb-4 -mt-2">
-          QuickJS, V8 Sandbox, and worker setup run through separate API routes. The multi-runtime worker can keep streaming after base results are ready.
+          Updates refresh about every 2 seconds while longer checks are running.
         </p>
 
         {progress?.runtime && (

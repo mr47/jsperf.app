@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const DEFAULT_WORKER_POLL_DEADLINE_MS = 60_000
 const WORKER_STREAM_GRACE_MS = 30_000
 const WORKER_STREAM_RECONNECT_BASE_MS = 1500
-const WORKER_STREAM_RECONNECT_MAX_MS = 5000
+const WORKER_STREAM_RECONNECT_MAX_MS = 2000
+const ANALYSIS_PROGRESS_HEARTBEAT_MS = 2000
 
 export function useDeepAnalysis({
   tests,
@@ -379,6 +380,20 @@ export function useDeepAnalysis({
       multiRuntimeAbortRef.current?.abort()
     }
   }, [])
+
+  useEffect(() => {
+    if (analysisStatus !== 'loading') return
+
+    const timer = setInterval(() => {
+      setAnalysisProgress(prev => ({
+        ...(prev || { engine: 'quickjs', testIndex: 0, status: 'running' }),
+        heartbeat: Number(prev?.heartbeat || 0) + 1,
+        tick: Date.now(),
+      }))
+    }, ANALYSIS_PROGRESS_HEARTBEAT_MS)
+
+    return () => clearInterval(timer)
+  }, [analysisStatus])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
