@@ -45,6 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader('X-Analysis-Cache', cached ? 'HIT' : 'MISS')
     return res.status(200).json({
       sessionId: session.id,
+      tier,
       deadlineAt: session.deadlineAt,
       pipeline: buildPipeline(),
       codeHash: session.codeHash,

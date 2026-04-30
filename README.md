@@ -131,7 +131,7 @@ The `worker/` package runs benchmark snippets in Node.js, Deno, and Bun inside r
 
 ## Deep Analysis Data Flow
 
-Deep Analysis is split across small API routes so slow phases do not block one Vercel request. The browser is the orchestrator:
+Deep Analysis is split across small API routes so slow phases do not block one Vercel request. The browser is the orchestrator and chooses the free or donor path from `/api/benchmark/analyze/start`:
 
 ```text
 Browser
@@ -140,7 +140,7 @@ Browser
   │    validate, rate-limit, prepare JS/TS sources, create Redis session,
   │    check base-analysis cache
   │
-  ├─ parallel when cache miss
+  ├─ free/non-donor cache miss: parallel route fan-out
   │    ├─ POST /api/benchmark/analyze/quickjs  -> QuickJS-WASM profiles
   │    ├─ POST /api/benchmark/analyze/v8       -> V8 in Vercel Sandbox
   │    └─ POST /api/benchmark/analyze/worker   -> complexity + worker job IDs
@@ -149,12 +149,17 @@ Browser
   │    merge QuickJS/V8/complexity, build prediction + Benchmark Doctor,
   │    persist MongoDB snapshot and Redis cache
   │
+  ├─ donor cache miss: polling route
+  │    └─ POST /api/benchmark/analyze/donor-job
+  │       resumes a Redis-backed job one chunk at a time: worker enqueue,
+  │       QuickJS per test, V8 per test, then final persistence
+  │
   └─ EventSource /api/benchmark/multi-runtime/events
        server-side proxy polls worker jobs, emits per-test SSE updates,
        persists completed Node/Deno/Bun results by multi-runtime cache key
 ```
 
-The 60 second Vercel route limit applies to the local QuickJS/V8/finalize work. Multi-runtime worker jobs can run longer: `/api/benchmark/analyze/worker` only enqueues jobs and returns their deadlines, while `/api/benchmark/multi-runtime/events` keeps a lightweight server-sent-events connection open and streams updates until the worker finishes or its advertised deadline expires.
+The 60 second Vercel route limit applies to each route invocation, not to the whole donor workflow. Free runs still use one parallel fan-out with a 60 second envelope. Donor runs get a longer Redis session window and poll `/api/benchmark/analyze/donor-job`, which advances QuickJS/V8 in per-test chunks so a full deep analysis can outlive one request. Multi-runtime worker jobs can also run longer: `/api/benchmark/analyze/worker` and the donor job only enqueue jobs and return their deadlines, while `/api/benchmark/multi-runtime/events` keeps a lightweight server-sent-events connection open and streams updates until the worker finishes or its advertised deadline expires.
 
 The legacy `/api/benchmark/analyze` route remains for compatibility, but the UI uses the split route flow above.
 

@@ -20,8 +20,9 @@ type StatusError = Error & { status?: number }
 
 export const RATE_LIMIT = { free: 2, donor: 10, window: '5 m' }
 export const DEEP_ANALYSIS_LIMIT_MS = 60_000
+export const DONOR_DEEP_ANALYSIS_LIMIT_MS = 10 * 60_000
 export const DEEP_ANALYSIS_ABORT_MS = 58_000
-export const ANALYSIS_SESSION_TTL_SECONDS = 5 * 60
+export const ANALYSIS_SESSION_TTL_SECONDS = 15 * 60
 
 export function prepareDeepAnalysisRequest(body: AnalysisRequestBody = {}) {
   const { tests, setup, teardown, slug, revision, force } = body
@@ -80,9 +81,13 @@ export function prepareDeepAnalysisRequest(body: AnalysisRequestBody = {}) {
 }
 
 export function createAnalysisSession(payload) {
+  const deadlineMs = payload?.tier === 'donor'
+    ? DONOR_DEEP_ANALYSIS_LIMIT_MS
+    : DEEP_ANALYSIS_LIMIT_MS
+
   return {
     id: crypto.randomUUID(),
-    deadlineAt: Date.now() + DEEP_ANALYSIS_LIMIT_MS,
+    deadlineAt: Date.now() + deadlineMs,
     ...payload,
   }
 }
@@ -279,8 +284,8 @@ export function formatAnalysisTimeoutMessage(tier) {
 }
 
 export function handleApiError(error, res, tier = 'free') {
-  if (error?.status === 404) {
-    return res.status(404).json({ error: error.message || 'Analysis session expired' })
+  if (error?.status && error.status >= 400 && error.status < 500) {
+    return res.status(error.status).json({ error: error.message || 'Analysis request failed' })
   }
   if (isAbortError(error)) {
     return res.status(504).json({ error: formatAnalysisTimeoutMessage(tier) })

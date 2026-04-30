@@ -77,6 +77,12 @@ import quickjsHandler from '../../pages/api/benchmark/analyze/quickjs'
 import v8Handler from '../../pages/api/benchmark/analyze/v8'
 import workerHandler from '../../pages/api/benchmark/analyze/worker'
 import finalizeHandler from '../../pages/api/benchmark/analyze/finalize'
+import donorJobHandler from '../../pages/api/benchmark/analyze/donor-job'
+import {
+  createAnalysisSession,
+  prepareDeepAnalysisRequest,
+  saveAnalysisSession,
+} from '../../lib/benchmark/deepAnalysis'
 
 const ORIG_WORKER_URL = process.env.BENCHMARK_WORKER_URL
 
@@ -175,5 +181,42 @@ describe('split deep analysis API routes', () => {
     expect(workerRes._json.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'slow-job' }])
     expect(workerRes._json.multiRuntime.deadlineMs).toBe(120_000)
     expect(workerRes._json.multiRuntime.deadlineAt).toBeGreaterThan(Date.now() + 60_000)
+  })
+
+  it('advances donor deep analysis across resumable poll requests', async () => {
+    const prepared = prepareDeepAnalysisRequest({ tests: [{ code: 'x + 1', title: 'test' }] })
+    if (prepared.error) throw new Error('unexpected preparation error')
+
+    const session = createAnalysisSession({ ...prepared, tier: 'donor' })
+    await saveAnalysisSession(session)
+
+    let jobId: string | null = null
+    const responses = []
+    for (let i = 0; i < 4; i++) {
+      const res = createMockRes()
+      await donorJobHandler(createMockReq({ sessionId: session.id, jobId }), res)
+      expect(res._status).toBe(200)
+      jobId = res._json.jobId
+      responses.push(res._json)
+    }
+
+    expect(responses.map(r => r.phase)).toEqual(['quickjs', 'v8', 'prediction', 'done'])
+    expect(responses[0].multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'job-1' }])
+    expect(responses[3].status).toBe('done')
+    expect(responses[3].analysis.results[0].quickjs.opsPerSec).toBe(1000)
+    expect(responses[3].analysis.results[0].v8.opsPerSec).toBe(50000)
+    expect(responses[3].analysis.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'job-1' }])
+    expect(insertOneMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects donor job polling for non-donor sessions', async () => {
+    const startRes = createMockRes()
+    await startHandler(createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] }), startRes)
+
+    const res = createMockRes()
+    await donorJobHandler(createMockReq({ sessionId: startRes._json.sessionId }), res)
+
+    expect(res._status).toBe(403)
+    expect(res._json.error).toContain('Donor deep analysis jobs require')
   })
 })

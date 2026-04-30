@@ -13,10 +13,10 @@ import { getShapedMultiRuntimeJob, type ShapedJobResult } from '../../../../lib/
 const DEFAULT_DEADLINE_MS = 60_000
 const POLL_INTERVAL_MS = 1500
 const HEARTBEAT_INTERVAL_MS = 15_000
-const MAX_STREAM_MS = 300_000
+const MAX_STREAM_MS = 55_000
 
 export const config = {
-  maxDuration: 300,
+  maxDuration: 60,
 }
 
 type WorkerJobRef = {
@@ -109,7 +109,7 @@ export default async function handler(req: NextApiRequest, res: SseResponse) {
     await sleep(POLL_INTERVAL_MS)
   }
 
-  if (!closed && remaining.size > 0) {
+  if (!closed && remaining.size > 0 && Date.now() >= deadlineAt) {
     for (const job of remaining.values()) {
       sendEvent(res, 'multi-runtime', {
         testIndex: job.testIndex,
@@ -148,12 +148,12 @@ function parseJobs(value: string | string[] | undefined): WorkerJobRef[] {
 function normalizeDeadlineAt(deadlineAtInput: string | string[] | undefined, deadlineMsInput: string | string[] | undefined) {
   const deadlineAt = Number(Array.isArray(deadlineAtInput) ? deadlineAtInput[0] : deadlineAtInput)
   if (Number.isFinite(deadlineAt) && deadlineAt > Date.now()) {
-    return Math.min(deadlineAt + 30_000, Date.now() + MAX_STREAM_MS)
+    return deadlineAt + 30_000
   }
 
   const deadlineMs = Number(Array.isArray(deadlineMsInput) ? deadlineMsInput[0] : deadlineMsInput)
   const baseMs = Number.isFinite(deadlineMs) && deadlineMs > 0 ? deadlineMs : DEFAULT_DEADLINE_MS
-  return Math.min(Date.now() + baseMs + 30_000, Date.now() + MAX_STREAM_MS)
+  return Date.now() + baseMs + 30_000
 }
 
 function sleep(ms: number) {

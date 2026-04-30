@@ -239,6 +239,66 @@ export function useDeepAnalysis({
         }
       }
 
+      const runDonorAnalysisJob = async () => {
+        let jobId: string | null = null
+        let lastMultiRuntimeKey: string | null = null
+
+        while (true) {
+          const data = await postJson('/api/benchmark/analyze/donor-job', {
+            sessionId: start.sessionId,
+            jobId,
+          })
+          jobId = data.jobId
+
+          const progress = data.progress || {}
+          const total = Number(progress.total) || tests.length
+          const quickjsDone = Number(progress.quickjsDone) || 0
+          const v8Done = Number(progress.v8Done) || 0
+
+          if (progress.workerStarted) {
+            setAnalysisStepStatus('complexity', 'done')
+            if (!data.multiRuntime) {
+              setAnalysisStepStatus('multi-runtime', 'done')
+            }
+          } else {
+            setAnalysisStepStatus('complexity', 'running')
+            setAnalysisStepStatus('multi-runtime', 'running')
+          }
+
+          setAnalysisStepStatus('quickjs', quickjsDone >= total ? 'done' : data.phase === 'quickjs' ? 'running' : 'pending')
+          setAnalysisStepStatus('v8', v8Done >= total ? 'done' : data.phase === 'v8' ? 'running' : 'pending')
+          setAnalysisStepStatus('prediction', data.phase === 'prediction' ? 'running' : data.status === 'done' ? 'done' : 'pending')
+          setAnalysisProgress({
+            engine: data.phase,
+            testIndex: data.phase === 'v8' ? v8Done : quickjsDone,
+            status: data.status === 'done' ? 'done' : 'running',
+          })
+
+          const multiRuntimeKey = data.multiRuntime ? JSON.stringify(data.multiRuntime) : null
+          if (multiRuntimeKey && multiRuntimeKey !== lastMultiRuntimeKey) {
+            lastMultiRuntimeKey = multiRuntimeKey
+            applyMultiRuntimeInfo(data.multiRuntime, start.multiRuntimeCacheKey)
+          }
+
+          if (data.status === 'done') {
+            setAnalysis(data.analysis)
+            setAnalysisStatus('done')
+            return
+          }
+
+          if (data.status === 'errored') {
+            throw new Error(data.error || 'Donor analysis job failed')
+          }
+
+          await sleep(750)
+        }
+      }
+
+      if (start.tier === 'donor' && !start.cached) {
+        await runDonorAnalysisJob()
+        return
+      }
+
       setAnalysisProgress({ engine: 'complexity', testIndex: 0, status: 'running' })
       setAnalysisStepStatus('complexity', 'running')
       setAnalysisStepStatus('multi-runtime', 'running')
@@ -388,4 +448,8 @@ async function postJson(url: string, body: any) {
     throw new Error(data.error || `Server error (${res.status})`)
   }
   return data
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
