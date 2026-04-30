@@ -271,6 +271,7 @@ export async function runInV8Sandbox(code, {
   signal,
 } = {}) {
   let sandbox
+  let parentAborted = false
   try {
     const createParams = {
       timeout: SANDBOX_TIMEOUT_MS,
@@ -331,6 +332,11 @@ export async function runInV8Sandbox(code, {
     return parsed
 
   } catch (e) {
+    if (signal?.aborted) {
+      parentAborted = true
+      throw abortReason(signal)
+    }
+
     return {
       state: 'errored',
       error: e.message || String(e),
@@ -339,8 +345,21 @@ export async function runInV8Sandbox(code, {
       heapUsed: 0,
     }
   } finally {
-    await removeSandbox(sandbox)
+    if (parentAborted) {
+      // The API route is already racing its function deadline. Let the response
+      // finish; sandbox TTL is the backup if this best-effort cleanup is cut off.
+      void removeSandbox(sandbox).catch((e) => {
+        console.warn('[v8sandbox] deferred cleanup failed:', e?.message || e)
+      })
+    } else {
+      await removeSandbox(sandbox)
+    }
   }
+}
+
+function abortReason(signal) {
+  if (signal?.reason instanceof Error) return signal.reason
+  return new DOMException('Aborted', 'AbortError')
 }
 
 function parseStdoutResult(stdoutText) {

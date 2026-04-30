@@ -120,6 +120,26 @@ describe('runInV8Sandbox', () => {
     expect(result.error).toContain('quota')
   })
 
+  it('propagates parent aborts without waiting for blocking cleanup', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    const controller = new AbortController()
+    const stop = vi.fn(() => new Promise(resolve => setTimeout(resolve, 50)))
+
+    Sandbox.create.mockResolvedValueOnce({
+      writeFiles: vi.fn(async () => {}),
+      runCommand: vi.fn(async () => {
+        controller.abort()
+        throw new DOMException('Aborted', 'AbortError')
+      }),
+      stop,
+    })
+
+    await expect(runInV8Sandbox('1 + 1', { signal: controller.signal })).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   it('passes snapshotId when provided', async () => {
     const { Sandbox } = await import('@vercel/sandbox')
     Sandbox.create.mockClear()
