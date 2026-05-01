@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { readFile } from 'fs/promises'
 import path from 'path'
+import { deflateRawSync } from 'zlib'
 import { cpuProfileDownloadName, loadCpuProfile } from '../../../../../lib/cpuProfiles'
 
 export const config = {
@@ -29,31 +30,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 async function renderCpuProReport(cpuProfile: unknown, filename: string) {
   const templateFile = path.join(process.cwd(), 'node_modules', 'cpupro', 'build', 'report.html')
   const template = await readFile(templateFile, 'utf8')
-  const data = JSON.stringify(cpuProfile)
-  const chunks = printRawDiscoveryData(data)
+  const data = Buffer.from(JSON.stringify(cpuProfile), 'utf8')
+  const chunks = printCompressedDiscoveryData(data)
   return `${template}
 <script>discoveryLoader.start(${JSON.stringify({
     type: 'file',
     name: filename,
-    size: data.length,
+    size: data.byteLength,
     createdAt: Date.now(),
   })})</script>${chunks}
 <script>discoveryLoader.finish(${chunks.length})</script>`
 }
 
-function printRawDiscoveryData(data: string) {
+function printCompressedDiscoveryData(data: Buffer) {
   const maxChunkSize = 1024 * 1024
   const out: string[] = []
-  for (let i = 0; i < data.length; i += maxChunkSize) {
-    const chunk = data.slice(i, i + maxChunkSize)
+  for (let i = 0; i < data.byteLength; i += maxChunkSize) {
+    const chunk = data.subarray(i, i + maxChunkSize)
+    const encoded = deflateRawSync(chunk).toString('base64')
     out.push(
-      `\n<script type="discovery/data-chunk">${escapeScriptText(chunk)}</script>` +
-      `<script>(chunk=>{discoveryLoader.push(chunk, false, false)})(document.currentScript.previousSibling.text)</script>`,
+      `\n<script type="discovery/binary-compressed-data-chunk">${encoded}</script>` +
+      `<script>(chunk=>{discoveryLoader.push(chunk, true, true)})(document.currentScript.previousSibling.text)</script>`,
     )
   }
   return out.join('')
-}
-
-function escapeScriptText(value: string) {
-  return value.replace(/<\/(script)/gi, '<\\/$1')
 }
