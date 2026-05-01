@@ -1,7 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { readFile } from 'fs/promises'
-import path from 'path'
-import { loadCpuProfile } from '../../../../../lib/cpuProfiles'
+import { cpuProfileDownloadName, loadCpuProfile } from '../../../../../lib/cpuProfiles'
 
 export const config = {
   maxDuration: 30,
@@ -19,14 +17,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const doc = await loadCpuProfile(id)
   if (!doc?.cpuProfile) return res.status(404).json({ error: 'CPU profile not found' })
 
-  const html = await renderCpuProReport()
-
   res.setHeader('Cache-Control', 'no-store')
-  res.setHeader('Content-Type', 'text/html; charset=utf-8')
-  return res.status(200).send(html)
-}
-
-async function renderCpuProReport() {
-  const templateFile = path.join(process.cwd(), 'node_modules', 'cpupro', 'build', 'report.html')
-  return readFile(templateFile, 'utf8')
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.setHeader('Content-Disposition', `inline; filename="${cpuProfileDownloadName(doc)}"`)
+  return res.status(200).send(JSON.stringify(doc.cpuProfile))
 }
