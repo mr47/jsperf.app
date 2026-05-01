@@ -63,6 +63,26 @@ describe('buildBenchmarkDoctor', () => {
     ]))
   })
 
+  it('summarizes extreme variance without noisy giant percentages', () => {
+    const doctor = buildBenchmarkDoctor({
+      tests: [{ title: 'Math.max.apply', code: 'return Math.max.apply(null, values)' }],
+      setup: 'const values = [1, 2, 3]',
+      results: [result(0, 'Math.max.apply', 1000, 0.0001, 0.0577, 57730.2, 8)],
+    })
+
+    expect(doctor.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        category: 'high-variance',
+        severity: 'danger',
+        testTitle: 'Math.max.apply',
+        title: 'Measurement is unstable',
+        evidence: 'rme=>100%',
+      }),
+    ]))
+    expect(doctor.diagnostics.find(d => d.title === 'Measurement is unstable')?.message)
+      .not.toContain('57730.2%')
+  })
+
   it('flags winners whose confidence intervals overlap', () => {
     const doctor = buildBenchmarkDoctor({
       tests: [

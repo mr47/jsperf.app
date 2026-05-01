@@ -39,7 +39,24 @@ export function useDeepAnalysis({
   const multiRuntimeAbortRef = useRef<{ abort: () => void } | null>(null)
 
   const setAnalysisStepStatus = useCallback((engine: string, status: string) => {
-    setAnalysisStepStatuses(prev => ({ ...prev, [engine]: status }))
+    setAnalysisStepStatuses(prev => {
+      if (prev[engine] === status) return prev
+      if (prev[engine] === 'done' && status !== 'done') return prev
+      return { ...prev, [engine]: status }
+    })
+  }, [])
+
+  const publishAnalysisProgress = useCallback((next: any) => {
+    setAnalysisProgress(prev => {
+      if (!next) return next
+      const nextProgress = typeof next === 'function' ? next(prev) : next
+      if (!nextProgress) return nextProgress
+      return {
+        ...nextProgress,
+        heartbeat: Number(nextProgress.heartbeat ?? prev?.heartbeat ?? 0),
+        tick: nextProgress.tick ?? prev?.tick,
+      }
+    })
   }, [])
 
   const pollMultiRuntime = useCallback(async ({ jobs, codeHash, deadlineMs, deadlineAt }: any) => {
@@ -269,9 +286,10 @@ export function useDeepAnalysis({
           setAnalysisStepStatus('quickjs', quickjsDone >= total ? 'done' : data.phase === 'quickjs' ? 'running' : 'pending')
           setAnalysisStepStatus('v8', v8Done >= total ? 'done' : data.phase === 'v8' ? 'running' : 'pending')
           setAnalysisStepStatus('prediction', data.phase === 'prediction' ? 'running' : data.status === 'done' ? 'done' : 'pending')
-          setAnalysisProgress({
+          publishAnalysisProgress({
             engine: data.phase,
             testIndex: data.phase === 'v8' ? v8Done : quickjsDone,
+            perTest: data.phase === 'quickjs' || data.phase === 'v8',
             status: data.status === 'done' ? 'done' : 'running',
           })
 
@@ -300,12 +318,12 @@ export function useDeepAnalysis({
         return
       }
 
-      setAnalysisProgress({ engine: 'complexity', testIndex: 0, status: 'running' })
+      publishAnalysisProgress({ engine: 'complexity', testIndex: 0, status: 'running' })
       setAnalysisStepStatus('complexity', 'running')
       setAnalysisStepStatus('multi-runtime', 'running')
       const workerPromise = postJson('/api/benchmark/analyze/worker', { sessionId: start.sessionId })
         .then((data) => {
-          setAnalysisProgress({ engine: 'complexity', testIndex: 0, status: 'done' })
+          publishAnalysisProgress({ engine: 'complexity', testIndex: 0, status: 'done' })
           setAnalysisStepStatus('complexity', 'done')
           applyMultiRuntimeInfo(data.multiRuntime, start.multiRuntimeCacheKey)
           return data
@@ -326,10 +344,10 @@ export function useDeepAnalysis({
       }
 
       const runEngine = async (engine: string, url: string) => {
-        setAnalysisProgress({ engine, testIndex: 0, status: 'running' })
+        publishAnalysisProgress({ engine, testIndex: 0, status: 'running' })
         setAnalysisStepStatus(engine, 'running')
         const data = await postJson(url, { sessionId: start.sessionId })
-        setAnalysisProgress({ engine, testIndex: 0, status: 'done' })
+        publishAnalysisProgress({ engine, testIndex: 0, status: 'done' })
         setAnalysisStepStatus(engine, 'done')
         return data.profiles
       }
@@ -340,7 +358,7 @@ export function useDeepAnalysis({
         workerPromise,
       ])
 
-      setAnalysisProgress({ engine: 'prediction', testIndex: 0, status: 'running' })
+      publishAnalysisProgress({ engine: 'prediction', testIndex: 0, status: 'running' })
       setAnalysisStepStatus('prediction', 'running')
       const final = await postJson('/api/benchmark/analyze/finalize', {
         sessionId: start.sessionId,
@@ -349,7 +367,7 @@ export function useDeepAnalysis({
         complexities: worker.complexities,
         multiRuntime: worker.multiRuntime,
       })
-      setAnalysisProgress({ engine: 'prediction', testIndex: 0, status: 'done' })
+      publishAnalysisProgress({ engine: 'prediction', testIndex: 0, status: 'done' })
       setAnalysisStepStatus('prediction', 'done')
       setAnalysis(final)
       setAnalysisStatus('done')
@@ -357,7 +375,7 @@ export function useDeepAnalysis({
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
     }
-  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, pollMultiRuntime, setAnalysisStepStatus])
+  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, pollMultiRuntime, setAnalysisStepStatus, publishAnalysisProgress])
 
   const openRuntimeAnalysisModal = useCallback((force = false) => {
     setRuntimeModalForce(force)

@@ -85,6 +85,7 @@ interface Measurement {
 
 const HIGH_RME = 10
 const VERY_HIGH_RME = 25
+const UNSTABLE_RME = 100
 const MIN_SAMPLES = 5
 
 export function buildBenchmarkDoctor({
@@ -203,6 +204,7 @@ function buildResultDiagnostics(results: BenchmarkDoctorResult[]): BenchmarkDoct
     const samples = finiteNumber(measurement.latency.samplesCount)
 
     if (rme != null && rme >= HIGH_RME) {
+      const unstable = rme >= UNSTABLE_RME
       diagnostics.push({
         id: diagnosticId('high-variance', measurement.testIndex, measurement.engine),
         severity: rme >= VERY_HIGH_RME ? 'danger' : 'warning',
@@ -210,10 +212,14 @@ function buildResultDiagnostics(results: BenchmarkDoctorResult[]): BenchmarkDoct
         scope: 'test',
         testIndex: measurement.testIndex,
         testTitle: measurement.title,
-        title: 'High variance in measured samples',
-        message: `${measurement.engine.toUpperCase()} reported a relative margin of error of ${formatPercent(rme)}, so small differences may be noise.`,
-        evidence: `rme=${formatPercent(rme)}`,
-        recommendation: 'Increase benchmark duration, reduce background noise, or make each operation heavier before trusting close rankings.',
+        title: unstable ? 'Measurement is unstable' : 'High variance in measured samples',
+        message: unstable
+          ? `${measurement.engine.toUpperCase()} timing variation is larger than the measured mean, so this sample cannot support a reliable ranking.`
+          : `${measurement.engine.toUpperCase()} reported a relative margin of error of ${formatPercent(rme)}, so small differences may be noise.`,
+        evidence: `rme=${formatRmeEvidence(rme)}`,
+        recommendation: unstable
+          ? 'Make each operation heavier, increase benchmark duration, or add realistic input work before comparing this result.'
+          : 'Increase benchmark duration, reduce background noise, or make each operation heavier before trusting close rankings.',
       })
     }
 
@@ -330,6 +336,10 @@ function finiteNumber(value: unknown): number | null {
 
 function formatPercent(value: number): string {
   return `${value.toFixed(value >= 10 ? 1 : 2)}%`
+}
+
+function formatRmeEvidence(value: number): string {
+  return value >= UNSTABLE_RME ? `>${UNSTABLE_RME}%` : formatPercent(value)
 }
 
 function formatLatencyInterval(measurement: Measurement): string {

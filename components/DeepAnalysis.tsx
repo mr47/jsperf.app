@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import CanonicalResult from './CanonicalResult'
 import JITInsight from './JITInsight'
@@ -50,10 +51,12 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
   const currentEngine = progress?.engine || 'quickjs'
   const currentStatus = progress?.status || 'running'
   const testIndex = progress?.testIndex ?? 0
+  const maxProgressPctRef = useRef(0)
 
   const steps = buildSteps(pipeline, seenMultiRuntime)
   const totalSteps = steps.length
   const hasStepStatuses = stepStatuses && Object.keys(stepStatuses).length > 0
+  if (!progress && !hasStepStatuses) maxProgressPctRef.current = 0
   const fallbackIdx = steps.findIndex(s => s.key === currentEngine)
   const fallbackStepIndex = currentStatus === 'done' ? fallbackIdx + 1 : Math.max(0, fallbackIdx)
   const doneCount = hasStepStatuses
@@ -64,9 +67,14 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
     : currentStatus === 'running' ? 1 : 0
   const heartbeatTick = Number(progress?.heartbeat) || 0
   const runningStepCredit = runningCount > 0
-    ? Math.min(0.85, 0.18 + heartbeatTick * 0.08)
+    ? runningCount * Math.min(0.85, 0.18 + heartbeatTick * 0.08)
     : 0
-  const progressPct = ((doneCount + runningStepCredit) / totalSteps) * 100
+  const progressPct = Math.min(100, ((doneCount + runningStepCredit) / totalSteps) * 100)
+  maxProgressPctRef.current = Math.max(maxProgressPctRef.current, progressPct)
+  const visibleProgressPct = Math.max(runningCount > 0 ? 8 : 0, maxProgressPctRef.current)
+  const currentStepLabel = STEP_META[currentEngine]?.label
+  const showPerTest = progress?.perTest && testCount > 1
+  const displayTestNumber = Math.min(testCount, Math.max(1, testIndex + 1))
 
   return (
     <div className="mt-8">
@@ -76,7 +84,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
           <Microscope className="h-3.5 w-3.5 text-violet-500" />
           <span className="text-xs font-medium text-muted-foreground">
             Deep Analysis Orchestration
-            {testCount > 1 && ` — Test ${testIndex + 1}/${testCount}`}
+            {showPerTest && ` — ${currentStepLabel || 'Current engine'}: test ${displayTestNumber}/${testCount}`}
           </span>
         </div>
         <div className="h-px flex-1 bg-border/60" />
@@ -86,7 +94,7 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
         <div className="w-full bg-muted rounded-full h-1.5 mb-5 overflow-hidden">
           <div
             className="bg-violet-500 h-1.5 rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${Math.max(runningCount > 0 ? 8 : 0, progressPct)}%` }}
+            style={{ width: `${visibleProgressPct}%` }}
           />
         </div>
 
