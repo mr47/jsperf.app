@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 async function renderCpuProReport(cpuProfile: unknown, filename: string) {
   const templateFile = path.join(process.cwd(), 'node_modules', 'cpupro', 'build', 'report.html')
-  const template = await readFile(templateFile, 'utf8')
+  const template = patchCpuProTemplateForEmbeddedData(await readFile(templateFile, 'utf8'))
   const data = Buffer.from(JSON.stringify(cpuProfile), 'utf8')
   const chunks = printCompressedDiscoveryData(data)
   return `${template}
@@ -40,6 +40,13 @@ async function renderCpuProReport(cpuProfile: unknown, filename: string) {
     createdAt: Date.now(),
   })})</script>${chunks}
 <script>discoveryLoader.finish(${chunks.length})</script>`
+}
+
+function patchCpuProTemplateForEmbeddedData(template: string) {
+  return template.replace(
+    'dataSource:"url",data:qr.model.data',
+    'dataSource:"push",data:true',
+  )
 }
 
 function printCompressedDiscoveryData(data: Buffer) {
