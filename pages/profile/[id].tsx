@@ -3,7 +3,7 @@ import Head from 'next/head'
 import { useRouter } from 'next/router'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { Download, ExternalLink, Flame } from 'lucide-react'
+import { Activity, ArrowRight, Cpu, Download, ExternalLink, FileJson, Flame, Gauge, type LucideIcon } from 'lucide-react'
 
 type CpuProfileNode = {
   id: number
@@ -84,109 +84,189 @@ export default function CpuProfilePage() {
         <title>{`${title} - jsPerf`}</title>
       </Head>
 
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <Flame className="h-5 w-5 text-orange-500" />
-              <h1 className="text-2xl font-bold tracking-tight">CPU Profile Viewer</h1>
+      <main className="min-h-screen bg-gradient-to-b from-orange-500/5 via-background to-background">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:py-12">
+          <div className="mb-8 overflow-hidden rounded-3xl border border-orange-500/20 bg-card/80 shadow-xl shadow-orange-500/5 backdrop-blur-sm">
+            <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_420px]">
+              <div className="p-6 sm:p-8 lg:p-10">
+                <div className="mb-5 inline-flex items-center rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-sm font-medium text-orange-700 dark:text-orange-300">
+                  <Flame className="mr-2 h-4 w-4 text-orange-500" />
+                  CPU profile
+                </div>
+                <h1 className="max-w-3xl text-4xl font-extrabold tracking-tight sm:text-5xl">
+                  {data?.label || data?.runtime || 'Node.js'} runtime profile
+                </h1>
+                <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+                  Inspect where this benchmark burned CPU time. Open the full CPUpro report for flame graphs and call-frame tables, or download the raw `.cpuprofile` for Chrome DevTools.
+                </p>
+
+                {id && (
+                  <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                    <Button asChild size="lg" className="h-12 rounded-full px-6 font-bold">
+                      <a href={`/api/benchmark/cpu-profile/${id}/report`} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4" />
+                        Open CPUpro report
+                        <ArrowRight className="h-4 w-4" />
+                      </a>
+                    </Button>
+                    <Button asChild variant="outline" size="lg" className="h-12 rounded-full px-6">
+                      <a href={`/api/benchmark/cpu-profile/${id}?download=1`}>
+                        <Download className="h-4 w-4" />
+                        Download .cpuprofile
+                      </a>
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-border/60 bg-slate-950 p-5 text-slate-100 lg:border-l lg:border-t-0">
+                <div className="mb-4 flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-rose-400/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-amber-400/80" />
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/80" />
+                  <span className="ml-3 truncate text-xs font-mono text-slate-400">profile.cpuprofile</span>
+                </div>
+                <div className="space-y-3">
+                  <DarkMetric icon={Cpu} label="Runtime" value={data?.label || data?.runtime || 'Node.js'} />
+                  <DarkMetric icon={Activity} label="Samples" value={formatBig(data?.meta?.sampleCount || 0)} />
+                  <DarkMetric icon={Gauge} label="Nodes" value={formatBig(data?.meta?.nodeCount || 0)} />
+                  <DarkMetric icon={FileJson} label="Profile size" value={formatBytes(data?.meta?.sizeBytes || 0)} />
+                </div>
+              </div>
             </div>
-            <p className="max-w-2xl text-sm text-muted-foreground">
-              Node CPU profile captured from the jsPerf worker. Download the raw `.cpuprofile`
-              for Chrome DevTools or CPUpro; this page shows a lightweight hot-function summary.
-            </p>
           </div>
 
-          {id && (
-            <div className="flex flex-wrap gap-2">
-              <Button asChild variant="outline" size="sm">
-                <a href={`/api/benchmark/cpu-profile/${id}?download=1`}>
-                  <Download className="h-4 w-4" />
-                  Download .cpuprofile
-                </a>
-              </Button>
-              <Button asChild variant="outline" size="sm">
-                <a href={`/api/benchmark/cpu-profile/${id}/report`} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4" />
-                  Open CPUpro report
-                </a>
-              </Button>
+          {loading && (
+            <Card>
+              <CardContent className="p-6 text-sm text-muted-foreground">
+                Loading CPU profile...
+              </CardContent>
+            </Card>
+          )}
+
+          {error && (
+            <Card className="border-red-500/30">
+              <CardContent className="p-6 text-sm text-red-600 dark:text-red-400">
+                {error}
+              </CardContent>
+            </Card>
+          )}
+
+          {data && (
+            <div className="space-y-4">
+              <Card className="overflow-hidden border-border/70 shadow-sm">
+                <CardContent className="p-0">
+                  <div className="flex flex-col gap-4 border-b border-border/70 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+                    <div>
+                      <h2 className="text-xl font-semibold tracking-tight">Hot functions</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Self time by sampled leaf function. Use this as a quick read before opening the full profile.
+                      </p>
+                    </div>
+                    {id && (
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                        <Button asChild variant="outline" size="sm" className="rounded-full">
+                          <a href={`/api/benchmark/cpu-profile/${id}?download=1`}>
+                            <Download className="h-4 w-4" />
+                            Raw profile
+                          </a>
+                        </Button>
+                        <Button asChild size="sm" className="rounded-full">
+                          <a href={`/api/benchmark/cpu-profile/${id}/report`} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-4 w-4" />
+                            Open CPUpro
+                          </a>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+
+                  {hotFunctions.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                          <tr>
+                            <th className="w-16 px-5 py-3 font-medium sm:px-6">#</th>
+                            <th className="min-w-[260px] px-3 py-3 font-medium">Function</th>
+                            <th className="min-w-[220px] px-3 py-3 font-medium">Self time</th>
+                            <th className="w-28 px-5 py-3 text-right font-medium sm:px-6">Duration</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {hotFunctions.map((fn, index) => (
+                            <tr key={fn.key} className="border-t border-border/60 transition-colors hover:bg-muted/30">
+                              <td className="px-5 py-4 text-xs font-semibold tabular-nums text-muted-foreground sm:px-6">
+                                {index + 1}
+                              </td>
+                              <td className="px-3 py-4">
+                                <div className="max-w-[520px] truncate font-medium text-foreground">{fn.name}</div>
+                                <div className="mt-1 max-w-[520px] truncate text-xs text-muted-foreground">{fn.location || 'anonymous source'}</div>
+                              </td>
+                              <td className="px-3 py-4">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                                    <div className="h-full rounded-full bg-orange-500" style={{ width: `${Math.max(2, fn.percent)}%` }} />
+                                  </div>
+                                  <span className="w-14 text-right text-xs font-semibold tabular-nums text-foreground">
+                                    {fn.percent.toFixed(1)}%
+                                  </span>
+                                </div>
+                              </td>
+                              <td className="px-5 py-4 text-right text-xs tabular-nums text-muted-foreground sm:px-6">
+                                {formatDuration(fn.selfUs)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-5 sm:p-6">
+                      <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
+                        No sample data found in this profile.
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <div className="rounded-2xl border border-border/70 bg-card/70 p-5 shadow-sm backdrop-blur-sm sm:flex sm:items-center sm:justify-between sm:gap-6">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10">
+                    <Flame className="h-5 w-5 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div>
+                    <h2 className="font-semibold">Need the full call tree?</h2>
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                      CPUpro includes packages, modules, call frames, flame graphs, and total-time drilldowns for this same profile.
+                    </p>
+                  </div>
+                </div>
+                {id && (
+                  <Button asChild variant="outline" className="mt-4 rounded-full sm:mt-0">
+                    <a href={`/api/benchmark/cpu-profile/${id}/report`} target="_blank" rel="noopener noreferrer">
+                      Open report
+                      <ArrowRight className="h-4 w-4" />
+                    </a>
+                  </Button>
+                )}
+              </div>
             </div>
           )}
         </div>
-
-        {loading && (
-          <Card>
-            <CardContent className="p-6 text-sm text-muted-foreground">
-              Loading CPU profile...
-            </CardContent>
-          </Card>
-        )}
-
-        {error && (
-          <Card className="border-red-500/30">
-            <CardContent className="p-6 text-sm text-red-600 dark:text-red-400">
-              {error}
-            </CardContent>
-          </Card>
-        )}
-
-        {data && (
-          <div className="space-y-4">
-            <Card>
-              <CardContent className="grid gap-3 p-5 text-sm sm:grid-cols-4">
-                <Metric label="Runtime" value={data.label || data.runtime || 'Node.js'} />
-                <Metric label="Test" value={data.testIndex != null ? `#${data.testIndex + 1}` : 'Unknown'} />
-                <Metric label="Samples" value={formatBig(data.meta?.sampleCount || 0)} />
-                <Metric label="Size" value={formatBytes(data.meta?.sizeBytes || 0)} />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-5">
-                <div className="mb-4">
-                  <h2 className="text-base font-semibold">Hot Functions</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Self time by sampled function. Use CPUpro or DevTools for full call tree exploration.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {hotFunctions.map((fn) => (
-                    <div key={fn.key} className="grid gap-2 rounded-lg border border-border/50 p-3 sm:grid-cols-[minmax(0,1fr)_120px] sm:items-center">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-foreground">{fn.name}</div>
-                        <div className="truncate text-xs text-muted-foreground">{fn.location || 'anonymous source'}</div>
-                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-                          <div className="h-full rounded-full bg-orange-500" style={{ width: `${fn.percent}%` }} />
-                        </div>
-                      </div>
-                      <div className="text-left text-xs tabular-nums sm:text-right">
-                        <div className="font-semibold text-foreground">{fn.percent.toFixed(1)}%</div>
-                        <div className="text-muted-foreground">{formatDuration(fn.selfUs)}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {hotFunctions.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
-                      No sample data found in this profile.
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
       </main>
     </>
   )
 }
 
-function Metric({ label, value }: { label: string, value: string }) {
+function DarkMetric({ icon: Icon, label, value }: { icon: LucideIcon, label: string, value: string }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-1 font-semibold text-foreground">{value}</div>
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+      <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-slate-400">
+        <Icon className="h-3.5 w-3.5 text-orange-300" />
+        {label}
+      </div>
+      <div className="truncate text-lg font-bold text-white">{value}</div>
     </div>
   )
 }
