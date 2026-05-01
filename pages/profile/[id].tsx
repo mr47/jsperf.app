@@ -47,7 +47,10 @@ export default function CpuProfilePage() {
     setLoading(true)
     fetch(`/api/benchmark/cpu-profile/${id}`)
       .then(async (res) => {
-        const body = await res.json().catch(() => null)
+        const contentType = res.headers.get('content-type') || ''
+        const body = contentType.includes('application/json')
+          ? await res.json().catch(() => null)
+          : { error: await formatNonJsonError(res) }
         if (!res.ok) throw new Error(body?.error || 'Failed to load CPU profile')
         return body
       })
@@ -78,7 +81,7 @@ export default function CpuProfilePage() {
   return (
     <>
       <Head>
-        <title>{title} - jsPerf</title>
+        <title>{`${title} - jsPerf`}</title>
       </Head>
 
       <main className="mx-auto max-w-6xl px-4 py-8">
@@ -248,4 +251,11 @@ function formatBig(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(Math.round(n))
+}
+
+async function formatNonJsonError(res: Response) {
+  const text = await res.text().catch(() => '')
+  const title = text.match(/<title[^>]*>(.*?)<\/title>/i)?.[1]
+  const label = title ? title.replace(/\s+/g, ' ').trim() : text.slice(0, 120)
+  return `CPU profile API returned ${res.status}${label ? ` (${label})` : ''}`
 }

@@ -510,7 +510,10 @@ async function postJson(url: string, body: any) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  const data = await res.json().catch(() => ({}))
+  const contentType = res.headers.get('content-type') || ''
+  const data = contentType.includes('application/json')
+    ? await res.json().catch(() => ({}))
+    : { error: await formatNonJsonError(res, url) }
   if (!res.ok) {
     throw new Error(data.error || `Server error (${res.status})`)
   }
@@ -519,4 +522,11 @@ async function postJson(url: string, body: any) {
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function formatNonJsonError(res: Response, url: string) {
+  const text = await res.text().catch(() => '')
+  const title = text.match(/<title[^>]*>(.*?)<\/title>/i)?.[1]
+  const label = title ? title.replace(/\s+/g, ' ').trim() : text.slice(0, 120)
+  return `${url} returned ${res.status}${label ? ` (${label})` : ''}`
 }
