@@ -84,6 +84,16 @@ describe('runtime script builders', () => {
     expect(src).toContain("require('v8')")
   })
 
+  it('node script can capture a DevTools CPU profile when requested', () => {
+    const src = buildNodeScript({ ...baseInput, profiling: { nodeCpu: true } })
+    expect(() => new vm.Script(src)).not.toThrow()
+    expect(src).toContain('const ENABLE_CPU_PROFILE = true')
+    expect(src).toContain("require('node:inspector')")
+    expect(src).toContain("'Profiler.start'")
+    expect(src).toContain("'Profiler.stop'")
+    expect(src).toContain('cpuProfileMeta')
+  })
+
   it('deno script uses Deno.memoryUsage and Deno.stdout.writeSync', () => {
     const src = buildDenoScript(baseInput)
     expect(src).toContain('Deno.memoryUsage()')

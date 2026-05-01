@@ -1,6 +1,7 @@
 import { Card, CardContent } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Cpu, Trophy } from 'lucide-react'
+import { Cpu, Download, ExternalLink, Flame, Trophy } from 'lucide-react'
 import { BASE_RUNTIME_KEYS, compareRuntimePalette, runtimePalette } from '../lib/runtimePalette'
 
 function formatOps(n) {
@@ -145,6 +146,8 @@ function TestRuntimePanel({ title, comparison }) {
       meta,
       hasError: rt.hasError,
       error: rt.error,
+      cpuProfileRef: p.cpuProfileRef || null,
+      cpuProfileError: p.cpuProfileError || null,
       values: {
         opsPerSec:    rt.avgOpsPerSec || 0,
         latencyMean:  p.latencyMean ?? null,
@@ -259,6 +262,8 @@ function TestRuntimePanel({ title, comparison }) {
       {/* Detail view: unified table with green/red striped winner/loser cells */}
       <UnifiedTable series={series} sections={tableSections} />
 
+      <CpuProfileLinks series={series} />
+
       {series.some(s => s.hasError) && (
         <div className="text-[11px] text-red-600 dark:text-red-400 space-y-0.5">
           {series.filter(s => s.hasError).map(s => (
@@ -269,6 +274,65 @@ function TestRuntimePanel({ title, comparison }) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function CpuProfileLinks({ series }) {
+  const profiled = series.filter(s => s.cpuProfileRef || s.cpuProfileError)
+  if (profiled.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-orange-500/30 bg-orange-500/5 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Flame className="h-4 w-4 text-orange-500" />
+        <div>
+          <div className="text-xs font-semibold text-foreground">CPU profiles</div>
+          <div className="text-[11px] text-muted-foreground">
+            `.cpuprofile` files open in Chrome DevTools Performance or CPUpro.
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {profiled.map((s) => {
+          const ref = s.cpuProfileRef
+          return (
+            <div key={s.runtime} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/70 px-3 py-2">
+              <div className="min-w-0 text-xs">
+                <span className={`font-semibold ${s.meta.text}`}>{s.meta.label}</span>
+                {ref && (
+                  <span className="ml-2 text-muted-foreground">
+                    {formatBig(ref.sampleCount || 0)} samples · {formatBytes(ref.sizeBytes || 0)}
+                  </span>
+                )}
+                {s.cpuProfileError && (
+                  <span className="ml-2 text-red-600 dark:text-red-400">
+                    {s.cpuProfileError}
+                  </span>
+                )}
+              </div>
+
+              {ref && (
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="outline" size="xs">
+                    <a href={`/profile/${ref.id}`} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3" />
+                      Viewer
+                    </a>
+                  </Button>
+                  <Button asChild variant="outline" size="xs">
+                    <a href={`/api/benchmark/cpu-profile/${ref.id}?download=1`}>
+                      <Download className="h-3 w-3" />
+                      .cpuprofile
+                    </a>
+                  </Button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

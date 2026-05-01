@@ -10,6 +10,7 @@ const options = {
 let client
 let clientPromise
 let multiRuntimeAnalysesReadyPromise
+let cpuProfilesReadyPromise
 let promoCodesReadyPromise
 
 if (!process.env.MONGODB_URI) {
@@ -63,6 +64,15 @@ export const multiRuntimeAnalysesCollection = async function() {
   return db.collection('multiRuntimeAnalyses')
 }
 
+export const cpuProfilesCollection = async function() {
+  const client = await clientPromise
+
+  const db = client.db('jsperf')
+  await ensureCpuProfiles(db)
+
+  return db.collection('cpuProfiles')
+}
+
 export const promoCodesCollection = async function() {
   const client = await clientPromise
 
@@ -97,6 +107,37 @@ async function ensureMultiRuntimeAnalyses(db) {
   }
 
   return multiRuntimeAnalysesReadyPromise
+}
+
+async function ensureCpuProfiles(db) {
+  if (!cpuProfilesReadyPromise) {
+    cpuProfilesReadyPromise = (async () => {
+      try {
+        await db.createCollection('cpuProfiles')
+      } catch (err) {
+        if (err?.code !== 48 && err?.codeName !== 'NamespaceExists') throw err
+      }
+
+      const collection = db.collection('cpuProfiles')
+      await collection.createIndex(
+        { id: 1 },
+        { unique: true, name: 'uniq_cpu_profile_id' },
+      )
+      await collection.createIndex(
+        { multiRuntimeCacheKey: 1, testIndex: 1, runtime: 1 },
+        { name: 'cpu_profile_lookup' },
+      )
+      await collection.createIndex(
+        { updatedAt: -1 },
+        { name: 'cpu_profile_updatedAt_desc' },
+      )
+    })().catch((err) => {
+      cpuProfilesReadyPromise = null
+      throw err
+    })
+  }
+
+  return cpuProfilesReadyPromise
 }
 
 async function ensurePromoCodes(db) {

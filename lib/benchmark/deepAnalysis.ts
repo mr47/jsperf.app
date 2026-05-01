@@ -349,6 +349,7 @@ function computeMultiRuntimeCacheKey(prepared, options) {
     teardown: prepared.original.teardown.trim(),
     runtimeTeardown: prepared.runtime.teardown.trim(),
     runtimes: options.runtimes || null,
+    profiling: options.profiling || null,
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
@@ -373,7 +374,16 @@ function formatBrowserApiSkip(tests, setup, teardown) {
 
 function parseMultiRuntimeOptions(body) {
   const runtimes = normalizeRuntimeRequest(body?.runtimes)
-  return runtimes ? { runtimes } : {}
+  const profiling = normalizeProfilingRequest(body?.profiling)
+  return {
+    ...(runtimes ? { runtimes } : {}),
+    ...(profiling ? { profiling } : {}),
+  }
+}
+
+function normalizeProfilingRequest(input) {
+  if (!input || typeof input !== 'object') return null
+  return input.nodeCpu === true ? { nodeCpu: true } : null
 }
 
 function normalizeWorkerExecutionMode(input) {

@@ -5,6 +5,7 @@ const getJobMock = vi.hoisted(() => vi.fn())
 const buildRuntimeComparisonMock = vi.hoisted(() => vi.fn())
 const multiRuntimeFindMock = vi.hoisted(() => vi.fn())
 const updateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
+const cpuProfileUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
 
 vi.mock('../../lib/engines/multiruntime', () => ({
   getMultiRuntimeJob: (...args) => getJobMock(...args),
@@ -18,6 +19,9 @@ vi.mock('../../lib/mongodb', () => ({
   multiRuntimeAnalysesCollection: vi.fn(async () => ({
     find: (...args) => multiRuntimeFindMock(...args),
     updateOne: (...args) => updateOneMock(...args),
+  })),
+  cpuProfilesCollection: vi.fn(async () => ({
+    updateOne: (...args) => cpuProfileUpdateOneMock(...args),
   })),
 }))
 
@@ -89,6 +93,68 @@ describe('GET /api/benchmark/multi-runtime/[jobId]', () => {
         }),
         $setOnInsert: expect.objectContaining({
           createdAt: expect.any(Date),
+        }),
+      }),
+      { upsert: true },
+    )
+  })
+
+  it('stores raw CPU profiles separately and returns refs', async () => {
+    const cpuProfile = {
+      nodes: [{ id: 1, callFrame: { functionName: 'hot', url: 'bench.js' } }],
+      samples: [1],
+      timeDeltas: [1000],
+      startTime: 1,
+      endTime: 2,
+    }
+    const runtimes = {
+      node: {
+        runtime: 'node',
+        avgOpsPerSec: 1000,
+        profiles: [{ label: '1x', opsPerSec: 1000, cpuProfile }],
+      },
+    }
+    buildRuntimeComparisonMock.mockImplementationOnce((shaped) => ({
+      available: true,
+      fastestRuntime: 'node',
+      runtimes: [{ runtime: 'node', profiles: shaped.node.profiles }],
+    }))
+    getJobMock.mockResolvedValueOnce({ state: 'done', result: { runtimes } })
+
+    const res = createMockRes()
+    await handler(createMockReq({ jobId: 'job-1', testIndex: '0', codeHash: 'mr-key' }), res)
+
+    expect(res._status).toBe(200)
+    expect(cpuProfileUpdateOneMock).toHaveBeenCalledWith(
+      { id: expect.any(String) },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          multiRuntimeCacheKey: 'mr-key',
+          testIndex: 0,
+          runtime: 'node',
+          cpuProfile,
+        }),
+      }),
+      { upsert: true },
+    )
+    expect(res._json.runtimes.node.profiles[0].cpuProfile).toBeUndefined()
+    expect(res._json.runtimes.node.profiles[0].cpuProfileRef).toEqual(expect.objectContaining({
+      id: expect.any(String),
+      format: 'cpuprofile',
+      runtime: 'node',
+      sampleCount: 1,
+    }))
+    expect(updateOneMock).toHaveBeenCalledWith(
+      { multiRuntimeCacheKey: 'mr-key', testIndex: 0 },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          runtimes: expect.objectContaining({
+            node: expect.objectContaining({
+              profiles: [expect.objectContaining({
+                cpuProfileRef: expect.objectContaining({ runtime: 'node' }),
+              })],
+            }),
+          }),
         }),
       }),
       { upsert: true },

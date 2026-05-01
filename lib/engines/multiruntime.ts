@@ -60,6 +60,7 @@ export async function enqueueMultiRuntimeJob(code, {
   isAsync = false,
   runtimes = DEFAULT_RUNTIMES,
   profiles = DEFAULT_PROFILES,
+  profiling = null,
   signal,
 } = {}) {
   const workerUrl = process.env.BENCHMARK_WORKER_URL
@@ -97,6 +98,7 @@ export async function enqueueMultiRuntimeJob(code, {
         isAsync,
         runtimes,
         profiles,
+        profiling,
       }),
       signal,
     })

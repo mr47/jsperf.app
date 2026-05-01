@@ -58,6 +58,8 @@ export default function Tests(props) {
     runtimeModalForce,
     setRuntimeTargets,
     setWorkerSideQuickJS,
+    nodeCpuProfiling,
+    setNodeCpuProfiling,
     openRuntimeAnalysisModal,
     closeRuntimeAnalysisModal,
     confirmRuntimeAnalysis,
@@ -525,6 +527,8 @@ export default function Tests(props) {
         onRuntimeTargetsChange={setRuntimeTargets}
         workerSideQuickJS={workerSideQuickJS}
         onWorkerSideQuickJSChange={setWorkerSideQuickJS}
+        nodeCpuProfiling={nodeCpuProfiling}
+        onNodeCpuProfilingChange={setNodeCpuProfiling}
         onClose={closeRuntimeAnalysisModal}
         onConfirm={confirmRuntimeAnalysis}
       />

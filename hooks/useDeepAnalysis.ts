@@ -37,6 +37,7 @@ export function useDeepAnalysis({
   const [multiRuntimeError, setMultiRuntimeError] = useState<string | null>(null)
   const [runtimeTargets, setRuntimeTargets] = useState<any>(null)
   const [workerSideQuickJS, setWorkerSideQuickJS] = useState(true)
+  const [nodeCpuProfiling, setNodeCpuProfiling] = useState(false)
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
   const [runtimeModalForce, setRuntimeModalForce] = useState(false)
   const multiRuntimeAbortRef = useRef<{ abort: () => void } | null>(null)
@@ -229,6 +230,9 @@ export function useDeepAnalysis({
         ...(Array.isArray(runtimeTargets) && runtimeTargets.length > 0
           ? { runtimes: runtimeTargets }
           : {}),
+        ...(nodeCpuProfiling
+          ? { profiling: { nodeCpu: true } }
+          : {}),
         ...(isDonor && workerSideQuickJS
           ? { workerExecutionMode: 'quickjs-composite' }
           : {}),
@@ -401,7 +405,7 @@ export function useDeepAnalysis({
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
     }
-  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, isDonor, workerSideQuickJS, pollMultiRuntime, setAnalysisStepStatus, publishAnalysisProgress])
+  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, nodeCpuProfiling, isDonor, workerSideQuickJS, pollMultiRuntime, setAnalysisStepStatus, publishAnalysisProgress])
 
   const openRuntimeAnalysisModal = useCallback((force = false) => {
     setRuntimeModalForce(force)
@@ -492,6 +496,8 @@ export function useDeepAnalysis({
     runtimeModalForce,
     setRuntimeTargets,
     setWorkerSideQuickJS,
+    nodeCpuProfiling,
+    setNodeCpuProfiling,
     openRuntimeAnalysisModal,
     closeRuntimeAnalysisModal,
     confirmRuntimeAnalysis,

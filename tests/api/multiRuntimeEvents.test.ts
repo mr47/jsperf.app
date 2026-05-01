@@ -4,6 +4,7 @@ const getJobMock = vi.hoisted(() => vi.fn())
 const buildRuntimeComparisonMock = vi.hoisted(() => vi.fn())
 const multiRuntimeFindMock = vi.hoisted(() => vi.fn())
 const updateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
+const cpuProfileUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
 
 vi.mock('../../lib/engines/multiruntime', () => ({
   getMultiRuntimeJob: (...args) => getJobMock(...args),
@@ -17,6 +18,9 @@ vi.mock('../../lib/mongodb', () => ({
   multiRuntimeAnalysesCollection: vi.fn(async () => ({
     find: (...args: any[]) => (multiRuntimeFindMock as any)(...args),
     updateOne: (...args: any[]) => (updateOneMock as any)(...args),
+  })),
+  cpuProfilesCollection: vi.fn(async () => ({
+    updateOne: (...args: any[]) => (cpuProfileUpdateOneMock as any)(...args),
   })),
 }))
 

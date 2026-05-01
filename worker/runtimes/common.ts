@@ -101,11 +101,17 @@ async function runBenchmark() {
 
   const stats = computeBenchmarkStats(samples, { iterations, totalMs, sliceMs: ${SLICE_MS} });
 
-  emitResult({
+  let result = {
     state: 'completed',
     ...stats,
     memory: { before: memBefore, after: memAfter },
-  });
+  };
+
+  if (typeof finalizeBenchmarkResult === 'function') {
+    result = await finalizeBenchmarkResult(result);
+  }
+
+  emitResult(result);
 }
 `
 }

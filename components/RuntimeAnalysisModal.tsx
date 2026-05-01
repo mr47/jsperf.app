@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { ArrowRight, Cpu, Loader2, LockKeyhole, Microscope, Sparkles, X, Zap } from 'lucide-react'
+import { ArrowRight, Cpu, Flame, Loader2, LockKeyhole, Microscope, Sparkles, X, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import RuntimeVersionSelector from './RuntimeVersionSelector'
 
@@ -12,6 +12,8 @@ export default function RuntimeAnalysisModal({
   onRuntimeTargetsChange,
   workerSideQuickJS,
   onWorkerSideQuickJSChange,
+  nodeCpuProfiling,
+  onNodeCpuProfilingChange,
   onClose,
   onConfirm,
 }: {
@@ -23,6 +25,8 @@ export default function RuntimeAnalysisModal({
   onRuntimeTargetsChange: (value: any) => void
   workerSideQuickJS: boolean
   onWorkerSideQuickJSChange: (value: boolean) => void
+  nodeCpuProfiling: boolean
+  onNodeCpuProfilingChange: (value: boolean) => void
   onClose: () => void
   onConfirm: () => void
 }) {
@@ -209,6 +213,26 @@ export default function RuntimeAnalysisModal({
             disabled={loading}
             compact={false}
           />
+          <label className="mt-5 block cursor-pointer rounded-2xl border border-orange-500/30 bg-orange-500/5 p-4 transition-colors hover:bg-orange-500/10">
+            <span className="flex gap-3">
+              <input
+                type="checkbox"
+                checked={nodeCpuProfiling}
+                onChange={(event) => onNodeCpuProfilingChange(event.target.checked)}
+                disabled={loading}
+                className="mt-1 h-4 w-4 rounded border-border"
+              />
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                  <Flame className="h-4 w-4 text-orange-500" />
+                  Capture Node CPU profile
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                  Stores a Chrome DevTools / CPUpro compatible `.cpuprofile` for Node.js runtime runs. This is opt-in because profiles can be large.
+                </span>
+              </span>
+            </span>
+          </label>
         </div>
 
         <div className="flex flex-col-reverse gap-2 border-t border-border/60 p-5 sm:flex-row sm:justify-end">

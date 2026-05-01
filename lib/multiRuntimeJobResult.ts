@@ -4,6 +4,7 @@ import {
   loadStoredMultiRuntimeResults,
   persistMultiRuntimeResult,
 } from './multiRuntimeResults'
+import { persistCpuProfilesFromRuntimes } from './cpuProfiles'
 
 type RuntimeResult = Record<string, unknown>
 type RuntimeComparison = { available?: boolean } & Record<string, unknown>
@@ -69,7 +70,14 @@ export async function getShapedMultiRuntimeJob(jobId: string, {
     }
   }
 
-  const runtimes = job.result?.runtimes || {}
+  const rawRuntimes = job.result?.runtimes || {}
+  const runtimes = cacheKey && numericTestIndex != null
+    ? await persistCpuProfilesFromRuntimes({
+        cacheKey,
+        testIndex: numericTestIndex,
+        runtimes: rawRuntimes,
+      })
+    : rawRuntimes
   const runtimeComparison = buildRuntimeComparison(runtimes)
   const payload: ShapedJobPayload = { state: 'done', runtimes, runtimeComparison }
 

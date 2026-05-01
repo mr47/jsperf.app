@@ -306,6 +306,7 @@ function parseRunParams(body) {
   const timeMs = Math.min(Number(body.timeMs) || 1500, MAX_TIME_MS)
   const runtimeTargets = normalizeRuntimeTargets(body.runtimes) || DEFAULT_RUNTIME_TARGETS
   const profiles = sanitizeProfiles(body.profiles) || DEFAULT_PROFILES
+  const profiling = sanitizeProfiling(body.profiling)
   const isAsync = body.isAsync === true || detectAsyncCode(code) || detectAsyncCode(runtimeCode)
   return {
     code,
@@ -322,6 +323,7 @@ function parseRunParams(body) {
     isAsync,
     runtimeTargets,
     profiles,
+    profiling,
   }
 }
 
@@ -362,6 +364,11 @@ function sanitizeTests(input) {
     })
   }
   return tests
+}
+
+function sanitizeProfiling(input) {
+  if (!input || typeof input !== 'object') return null
+  return input.nodeCpu === true ? { nodeCpu: true } : null
 }
 
 async function estimateComplexityBatch({ tests, setup, language, sourceMode }) {
@@ -432,7 +439,7 @@ function emptyAccumulator(runtimeTargets) {
 }
 
 async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
-  const { code, setup, teardown, runtimeCode, runtimeSetup, runtimeTeardown, language, languageOptions, timeMs, isAsync, runtimeTargets, profiles } = params
+  const { code, setup, teardown, runtimeCode, runtimeSetup, runtimeTeardown, language, languageOptions, timeMs, isAsync, runtimeTargets, profiles, profiling } = params
   const accumulator = accum || emptyAccumulator(runtimeTargets)
 
   for (const target of runtimeTargets) {
@@ -458,6 +465,7 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
         isAsync,
         language,
         nativeTypeScript,
+        profiling: target.runtime === 'node' ? profiling : null,
       })
 
       let outcome
