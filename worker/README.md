@@ -2,7 +2,7 @@
 
 A long-running HTTP service that benchmarks JavaScript snippets in **Node.js**, **Deno**, and **Bun** inside resource-isolated Docker containers, estimates static complexity, and can run **QuickJS-WASM** profiles for donor worker-side Deep Analysis.
 
-This is the optional worker layer of the Deep Analysis pipeline. By default it provides Node/Deno/Bun runtime jobs and complexity estimates. Donors can also opt into worker-side QuickJS, where the app asks this service for QuickJS profiles before continuing with V8 Sandbox and final persistence on Vercel.
+This is the optional worker layer of the Deep Analysis pipeline. By default it provides Node/Deno/Bun runtime jobs and complexity estimates. Donors use a default-on priority worker lane: the app asks this service for QuickJS profiles before continuing with V8 Sandbox and final persistence on Vercel.
 
 `jsperf.net` uses the **async job API** (`POST /api/jobs` + `GET /api/jobs/:id`) so its serverless functions return inside Vercel's 60s ceiling regardless of how long the worker takes to finish. The browser subscribes to a Vercel-side SSE proxy, `/api/benchmark/multi-runtime/events`, which performs the worker status checks server-side and pushes realtime updates to the UI. The streaming `/api/run` endpoint is kept for local development and ad-hoc curl-driven debugging.
 
@@ -50,7 +50,7 @@ EventSource /api/benchmark/multi-runtime/events           │ jsperf-bench-node 
   └─ SSE proxy checks GET /api/jobs/:id ─────────────────▶ │ jsperf-bench-bun   │
                                                            └────────────────────┘
 
-Donor worker-side QuickJS toggle:
+Donor priority worker lane:
 
 POST /api/benchmark/analyze/donor-job ── POST /api/analysis/jobs ──▶ QuickJS-WASM
        │                                                          ├─ complexity
@@ -60,7 +60,7 @@ POST /api/benchmark/analyze/donor-job ── POST /api/analysis/jobs ──▶ Q
 
 `/api/benchmark/analyze/worker` enqueues the multi-runtime job while the browser runs the QuickJS and V8 routes in parallel. Base analysis can finish and render while the worker continues. The SSE proxy keeps pushing per-test updates until each Node/Deno/Bun comparison is done, then completed results are persisted by multi-runtime cache key for future visits.
 
-When the donor toggle is enabled, `/api/benchmark/analyze/donor-job` calls `/api/analysis/jobs` instead of running QuickJS on the Vercel app. The worker returns the same `quickjsProfiles` shape consumed by the existing prediction model, plus `complexities` and multi-runtime `jobs`. V8 Firecracker, auth, rate limits, cache writes, Mongo persistence, and final prediction still stay in the Vercel app.
+When the donor priority lane is enabled (the UI default for donors), `/api/benchmark/analyze/donor-job` calls `/api/analysis/jobs` instead of running QuickJS on the Vercel app. The worker returns the same `quickjsProfiles` shape consumed by the existing prediction model, plus `complexities` and multi-runtime `jobs`. V8 Firecracker, auth, rate limits, cache writes, Mongo persistence, and final prediction still stay in the Vercel app.
 
 The worker is a thin orchestrator. It does not persist any state; benchmark scripts are written to a per-run tmpdir, mounted read-write into one container, then deleted. Cold-start cost per run is dominated by container creation (~150–400ms on a KVM 2 box).
 
@@ -203,7 +203,7 @@ In **Vercel → Project → Settings → Environment Variables** add:
 | `BENCHMARK_WORKER_URL` | `https://worker.your-domain.tld` |
 | `BENCHMARK_WORKER_SECRET` | (the same token you set on the worker) |
 
-Re-deploy. The Deep Analysis pipeline will now enqueue async jobs on the worker and stream updates to the browser through `/api/benchmark/multi-runtime/events`. Donors will also see a setup toggle that moves QuickJS-WASM, complexity, and worker job enqueueing to `/api/analysis/jobs`. If the worker is offline, returns an error, or the SSE proxy reaches the worker deadline, the rest of the analysis still completes for the standard path — the multi-runtime panel shows the worker error while base results render normally. The JSON polling endpoint `/api/benchmark/multi-runtime/[jobId]` remains available as a compatibility fallback.
+Re-deploy. The Deep Analysis pipeline will now enqueue async jobs on the worker and stream updates to the browser through `/api/benchmark/multi-runtime/events`. Donors will also get the priority worker lane by default, which moves QuickJS-WASM, complexity, and worker job enqueueing to `/api/analysis/jobs`. If the worker is offline, returns an error, or the SSE proxy reaches the worker deadline, the rest of the analysis still completes for the standard path — the multi-runtime panel shows the worker error while base results render normally. The JSON polling endpoint `/api/benchmark/multi-runtime/[jobId]` remains available as a compatibility fallback.
 
 ## Health check
 

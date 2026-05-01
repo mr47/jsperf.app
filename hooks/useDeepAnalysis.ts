@@ -36,7 +36,7 @@ export function useDeepAnalysis({
   const [multiRuntimeData, setMultiRuntimeData] = useState<any>(null)
   const [multiRuntimeError, setMultiRuntimeError] = useState<string | null>(null)
   const [runtimeTargets, setRuntimeTargets] = useState<any>(null)
-  const [workerSideQuickJS, setWorkerSideQuickJS] = useState(false)
+  const [workerSideQuickJS, setWorkerSideQuickJS] = useState(true)
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
   const [runtimeModalForce, setRuntimeModalForce] = useState(false)
   const multiRuntimeAbortRef = useRef<{ abort: () => void } | null>(null)

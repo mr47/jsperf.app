@@ -31,9 +31,9 @@ const DONOR_PERKS = [
   },
   {
     icon: Cpu,
-    label: 'Worker-side QuickJS-WASM',
-    detail: 'Opt-in',
-    sub: 'Move QuickJS profiles and worker phases off the app path',
+    label: 'Priority worker lane',
+    detail: 'Default on',
+    sub: 'QuickJS-WASM and runtime phases move off the app path',
   },
   {
     icon: Cpu,

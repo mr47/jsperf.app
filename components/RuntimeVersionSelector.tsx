@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { ChevronDown, Loader2, SlidersHorizontal } from 'lucide-react'
+import { Activity, ChevronDown, History, Loader2, SlidersHorizontal, Sparkles } from 'lucide-react'
 
 const STORAGE_KEY = 'jsperf.runtimeTargets.v1'
 
@@ -78,6 +78,9 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
   const useRecommended = () => {
     if (data?.defaultTargets?.length) onChange(data.defaultTargets)
   }
+  const recommendedActive = targetsEqual(value, data?.defaultTargets || [])
+  const latestActive = options.length > 0 && selectedCount === options.length && options.every(option => selected.has(option.target))
+  const perfDefaultsActive = selectedCount === 0
 
   return (
     <div className={`w-full rounded-lg border border-border/60 bg-muted/20 ${compact ? 'px-3 py-2' : 'p-4'}`}>
@@ -117,41 +120,35 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
 
       {isExpanded && (
         <div className="mt-3 border-t border-border/60 pt-3">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
+          <div className="grid gap-2 sm:grid-cols-3">
+            <PresetButton
+              icon={Sparkles}
+              label="Recommended"
+              detail="Balanced release set"
+              active={recommendedActive}
               disabled={disabled || !data?.defaultTargets?.length}
-              className="h-7 px-2 text-[11px]"
               onClick={useRecommended}
-            >
-              Recommended
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
+            />
+            <PresetButton
+              icon={History}
+              label="Latest + previous"
+              detail="Compare regressions"
+              active={latestActive}
               disabled={disabled || options.length === 0}
-              className="h-7 px-2 text-[11px]"
               onClick={() => onChange(options.map(option => option.target))}
-            >
-              Latest + previous
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
+            />
+            <PresetButton
+              icon={Activity}
+              label="Perf defaults"
+              detail="Hardware counters"
+              active={perfDefaultsActive}
               disabled={disabled}
-              className="h-7 px-2 text-[11px]"
               onClick={() => onChange([])}
               title="Use the prebuilt Node/Deno/Bun images on the benchmark worker. These include linux-perf for hardware counters."
-            >
-              Perf defaults
-            </Button>
+            />
           </div>
 
-          <p className="mt-2 text-[11px] text-muted-foreground">
+          <p className="mt-3 text-[11px] text-muted-foreground">
             Versioned choices use Docker Hub tags for release comparisons. Perf defaults use prebuilt benchmark images and include hardware counters.
           </p>
 
@@ -185,12 +182,50 @@ export default function RuntimeVersionSelector({ value, onChange, disabled = fal
   )
 }
 
+function PresetButton({ icon: Icon, label, detail, active, disabled, onClick, title = undefined }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      className={`group relative overflow-hidden rounded-xl border p-3 text-left transition-all duration-200 ${
+        active
+          ? 'border-violet-500/50 bg-violet-500/10 text-foreground shadow-sm shadow-violet-500/10'
+          : 'border-border/70 bg-background/60 text-muted-foreground hover:-translate-y-0.5 hover:border-violet-400/40 hover:bg-violet-500/5 hover:text-foreground'
+      } ${disabled ? 'cursor-not-allowed opacity-60 hover:translate-y-0' : ''}`}
+    >
+      <span className="pointer-events-none absolute -right-8 -top-8 h-16 w-16 rounded-full bg-violet-500/10 blur-2xl transition-transform duration-300 group-hover:scale-125" />
+      <span className="relative flex items-start gap-2.5">
+        <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${
+          active
+            ? 'border-violet-500/40 bg-violet-500/15 text-violet-700 dark:text-violet-300'
+            : 'border-border/70 bg-muted/40 text-muted-foreground group-hover:text-violet-600 dark:group-hover:text-violet-300'
+        }`}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-xs font-semibold leading-tight">{label}</span>
+          <span className="mt-0.5 block text-[11px] leading-snug opacity-75">{detail}</span>
+        </span>
+      </span>
+    </button>
+  )
+}
+
 function summarizeSelection(targets, optionByTarget) {
   const labels = (Array.isArray(targets) ? targets : [])
     .map(target => optionByTarget.get(target)?.label || target)
 
   if (labels.length <= 3) return labels.join(', ')
   return `${labels.slice(0, 3).join(', ')} +${labels.length - 3} more`
+}
+
+function targetsEqual(a, b) {
+  const left = Array.isArray(a) ? [...a].sort() : []
+  const right = Array.isArray(b) ? [...b].sort() : []
+  if (left.length !== right.length) return false
+  return left.every((value, index) => value === right[index])
 }
 
 function readStoredTargets() {
