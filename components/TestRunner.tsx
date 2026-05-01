@@ -39,6 +39,7 @@ export default function Tests(props) {
   const [stats, setStats] = useState(null)
   const [donor, setDonor] = useState(null)
   const [donorStatus, setDonorStatus] = useState('loading')
+  const isDonor = !!donor
 
   const {
     analysisStatus,
@@ -52,9 +53,11 @@ export default function Tests(props) {
     multiRuntimeData,
     multiRuntimeError,
     runtimeTargets,
+    workerSideQuickJS,
     runtimeModalOpen,
     runtimeModalForce,
     setRuntimeTargets,
+    setWorkerSideQuickJS,
     openRuntimeAnalysisModal,
     closeRuntimeAnalysisModal,
     confirmRuntimeAnalysis,
@@ -66,6 +69,7 @@ export default function Tests(props) {
     languageOptions,
     slug,
     revision,
+    isDonor,
   })
 
   const windowRef = useRef(null)
@@ -75,8 +79,6 @@ export default function Tests(props) {
   const stoppedForVisibilityRef = useRef(false)
   const statusMessageRef = useRef('')
   const lastCycleUiUpdateRef = useRef(0)
-  const isDonor = !!donor
-
   const setStatusMessageIfChanged = useCallback((message) => {
     if (statusMessageRef.current === message) return
     statusMessageRef.current = message
@@ -518,8 +520,11 @@ export default function Tests(props) {
         open={runtimeModalOpen}
         force={runtimeModalForce}
         loading={analysisStatus === 'loading'}
+        isDonor={isDonor}
         runtimeTargets={runtimeTargets}
         onRuntimeTargetsChange={setRuntimeTargets}
+        workerSideQuickJS={workerSideQuickJS}
+        onWorkerSideQuickJSChange={setWorkerSideQuickJS}
         onClose={closeRuntimeAnalysisModal}
         onConfirm={confirmRuntimeAnalysis}
       />

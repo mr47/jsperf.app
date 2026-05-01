@@ -7,16 +7,22 @@ export default function RuntimeAnalysisModal({
   open,
   force,
   loading,
+  isDonor,
   runtimeTargets,
   onRuntimeTargetsChange,
+  workerSideQuickJS,
+  onWorkerSideQuickJSChange,
   onClose,
   onConfirm,
 }: {
   open: boolean
   force: boolean
   loading: boolean
+  isDonor: boolean
   runtimeTargets: any
   onRuntimeTargetsChange: (value: any) => void
+  workerSideQuickJS: boolean
+  onWorkerSideQuickJSChange: (value: boolean) => void
   onClose: () => void
   onConfirm: () => void
 }) {
@@ -48,7 +54,7 @@ export default function RuntimeAnalysisModal({
               {force ? 'Re-run deep analysis' : 'Deep analysis setup'}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Choose which Node, Deno, and Bun versions the container worker should benchmark.
+              Choose runtime versions and, for donors, whether QuickJS should run on the worker.
             </p>
           </div>
           <Button
@@ -65,6 +71,23 @@ export default function RuntimeAnalysisModal({
         </div>
 
         <div className="p-5">
+          {isDonor && (
+            <label className="mb-5 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+              <input
+                type="checkbox"
+                checked={workerSideQuickJS}
+                onChange={(event) => onWorkerSideQuickJSChange(event.target.checked)}
+                disabled={loading}
+                className="mt-1 h-4 w-4 rounded border-border text-amber-600"
+              />
+              <span className="text-sm">
+                <span className="block font-medium text-foreground">Run QuickJS-WASM on the worker</span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                  Donor mode moves QuickJS profiles, complexity checks, and runtime job enqueueing to the worker. V8 Firecracker still runs on Vercel Sandbox.
+                </span>
+              </span>
+            </label>
+          )}
           <RuntimeVersionSelector
             value={runtimeTargets}
             onChange={onRuntimeTargetsChange}

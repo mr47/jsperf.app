@@ -1,0 +1,10 @@
+---
+description: Do not disable TypeScript checking with ts-nocheck
+alwaysApply: true
+---
+
+# No `// @ts-nocheck`
+
+- Do not add `// @ts-nocheck` to new or existing files.
+- Fix TypeScript errors with proper types, narrower interfaces, `unknown` handling, or focused `@ts-expect-error` comments when an exception is truly unavoidable.
+- If an existing file already has `// @ts-nocheck`, do not copy that pattern into new code. Remove it from files you materially rewrite when practical.

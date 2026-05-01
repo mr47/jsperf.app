@@ -2,7 +2,7 @@
 
 Modern JavaScript and TypeScript performance benchmarking for the web.
 
-`jsperf.net` is a Next.js rewrite of jsPerf. It lets users create, run, save, and share benchmark cases, then inspect browser results alongside deeper server-side analysis from QuickJS-WASM, V8 in Vercel Sandbox, and an optional Node/Deno/Bun worker.
+`jsperf.net` is a Next.js rewrite of jsPerf. It lets users create, run, save, and share benchmark cases, then inspect browser results alongside deeper server-side analysis from QuickJS-WASM, V8 in Vercel Sandbox, and an optional worker for QuickJS donor mode, complexity estimates, Node, Deno, and Bun.
 
 ## Features
 
@@ -12,6 +12,7 @@ Modern JavaScript and TypeScript performance benchmarking for the web.
 - Cache analysis and rate-limit expensive paths with Upstash Redis.
 - Analyze snippets through QuickJS-WASM and V8 microVM runs.
 - Compare Node.js, Deno, and Bun through the optional Docker-based worker.
+- Let donors move QuickJS-WASM plus worker-safe Deep Analysis phases to the worker while V8 stays on Vercel Sandbox.
 - Generate donor-only presentation reports.
 - Support GitHub sign-in, donor verification, and donor-tier rate limits.
 
@@ -100,8 +101,8 @@ Optional integrations:
 | `DONATELLO_TOKEN` | Enables donor verification through the Donatello API. |
 | `REVALIDATE_SECRET` | Protects the `/api/revalidate` endpoint. |
 | `NEXT_PUBLIC_GA_ID` | Google Analytics measurement ID. |
-| `BENCHMARK_WORKER_URL` | URL for the optional multi-runtime worker. Enables Node/Deno/Bun analysis and remote complexity estimates. |
-| `BENCHMARK_WORKER_SECRET` | Bearer token shared with the multi-runtime worker. |
+| `BENCHMARK_WORKER_URL` | URL for the optional Deep Analysis worker. Enables Node/Deno/Bun analysis, remote complexity estimates, and donor worker-side QuickJS. |
+| `BENCHMARK_WORKER_SECRET` | Bearer token shared with the Deep Analysis worker. |
 | `VERCEL_TOKEN` | Optional Vercel token for local Vercel Sandbox access and cleanup. |
 | `VERCEL_OIDC_TOKEN` | Optional OIDC token for Vercel Sandbox access and cleanup. |
 | `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
@@ -125,9 +126,9 @@ The app source, tests, shared libraries, Next.js pages, API routes, and worker s
 
 Most JavaScript files are now intentional exceptions: config files, generated coverage assets, local scripts, or Mongo shell schema scripts. See `TYPESCRIPT_MIGRATION.md` for the current exception list and migration notes.
 
-## Optional Multi-Runtime Worker
+## Optional Deep Analysis Worker
 
-The `worker/` package runs benchmark snippets in Node.js, Deno, and Bun inside resource-limited Docker containers. The main app uses it asynchronously when `BENCHMARK_WORKER_URL` is configured.
+The `worker/` package runs benchmark snippets in Node.js, Deno, and Bun inside resource-limited Docker containers, estimates static complexity, and can run QuickJS-WASM profiles for donor worker-side analysis. The main app uses it asynchronously when `BENCHMARK_WORKER_URL` is configured.
 
 ## Deep Analysis Data Flow
 
@@ -153,13 +154,15 @@ Browser
   │    └─ POST /api/benchmark/analyze/donor-job
   │       resumes a Redis-backed job one chunk at a time: worker enqueue,
   │       QuickJS per test, V8 per test, then final persistence
+  │       donor toggle: POST /api/analysis/jobs on the worker returns
+  │       QuickJS profiles + complexity + worker job IDs before V8 chunks
   │
   └─ EventSource /api/benchmark/multi-runtime/events
        server-side proxy polls worker jobs, emits per-test SSE updates,
        persists completed Node/Deno/Bun results by multi-runtime cache key
 ```
 
-The 60 second Vercel route limit applies to each route invocation, not to the whole donor workflow. Free runs still use one parallel fan-out with a 60 second envelope. Donor runs get a longer Redis session window and poll `/api/benchmark/analyze/donor-job`, which advances QuickJS/V8 in per-test chunks so a full deep analysis can outlive one request. Multi-runtime worker jobs can also run longer: `/api/benchmark/analyze/worker` and the donor job only enqueue jobs and return their deadlines, while `/api/benchmark/multi-runtime/events` keeps a lightweight server-sent-events connection open and streams updates until the worker finishes or its advertised deadline expires.
+The 60 second Vercel route limit applies to each route invocation, not to the whole donor workflow. Free runs still use one parallel fan-out with a 60 second envelope. Donor runs get a longer Redis session window and poll `/api/benchmark/analyze/donor-job`, which advances QuickJS/V8 in per-test chunks so a full deep analysis can outlive one request. If a donor enables worker-side QuickJS in the setup modal, `/api/benchmark/analyze/donor-job` fills QuickJS profiles from the worker composite endpoint and then continues with V8 on Vercel Sandbox. Multi-runtime worker jobs can also run longer: `/api/benchmark/analyze/worker` and the donor job only enqueue jobs and return their deadlines, while `/api/benchmark/multi-runtime/events` keeps a lightweight server-sent-events connection open and streams updates until the worker finishes or its advertised deadline expires.
 
 The legacy `/api/benchmark/analyze` route remains for compatibility, but the UI uses the split route flow above.
 

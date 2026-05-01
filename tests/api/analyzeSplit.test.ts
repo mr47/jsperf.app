@@ -72,6 +72,28 @@ vi.mock('../../lib/engines/multiruntime', () => ({
   enqueueMultiRuntimeJob: vi.fn(async () => ({ jobId: 'job-1', deadlineMs: 30_000 })),
 }))
 
+vi.mock('../../lib/engines/workerComposite', () => ({
+  runWorkerCompositeAnalysis: vi.fn(async () => ({
+    quickjsProfiles: [[
+      { label: '1x', resourceLevel: 1, opsPerSec: 2000, state: 'completed' },
+    ]],
+    complexities: [{
+      version: 1,
+      time: { notation: 'O(1)', label: 'constant', confidence: 0.9 },
+      space: { notation: 'O(1)', label: 'constant', confidence: 0.9 },
+      async: { mode: 'none', concurrency: 'sync', notes: [] },
+      explanation: 'constant',
+      signals: [],
+    }],
+    multiRuntime: {
+      jobs: [{ testIndex: 0, jobId: 'worker-composite-job' }],
+      deadlineMs: 30_000,
+      deadlineAt: Date.now() + 30_000,
+      cacheKey: 'cache-key',
+    },
+  })),
+}))
+
 import startHandler from '../../pages/api/benchmark/analyze/start'
 import quickjsHandler from '../../pages/api/benchmark/analyze/quickjs'
 import v8Handler from '../../pages/api/benchmark/analyze/v8'
@@ -82,6 +104,7 @@ import {
   createAnalysisSession,
   prepareDeepAnalysisRequest,
   saveAnalysisSession,
+  WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
 } from '../../lib/benchmark/deepAnalysis'
 
 const ORIG_WORKER_URL = process.env.BENCHMARK_WORKER_URL
@@ -207,6 +230,50 @@ describe('split deep analysis API routes', () => {
     expect(responses[3].analysis.results[0].v8.opsPerSec).toBe(50000)
     expect(responses[3].analysis.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'job-1' }])
     expect(insertOneMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('runs donor QuickJS composite on the worker and skips app-side QuickJS', async () => {
+    const { runQuickJSAnalysis } = await import('../../lib/engines/runner')
+    const { runWorkerCompositeAnalysis } = await import('../../lib/engines/workerComposite')
+    const prepared = prepareDeepAnalysisRequest({
+      tests: [{ code: 'x + 1', title: 'test' }],
+      workerExecutionMode: WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
+    })
+    if (prepared.error) throw new Error('unexpected preparation error')
+
+    const session = createAnalysisSession({
+      ...prepared,
+      tier: 'donor',
+      workerExecutionMode: WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
+    })
+    await saveAnalysisSession(session)
+
+    let jobId: string | null = null
+    const responses = []
+    for (let i = 0; i < 3; i++) {
+      const res = createMockRes()
+      await donorJobHandler(createMockReq({ sessionId: session.id, jobId }), res)
+      expect(res._status).toBe(200)
+      jobId = res._json.jobId
+      responses.push(res._json)
+    }
+
+    expect(responses.map(r => r.phase)).toEqual(['v8', 'prediction', 'done'])
+    expect(runWorkerCompositeAnalysis).toHaveBeenCalledTimes(1)
+    expect(runQuickJSAnalysis).not.toHaveBeenCalled()
+    expect(responses[2].analysis.results[0].quickjs.opsPerSec).toBe(2000)
+    expect(responses[2].analysis.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'worker-composite-job' }])
+  })
+
+  it('rejects worker-side QuickJS mode for non-donor starts', async () => {
+    const res = createMockRes()
+    await startHandler(createMockReq({
+      tests: [{ code: 'x + 1', title: 'test' }],
+      workerExecutionMode: WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
+    }), res)
+
+    expect(res._status).toBe(403)
+    expect(res._json.error).toContain('requires an active donor session')
   })
 
   it('rejects donor job polling for non-donor sessions', async () => {

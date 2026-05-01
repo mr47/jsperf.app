@@ -23,6 +23,7 @@ export const DEEP_ANALYSIS_LIMIT_MS = 60_000
 export const DONOR_DEEP_ANALYSIS_LIMIT_MS = 10 * 60_000
 export const DEEP_ANALYSIS_ABORT_MS = 58_000
 export const ANALYSIS_SESSION_TTL_SECONDS = 15 * 60
+export const WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE = 'quickjs-composite'
 
 export function prepareDeepAnalysisRequest(body: AnalysisRequestBody = {}) {
   const { tests, setup, teardown, slug, revision, force } = body
@@ -34,6 +35,7 @@ export function prepareDeepAnalysisRequest(body: AnalysisRequestBody = {}) {
   })
   const languageOptions = normalizeLanguageOptions(language, body?.languageOptions)
   const multiRuntimeOptions = parseMultiRuntimeOptions(body)
+  const workerExecutionMode = normalizeWorkerExecutionMode(body?.workerExecutionMode)
 
   if (!tests || !Array.isArray(tests) || tests.length === 0) {
     return { error: { status: 400, body: { error: 'tests array is required and must not be empty' } } }
@@ -71,6 +73,7 @@ export function prepareDeepAnalysisRequest(body: AnalysisRequestBody = {}) {
   return {
     prepared,
     multiRuntimeOptions,
+    workerExecutionMode,
     codeHash,
     multiRuntimeCacheKey,
     cacheKey,
@@ -121,7 +124,11 @@ export function assertSessionActive(session) {
   }
 }
 
-export function buildPipeline() {
+export function buildPipeline({ workerExecutionMode }: { workerExecutionMode?: string | null } = {}) {
+  if (workerExecutionMode === WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE && process.env.BENCHMARK_WORKER_URL) {
+    return ['quickjs-worker', 'v8', 'prediction']
+  }
+
   const engines = ['quickjs', 'v8']
   if (process.env.BENCHMARK_WORKER_URL) {
     engines.push('multi-runtime')
@@ -367,6 +374,12 @@ function formatBrowserApiSkip(tests, setup, teardown) {
 function parseMultiRuntimeOptions(body) {
   const runtimes = normalizeRuntimeRequest(body?.runtimes)
   return runtimes ? { runtimes } : {}
+}
+
+function normalizeWorkerExecutionMode(input) {
+  return input === WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE
+    ? WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE
+    : null
 }
 
 function normalizeRuntimeRequest(input) {

@@ -100,7 +100,7 @@ export default function AgileEnginePromoPage() {
               <p className="mx-auto max-w-2xl text-lg sm:text-xl text-muted-foreground leading-relaxed">
                 Sign in with your <span className="font-medium text-foreground">@agileengine.com</span> GitHub email
                 and claim the <code className="font-mono text-foreground">AE</code> code to unlock higher limits,
-                deep analysis, runtime comparison, and shareable reports.
+                worker-side QuickJS, runtime comparison, and shareable reports.
               </p>
             </div>
           </div>
@@ -198,7 +198,7 @@ export default function AgileEnginePromoPage() {
 
             <div className="grid gap-4">
               <Perk icon={Zap} title="Higher quotas" description="Create, edit, and submit benchmark runs with donor-tier rate limits." />
-              <Perk icon={Cpu} title="Runtime comparison" description="Compare browser results with Node, Deno, Bun, QuickJS, and V8 analysis." />
+              <Perk icon={Cpu} title="Worker-backed analysis" description="Run donor QuickJS and runtime phases on the worker while V8 stays on Vercel Sandbox." />
               <Perk icon={Presentation} title="Presentation reports" description="Generate shareable frozen reports for benchmarks worth discussing with teammates." />
             </div>
           </div>

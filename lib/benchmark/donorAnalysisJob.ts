@@ -1,8 +1,10 @@
 import crypto from 'crypto'
 import { redis } from '../redis'
 import { buildAnalysisFromProfiles, runQuickJSAnalysis, runV8Analysis } from '../engines/runner'
+import { runWorkerCompositeAnalysis } from '../engines/workerComposite'
 import {
   ANALYSIS_SESSION_TTL_SECONDS,
+  WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
   assertSessionActive,
   attachAnalysisMeta,
   estimateComplexitiesForSession,
@@ -135,6 +137,24 @@ export function serializeDonorAnalysisJob(session, job: DonorAnalysisJob): Advan
 
 async function advanceWorkerPhase(session, job: DonorAnalysisJob) {
   const signal = AbortSignal.timeout(DONOR_JOB_STEP_TIMEOUT_MS)
+  if (session.workerExecutionMode === WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE) {
+    const composite = await runWorkerCompositeAnalysis(session, { signal })
+    if (composite?.unavailable) {
+      throw new Error(composite.error || 'Worker-side QuickJS analysis failed')
+    }
+
+    job.workerStarted = true
+    job.quickjsProfiles = composite.quickjsProfiles
+    job.quickjsIndex = session.prepared.runtime.tests.length
+    job.multiRuntime = composite.multiRuntime
+    job.complexities = Array.isArray(composite.complexities)
+      ? composite.complexities
+      : Array(session.prepared.runtime.tests.length).fill(null)
+    job.updatedAt = Date.now()
+    await saveDonorAnalysisJob(job)
+    return
+  }
+
   const [multiRuntimeResult, complexityResult] = await Promise.allSettled([
     maybeEnqueueMultiRuntime(session, { signal }),
     estimateComplexitiesForSession(session, signal),

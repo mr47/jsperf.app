@@ -34,6 +34,7 @@ import { runInContainer, checkImages, prepareRuntimeImages } from './docker.js'
 import { buildNodeScript } from './runtimes/node.js'
 import { buildDenoScript } from './runtimes/deno.js'
 import { buildBunScript } from './runtimes/bun.js'
+import { runQuickJSAnalysis } from './runtimes/quickjs.js'
 import { DEFAULT_RUNTIME_TARGETS, normalizeRuntimeTargets } from './runtime-targets.js'
 import { estimateComplexity } from './complexity/estimator.js'
 
@@ -154,45 +155,70 @@ app.post('/api/jobs', async (c) => {
   const params = parseRunParams(body)
   if (params.error) return c.json({ error: params.error }, 400)
 
-  const jobId = randomUUID()
-  const executionDeadlineMs = computeExecutionDeadlineMs(params)
-  const pollDeadlineMs = computePollDeadlineMs(params, executionDeadlineMs)
-  const job = {
-    jobId,
-    state: 'pending',
-    createdAt: Date.now(),
-    deadline: null,
-    deadlineMs: executionDeadlineMs,
-    pollDeadlineMs,
-    completedAt: null,
-    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs, isAsync: params.isAsync, language: params.language },
-    partial: emptyAccumulator(params.runtimeTargets),
-    result: null,
-    error: null,
-    abortCtrl: new AbortController(),
-  }
-  jobs.set(jobId, job)
-  console.info('[worker] enqueued job', {
-    jobId,
-    runtimes: runtimeIds(params.runtimeTargets),
-    profiles: profileLabels(params.profiles),
-    timeMs: params.timeMs,
-    executionDeadlineMs,
-    pollDeadlineMs,
-  })
-
-  // Fire-and-forget. We deliberately don't await — the response is sent
-  // immediately so the caller (jsperf.net's /api/analyze) doesn't burn its
-  // own request budget waiting on us.
-  void executeJob(job, params).catch(() => { /* errors captured on job */ })
+  const job = enqueueBenchmarkJob(params)
 
   return c.json({
-    jobId,
+    jobId: job.jobId,
     state: 'pending',
-    statusUrl: `/api/jobs/${jobId}`,
-    deadlineMs: pollDeadlineMs,
-    executionDeadlineMs,
+    statusUrl: `/api/jobs/${job.jobId}`,
+    deadlineMs: job.pollDeadlineMs,
+    executionDeadlineMs: job.deadlineMs,
   }, 202)
+})
+
+app.post('/api/analysis/jobs', async (c) => {
+  if (!authorized(c)) return c.json({ error: 'unauthorized' }, 401)
+
+  let body
+  try { body = await c.req.json() } catch (_) {
+    return c.json({ error: 'invalid JSON body' }, 400)
+  }
+
+  const quickjs = parseQuickJSParams(body?.quickjs)
+  if (quickjs.error) return c.json({ error: quickjs.error }, 400)
+
+  const complexity = parseComplexityParams(body?.complexity, quickjs.tests)
+  if (complexity.error) return c.json({ error: complexity.error }, 400)
+
+  const runtimeJobs = []
+  const runtimeErrors = []
+  const multiRuntimeTests = Array.isArray(body?.multiRuntime?.tests) ? body.multiRuntime.tests : []
+  for (const entry of multiRuntimeTests) {
+    const params = parseRunParams(entry)
+    if (params.error) {
+      runtimeErrors.push(params.error)
+      continue
+    }
+    const job = enqueueBenchmarkJob(params)
+    runtimeJobs.push({
+      testIndex: Number.isInteger(entry?.testIndex) ? entry.testIndex : runtimeJobs.length,
+      jobId: job.jobId,
+      deadlineMs: job.pollDeadlineMs,
+    })
+  }
+
+  const [quickjsProfiles, complexities] = await Promise.all([
+    runQuickJSAnalysis(quickjs.tests, {
+      setup: quickjs.setup,
+      teardown: quickjs.teardown,
+      timeMs: quickjs.timeMs,
+      signal: c.req.raw.signal,
+    }),
+    estimateComplexityBatch(complexity),
+  ])
+
+  const deadlineMs = runtimeJobs.reduce((max, job) => Math.max(max, job.deadlineMs || 0), 0)
+  const multiRuntime = runtimeJobs.length > 0
+    ? { jobs: runtimeJobs.map(({ testIndex, jobId }) => ({ testIndex, jobId })), deadlineMs }
+    : runtimeErrors.length > 0
+      ? { error: runtimeErrors[0] }
+      : null
+
+  return c.json({
+    quickjsProfiles,
+    complexities,
+    multiRuntime,
+  })
 })
 
 app.post('/api/complexity', async (c) => {
@@ -297,6 +323,97 @@ function parseRunParams(body) {
     runtimeTargets,
     profiles,
   }
+}
+
+function parseQuickJSParams(input) {
+  const tests = sanitizeTests(input?.tests)
+  if (!tests) return { error: 'quickjs.tests array is required and must not be empty' }
+  return {
+    tests,
+    setup: typeof input?.setup === 'string' ? input.setup : '',
+    teardown: typeof input?.teardown === 'string' ? input.teardown : '',
+    timeMs: Math.min(Number(input?.timeMs) || 2000, MAX_TIME_MS),
+  }
+}
+
+function parseComplexityParams(input, fallbackTests) {
+  const tests = sanitizeTests(input?.tests) || fallbackTests
+  if (!tests) return { error: 'complexity.tests array is required and must not be empty' }
+  return {
+    tests,
+    setup: typeof input?.setup === 'string' ? input.setup : '',
+    language: input?.language === 'typescript' ? 'typescript' : 'javascript',
+    sourceMode: typeof input?.sourceMode === 'string' ? input.sourceMode : 'source',
+  }
+}
+
+function sanitizeTests(input) {
+  if (!Array.isArray(input) || input.length === 0) return null
+  if (input.length > 20) return null
+  const tests = []
+  for (let i = 0; i < input.length; i++) {
+    const test = input[i]
+    if (!test?.code || typeof test.code !== 'string') return null
+    tests.push({
+      code: test.code,
+      title: test.title || `Test ${i + 1}`,
+      async: test.async === true,
+      testIndex: Number.isInteger(test.testIndex) ? test.testIndex : i,
+    })
+  }
+  return tests
+}
+
+async function estimateComplexityBatch({ tests, setup, language, sourceMode }) {
+  const results = []
+  for (let i = 0; i < tests.length; i++) {
+    const test = tests[i]
+    const complexity = estimateComplexity(test.code, { setup })
+    if (language === 'typescript' && sourceMode === 'compiled-js') {
+      complexity.signals = [...new Set([...(complexity.signals || []), 'compiled-source'])]
+      complexity.explanation = [
+        complexity.explanation,
+        'TypeScript complexity was estimated from compiled JavaScript because a native TypeScript parser is not enabled on the worker.',
+      ].filter(Boolean).join(' ')
+    }
+    results.push(complexity)
+  }
+  return results
+}
+
+function enqueueBenchmarkJob(params) {
+  const jobId = randomUUID()
+  const executionDeadlineMs = computeExecutionDeadlineMs(params)
+  const pollDeadlineMs = computePollDeadlineMs(params, executionDeadlineMs)
+  const job = {
+    jobId,
+    state: 'pending',
+    createdAt: Date.now(),
+    deadline: null,
+    deadlineMs: executionDeadlineMs,
+    pollDeadlineMs,
+    completedAt: null,
+    params: { runtimes: params.runtimeTargets, profiles: params.profiles, timeMs: params.timeMs, isAsync: params.isAsync, language: params.language },
+    partial: emptyAccumulator(params.runtimeTargets),
+    result: null,
+    error: null,
+    abortCtrl: new AbortController(),
+  }
+  jobs.set(jobId, job)
+  console.info('[worker] enqueued job', {
+    jobId,
+    runtimes: runtimeIds(params.runtimeTargets),
+    profiles: profileLabels(params.profiles),
+    timeMs: params.timeMs,
+    executionDeadlineMs,
+    pollDeadlineMs,
+  })
+
+  // Fire-and-forget. We deliberately don't await — the response is sent
+  // immediately so the caller doesn't burn its own request budget waiting
+  // on Docker-backed runtimes.
+  void executeJob(job, params).catch(() => { /* errors captured on job */ })
+  return job
 }
 
 function emptyAccumulator(runtimeTargets) {

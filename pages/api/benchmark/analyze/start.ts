@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../../lib/rateLimit'
 import {
   RATE_LIMIT,
+  WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
   buildPipeline,
   createAnalysisSession,
   handleApiError,
@@ -38,7 +39,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(prepared.error.status).json(prepared.error.body)
     }
 
-    const session = createAnalysisSession({ ...prepared, tier })
+    if (prepared.workerExecutionMode === WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE) {
+      if (tier !== 'donor') {
+        return res.status(403).json({ error: 'Worker-side QuickJS analysis requires an active donor session' })
+      }
+      if (!process.env.BENCHMARK_WORKER_URL) {
+        return res.status(503).json({ error: 'Worker-side analysis is not configured' })
+      }
+    }
+
+    const workerExecutionMode = tier === 'donor' ? prepared.workerExecutionMode : null
+    const session = createAnalysisSession({ ...prepared, tier, workerExecutionMode })
     await saveAnalysisSession(session)
 
     const cached = await readCachedAnalysis(session)
@@ -46,8 +57,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({
       sessionId: session.id,
       tier,
+      workerExecutionMode: session.workerExecutionMode || null,
       deadlineAt: session.deadlineAt,
-      pipeline: buildPipeline(),
+      pipeline: buildPipeline({ workerExecutionMode: session.workerExecutionMode }),
       codeHash: session.codeHash,
       multiRuntimeCacheKey: session.multiRuntimeCacheKey,
       cached: Boolean(cached),

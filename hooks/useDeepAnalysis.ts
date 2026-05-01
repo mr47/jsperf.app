@@ -14,6 +14,7 @@ export function useDeepAnalysis({
   languageOptions,
   slug,
   revision,
+  isDonor = false,
 }: {
   tests: any[]
   setup: string
@@ -22,6 +23,7 @@ export function useDeepAnalysis({
   languageOptions: any
   slug: string
   revision: number
+  isDonor?: boolean
 }) {
   const [analysisStatus, setAnalysisStatus] = useState('idle')
   const [analysis, setAnalysis] = useState<any>(null)
@@ -34,6 +36,7 @@ export function useDeepAnalysis({
   const [multiRuntimeData, setMultiRuntimeData] = useState<any>(null)
   const [multiRuntimeError, setMultiRuntimeError] = useState<string | null>(null)
   const [runtimeTargets, setRuntimeTargets] = useState<any>(null)
+  const [workerSideQuickJS, setWorkerSideQuickJS] = useState(false)
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
   const [runtimeModalForce, setRuntimeModalForce] = useState(false)
   const multiRuntimeAbortRef = useRef<{ abort: () => void } | null>(null)
@@ -226,6 +229,9 @@ export function useDeepAnalysis({
         ...(Array.isArray(runtimeTargets) && runtimeTargets.length > 0
           ? { runtimes: runtimeTargets }
           : {}),
+        ...(isDonor && workerSideQuickJS
+          ? { workerExecutionMode: 'quickjs-composite' }
+          : {}),
       }
 
       const start = await postJson('/api/benchmark/analyze/start', analysisPayload)
@@ -260,6 +266,17 @@ export function useDeepAnalysis({
       const runDonorAnalysisJob = async () => {
         let jobId: string | null = null
         let lastMultiRuntimeKey: string | null = null
+        const usesWorkerQuickJS = start.workerExecutionMode === 'quickjs-composite'
+
+        if (usesWorkerQuickJS) {
+          setAnalysisStepStatus('quickjs-worker', 'running')
+          publishAnalysisProgress({
+            engine: 'quickjs-worker',
+            testIndex: 0,
+            perTest: false,
+            status: 'running',
+          })
+        }
 
         while (true) {
           const data = await postJson('/api/benchmark/analyze/donor-job', {
@@ -273,6 +290,10 @@ export function useDeepAnalysis({
           const quickjsDone = Number(progress.quickjsDone) || 0
           const v8Done = Number(progress.v8Done) || 0
 
+          if (usesWorkerQuickJS) {
+            setAnalysisStepStatus('quickjs-worker', progress.workerStarted ? 'done' : 'running')
+          }
+
           if (progress.workerStarted) {
             setAnalysisStepStatus('complexity', 'done')
             if (!data.multiRuntime) {
@@ -283,13 +304,18 @@ export function useDeepAnalysis({
             setAnalysisStepStatus('multi-runtime', 'running')
           }
 
-          setAnalysisStepStatus('quickjs', quickjsDone >= total ? 'done' : data.phase === 'quickjs' ? 'running' : 'pending')
+          if (!usesWorkerQuickJS) {
+            setAnalysisStepStatus('quickjs', quickjsDone >= total ? 'done' : data.phase === 'quickjs' ? 'running' : 'pending')
+          }
           setAnalysisStepStatus('v8', v8Done >= total ? 'done' : data.phase === 'v8' ? 'running' : 'pending')
           setAnalysisStepStatus('prediction', data.phase === 'prediction' ? 'running' : data.status === 'done' ? 'done' : 'pending')
+          const progressEngine = usesWorkerQuickJS && !progress.workerStarted
+            ? 'quickjs-worker'
+            : data.phase
           publishAnalysisProgress({
-            engine: data.phase,
+            engine: progressEngine,
             testIndex: data.phase === 'v8' ? v8Done : quickjsDone,
-            perTest: data.phase === 'quickjs' || data.phase === 'v8',
+            perTest: (!usesWorkerQuickJS && data.phase === 'quickjs') || data.phase === 'v8',
             status: data.status === 'done' ? 'done' : 'running',
           })
 
@@ -375,7 +401,7 @@ export function useDeepAnalysis({
       setAnalysisError(e.message || 'Failed to connect to analysis server')
       setAnalysisStatus('error')
     }
-  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, pollMultiRuntime, setAnalysisStepStatus, publishAnalysisProgress])
+  }, [tests, setup, teardown, language, languageOptions, slug, revision, runtimeTargets, isDonor, workerSideQuickJS, pollMultiRuntime, setAnalysisStepStatus, publishAnalysisProgress])
 
   const openRuntimeAnalysisModal = useCallback((force = false) => {
     setRuntimeModalForce(force)
@@ -461,9 +487,11 @@ export function useDeepAnalysis({
     multiRuntimeData,
     multiRuntimeError,
     runtimeTargets,
+    workerSideQuickJS,
     runtimeModalOpen,
     runtimeModalForce,
     setRuntimeTargets,
+    setWorkerSideQuickJS,
     openRuntimeAnalysisModal,
     closeRuntimeAnalysisModal,
     confirmRuntimeAnalysis,

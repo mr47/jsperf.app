@@ -31,6 +31,12 @@ const DONOR_PERKS = [
   },
   {
     icon: Cpu,
+    label: 'Worker-side QuickJS-WASM',
+    detail: 'Opt-in',
+    sub: 'Move QuickJS profiles and worker phases off the app path',
+  },
+  {
+    icon: Cpu,
     label: 'Runtime comparison',
     detail: 'Included',
     sub: 'Node, Deno, Bun, and hardware counters',
@@ -413,7 +419,7 @@ function Header({ isDonor, donor }) {
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           jsPerf runs on a hobby budget. Donations keep the deep-analysis
-          sandbox and multi-runtime workers humming.
+          sandbox, worker-side QuickJS, and multi-runtime workers humming.
         </p>
       </div>
     </div>
