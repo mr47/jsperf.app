@@ -91,7 +91,7 @@ export async function getServerSideProps({params, res}) {
 
   return {
     props: {
-      pageData: structuredClone(pageData)
+      pageData: JSON.parse(JSON.stringify(pageData))
     }
   }
 }
