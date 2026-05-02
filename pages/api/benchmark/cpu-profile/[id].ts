@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { cpuProfileDownloadName, loadCpuProfile } from '../../../../lib/cpuProfiles'
+import { cpuProfileDownloadName, getFocusedCpuProfile, loadCpuProfile } from '../../../../lib/cpuProfiles'
 
 export const config = {
   maxDuration: 30,
@@ -25,6 +25,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).send(JSON.stringify(doc.cpuProfile))
   }
 
+  const focusedCpuProfile = getFocusedCpuProfile(doc)
+
   return res.status(200).json({
     id: doc.id,
     runtime: doc.runtime,
@@ -34,6 +36,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     testIndex: doc.testIndex,
     profileLabel: doc.profileLabel,
     meta: doc.meta,
-    cpuProfile: doc.cpuProfile,
+    cpuProfile: focusedCpuProfile,
   })
 }

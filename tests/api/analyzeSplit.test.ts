@@ -109,11 +109,11 @@ import {
 
 const ORIG_WORKER_URL = process.env.BENCHMARK_WORKER_URL
 
-function createMockReq(body: any, method = 'POST'): any {
+function createMockReq(body: any, method = 'POST', headers: Record<string, string> = {}): any {
   return {
     method,
     body,
-    headers: { 'x-forwarded-for': '127.0.0.1' },
+    headers: { 'x-forwarded-for': '127.0.0.1', ...headers },
     socket: { remoteAddress: '127.0.0.1' },
   }
 }
@@ -204,6 +204,30 @@ describe('split deep analysis API routes', () => {
     expect(workerRes._json.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'slow-job' }])
     expect(workerRes._json.multiRuntime.deadlineMs).toBe(120_000)
     expect(workerRes._json.multiRuntime.deadlineAt).toBeGreaterThan(Date.now() + 60_000)
+  })
+
+  it('defaults donor starts to Node CPU profiling unless explicitly disabled', async () => {
+    const token = 'a'.repeat(64)
+    redisStore.set('donor:session:' + token, JSON.stringify({ name: 'Ada', source: 'test' }))
+    const donorHeaders = { cookie: `jsperf_donor=${token}` }
+
+    const defaultRes = createMockRes()
+    await startHandler(createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] }, 'POST', donorHeaders), defaultRes)
+
+    expect(defaultRes._status).toBe(200)
+    expect(defaultRes._json.tier).toBe('donor')
+    const defaultSession = JSON.parse(redisStore.get(`analysis_session:${defaultRes._json.sessionId}`))
+    expect(defaultSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: true })
+
+    const optedOutRes = createMockRes()
+    await startHandler(createMockReq({
+      tests: [{ code: 'x + 1', title: 'test' }],
+      profiling: { nodeCpu: false },
+    }, 'POST', donorHeaders), optedOutRes)
+
+    expect(optedOutRes._status).toBe(200)
+    const optedOutSession = JSON.parse(redisStore.get(`analysis_session:${optedOutRes._json.sessionId}`))
+    expect(optedOutSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: false })
   })
 
   it('advances donor deep analysis across resumable poll requests', async () => {

@@ -160,7 +160,7 @@ export default function CpuProfilePage() {
                     <div>
                       <h2 className="text-xl font-semibold tracking-tight">Hot functions</h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Self time by sampled leaf function. Use this as a quick read before opening the full profile.
+                        Self time by sampled benchmark-code leaf function. Harness-only samples are hidden here.
                       </p>
                     </div>
                     {id && (
@@ -236,9 +236,9 @@ export default function CpuProfilePage() {
                     <Flame className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                   </div>
                   <div>
-                    <h2 className="font-semibold">Need the full call tree?</h2>
+                    <h2 className="font-semibold">Need the interactive call tree?</h2>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      CPUpro includes packages, modules, call frames, flame graphs, and total-time drilldowns for this same profile.
+                      CPUpro opens the focused benchmark-code profile with flame graphs, call frames, and total-time drilldowns. The raw `.cpuprofile` download is unchanged.
                     </p>
                   </div>
                 </div>

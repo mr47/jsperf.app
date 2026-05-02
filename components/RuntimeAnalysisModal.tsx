@@ -63,7 +63,7 @@ export default function RuntimeAnalysisModal({
               {force ? 'Re-run deep analysis' : 'Deep analysis setup'}
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Choose runtime versions. Donors use the priority worker lane by default.
+              Choose runtime versions. Donors use the priority worker lane and Node CPU profiles by default.
             </p>
           </div>
           <Button
@@ -225,10 +225,12 @@ export default function RuntimeAnalysisModal({
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                   <Flame className="h-4 w-4 text-orange-500" />
-                  Capture Node CPU profile
+                  {isDonor ? 'Capture Node CPU profile (donor default)' : 'Capture Node CPU profile'}
                 </span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                  Stores a Chrome DevTools / CPUpro compatible `.cpuprofile` for Node.js runtime runs. This is opt-in because profiles can be large.
+                  {isDonor
+                    ? 'Stores a Chrome DevTools / CPUpro compatible `.cpuprofile` for Node.js runtime runs. Donors get this preselected; uncheck it for lighter runs.'
+                    : 'Stores a Chrome DevTools / CPUpro compatible `.cpuprofile` for Node.js runtime runs. This is opt-in because profiles can be large.'}
                 </span>
               </span>
             </span>

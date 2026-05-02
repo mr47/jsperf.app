@@ -89,6 +89,8 @@ describe('runtime script builders', () => {
     expect(() => new vm.Script(src)).not.toThrow()
     expect(src).toContain('const ENABLE_CPU_PROFILE = true')
     expect(src).toContain("require('node:inspector')")
+      expect(src).toContain('function jsperfUserBenchmark()')
+      expect(src).toContain('sourceURL=jsperf-user-code.js')
     expect(src).toContain("'Profiler.start'")
     expect(src).toContain("'Profiler.stop'")
     expect(src).toContain('cpuProfileMeta')

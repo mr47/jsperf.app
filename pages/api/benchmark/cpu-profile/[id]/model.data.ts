@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { cpuProfileDownloadName, loadCpuProfile } from '../../../../../lib/cpuProfiles'
+import { cpuProfileDownloadName, getFocusedCpuProfile, loadCpuProfile } from '../../../../../lib/cpuProfiles'
 
 export const config = {
   maxDuration: 30,
@@ -20,5 +20,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('Content-Disposition', `inline; filename="${cpuProfileDownloadName(doc)}"`)
-  return res.status(200).send(JSON.stringify(doc.cpuProfile))
+  return res.status(200).send(JSON.stringify(getFocusedCpuProfile(doc)))
 }

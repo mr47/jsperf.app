@@ -37,10 +37,14 @@ export function useDeepAnalysis({
   const [multiRuntimeError, setMultiRuntimeError] = useState<string | null>(null)
   const [runtimeTargets, setRuntimeTargets] = useState<any>(null)
   const [workerSideQuickJS, setWorkerSideQuickJS] = useState(true)
-  const [nodeCpuProfiling, setNodeCpuProfiling] = useState(false)
+  const [nodeCpuProfiling, setNodeCpuProfiling] = useState(isDonor)
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
   const [runtimeModalForce, setRuntimeModalForce] = useState(false)
   const multiRuntimeAbortRef = useRef<{ abort: () => void } | null>(null)
+
+  useEffect(() => {
+    if (isDonor) setNodeCpuProfiling(true)
+  }, [isDonor])
 
   const setAnalysisStepStatus = useCallback((engine: string, status: string) => {
     setAnalysisStepStatuses(prev => {
@@ -218,6 +222,9 @@ export function useDeepAnalysis({
     multiRuntimeAbortRef.current = null
 
     try {
+      const profiling = isDonor || nodeCpuProfiling
+        ? { nodeCpu: nodeCpuProfiling }
+        : null
       const analysisPayload = {
         tests: tests.map(t => ({ code: t.code, title: t.title, async: !!t.async })),
         setup,
@@ -230,8 +237,8 @@ export function useDeepAnalysis({
         ...(Array.isArray(runtimeTargets) && runtimeTargets.length > 0
           ? { runtimes: runtimeTargets }
           : {}),
-        ...(nodeCpuProfiling
-          ? { profiling: { nodeCpu: true } }
+        ...(profiling
+          ? { profiling }
           : {}),
         ...(isDonor && workerSideQuickJS
           ? { workerExecutionMode: 'quickjs-composite' }

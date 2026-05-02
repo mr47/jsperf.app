@@ -37,7 +37,7 @@ export function evalBenchmarkFunctionSource(parts) {
   return `
 const __benchCode = ${JSON.stringify(parts.testBody)};
 const __benchPrefix = ${JSON.stringify(parts.prefix)};
-const __benchFn = eval('(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})');
+const __benchFn = eval('(' + __benchPrefix + 'function jsperfUserBenchmark() {\\n' + __benchCode + '\\n})\\n//# sourceURL=jsperf-user-code.js');
 `
 }
 

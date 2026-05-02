@@ -34,7 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
-    const prepared = prepareDeepAnalysisRequest(req.body)
+    const requestBody = applyDonorProfilingDefault(req.body, tier)
+    const prepared = prepareDeepAnalysisRequest(requestBody)
     if (prepared.error) {
       return res.status(prepared.error.status).json(prepared.error.body)
     }
@@ -69,5 +70,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
   } catch (error) {
     return handleApiError(error, res, tier)
+  }
+}
+
+function applyDonorProfilingDefault(body: any, tier: string) {
+  if (tier !== 'donor' || body?.profiling != null) return body
+  return {
+    ...(body || {}),
+    profiling: { nodeCpu: true },
   }
 }

@@ -101,9 +101,15 @@ describe('GET /api/benchmark/multi-runtime/[jobId]', () => {
 
   it('stores raw CPU profiles separately and returns refs', async () => {
     const cpuProfile = {
-      nodes: [{ id: 1, callFrame: { functionName: 'hot', url: 'bench.js' } }],
-      samples: [1],
-      timeDeltas: [1000],
+      nodes: [
+        { id: 1, callFrame: { functionName: '(root)', url: '' }, children: [2] },
+        { id: 2, callFrame: { functionName: 'runBenchmark', url: 'bench.js' }, children: [3, 5] },
+        { id: 3, callFrame: { functionName: 'jsperfUserBenchmark', url: 'jsperf-user-code.js' }, children: [4] },
+        { id: 4, callFrame: { functionName: 'hot', url: 'jsperf-user-code.js' } },
+        { id: 5, callFrame: { functionName: 'now', url: 'node:perf_hooks' } },
+      ],
+      samples: [4, 5],
+      timeDeltas: [1000, 500],
       startTime: 1,
       endTime: 2,
     }
@@ -133,6 +139,10 @@ describe('GET /api/benchmark/multi-runtime/[jobId]', () => {
           testIndex: 0,
           runtime: 'node',
           cpuProfile,
+          focusedCpuProfile: expect.objectContaining({
+            samples: [3],
+            timeDeltas: [1000],
+          }),
         }),
       }),
       { upsert: true },
@@ -142,7 +152,8 @@ describe('GET /api/benchmark/multi-runtime/[jobId]', () => {
       id: expect.any(String),
       format: 'cpuprofile',
       runtime: 'node',
-      sampleCount: 1,
+      sampleCount: 2,
+      focusedSampleCount: 1,
     }))
     expect(updateOneMock).toHaveBeenCalledWith(
       { multiRuntimeCacheKey: 'mr-key', testIndex: 0 },
