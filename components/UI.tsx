@@ -35,15 +35,17 @@ function detectRetainedArrayGrowth(code, setup) {
   return null
 }
 
-function compileFactory(code, setup, teardown, legacyIsAsync) {
+export function compileFactory(code, setup, teardown, legacyIsAsync) {
   try {
-    // Auto-detect modern async/await or legacy deferred.resolve usage
-    const isLegacyAsync = code.includes('deferred.resolve')
-    const isModernAsync = code.includes('await ') || code.includes('return new Promise')
-    const actuallyAsync = !!legacyIsAsync || isLegacyAsync || isModernAsync
+    // Auto-detect modern async/await or legacy deferred.resolve usage.
+    // Some imported benchmarks have a stale async flag on sync tests; wrapping
+    // those in a Promise would wait forever because they never resolve deferred.
+    const isLegacyDeferred = code.includes('deferred.resolve')
+    const isModernAsync = /\bawait\b/.test(code) || /\breturn\s+new\s+Promise\b/.test(code)
+    const actuallyAsync = isLegacyDeferred || isModernAsync
 
-    // If it's the legacy format (or forced via old DB flag), inject the Promise wrapper
-    const testBody = (isLegacyAsync || (legacyIsAsync && !isModernAsync))
+    // Legacy jsPerf async tests receive a deferred object and must resolve it.
+    const testBody = isLegacyDeferred
       ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
       : code
 

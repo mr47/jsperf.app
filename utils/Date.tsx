@@ -20,6 +20,7 @@ export const DateTimeLong = ({ date }) => {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: 'UTC',
   })
   return <>{dateString}</>
 }
