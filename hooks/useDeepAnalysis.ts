@@ -573,7 +573,7 @@ async function formatNonJsonError(res: Response, url: string) {
 function markMissingJitArtifacts(runtimes: any) {
   if (!runtimes || typeof runtimes !== 'object') return runtimes
   return Object.fromEntries(Object.entries(runtimes).map(([runtimeId, runtimeData]: [string, any]) => {
-    if (!isV8Runtime(runtimeId, runtimeData)) return [runtimeId, runtimeData]
+    if (!isNodeRuntime(runtimeId, runtimeData)) return [runtimeId, runtimeData]
     return [runtimeId, {
       ...runtimeData,
       profiles: markProfilesMissingJit(runtimeData?.profiles),
@@ -586,7 +586,7 @@ function markMissingJitArtifactsInComparison(comparison: any) {
   return {
     ...comparison,
     runtimes: comparison.runtimes.map((runtimeData: any) => {
-      if (!isV8Runtime(runtimeData?.runtime, runtimeData)) return runtimeData
+      if (!isNodeRuntime(runtimeData?.runtime, runtimeData)) return runtimeData
       return {
         ...runtimeData,
         profiles: markProfilesMissingJit(runtimeData?.profiles),
@@ -615,7 +615,7 @@ function markProfilesMissingJit(profiles: any) {
   })
 }
 
-function isV8Runtime(runtimeId: any, runtimeData: any) {
+function isNodeRuntime(runtimeId: any, runtimeData: any) {
   const runtime = String(runtimeData?.runtime || runtimeData?.runtimeName || runtimeId || '').toLowerCase()
-  return runtime.startsWith('node') || runtime.startsWith('deno')
+  return runtime.startsWith('node')
 }

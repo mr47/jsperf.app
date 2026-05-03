@@ -105,7 +105,7 @@ export async function runInContainer({
   const runtimeName = target.runtime
   const runtimeId = target.id
   const usePerf = collectPerf && target.supportsPerf
-  const captureJit = profiling?.v8Jit === true && (runtimeName === 'node' || runtimeName === 'deno')
+  const captureJit = profiling?.v8Jit === true && shouldCaptureJitRuntime(runtimeName)
 
   await ensureImageReady(target)
   await ensureWorkDirBase()
@@ -385,22 +385,11 @@ function nodeJitFlags() {
 
 function denoV8Flags(profiling) {
   const flags = ['--expose-gc']
-  if (profiling?.v8Jit === true) {
-    flags.push(
-      '--no-maglev',
-      '--no-concurrent-recompilation',
-      '--trace-opt',
-      '--trace-deopt',
-      '--print-opt-code',
-      '--print-opt-code-filter=jsperfUserBenchmark',
-      '--print-opt-source',
-      '--code-comments',
-      '--print-code-verbose',
-      '--log-code',
-      '--logfile=/work/v8.log',
-    )
-  }
   return flags.join(',')
+}
+
+function shouldCaptureJitRuntime(runtimeName) {
+  return runtimeName === 'node'
 }
 
 /**
@@ -631,6 +620,7 @@ export const __testing = {
   buildJitArtifact,
   hasOptimizedCodeBlock,
   jitCaptureMissingReason,
+  shouldCaptureJitRuntime,
 }
 
 /**

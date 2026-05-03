@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { __testing } from '../../worker/docker.js'
 
 describe('worker docker JIT capture helpers', () => {
-  it('adds V8 optimized-code flags for Node and Deno captures', () => {
+  it('adds V8 optimized-code flags only for Node captures', () => {
     expect(__testing.nodeJitFlags()).toEqual(expect.arrayContaining([
       '--no-maglev',
       '--no-concurrent-recompilation',
@@ -17,12 +17,11 @@ describe('worker docker JIT capture helpers', () => {
       '--log-code',
       '--logfile=/work/v8.log',
     ]))
-    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--no-maglev')
-    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-code')
-    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-source')
-    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-code-filter=jsperfUserBenchmark')
-    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--log-code')
+    expect(__testing.denoV8Flags({ v8Jit: true })).toBe('--expose-gc')
     expect(__testing.denoV8Flags({ v8Jit: false })).toBe('--expose-gc')
+    expect(__testing.shouldCaptureJitRuntime('node')).toBe(true)
+    expect(__testing.shouldCaptureJitRuntime('deno')).toBe(false)
+    expect(__testing.shouldCaptureJitRuntime('bun')).toBe(false)
   })
 
   it('parses the benchmark JSON even when V8 diagnostics surround it', () => {

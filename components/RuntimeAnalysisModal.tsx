@@ -251,12 +251,12 @@ export default function RuntimeAnalysisModal({
               <span className="min-w-0">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                   <Cpu className="h-4 w-4 text-sky-500" />
-                  {isDonor ? 'Capture Node/Deno JIT output (donor default)' : 'Capture Node/Deno JIT output'}
+                  {isDonor ? 'Capture Node.js JIT output (donor default)' : 'Capture Node.js JIT output'}
                 </span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
                   {isDonor
-                    ? 'Stores bounded V8 optimization and disassembly output for Node.js and Deno runs, then links it in the public runtime comparison. Donors get this preselected; uncheck it for lighter runs.'
-                    : 'Stores bounded V8 optimization and disassembly output for Node.js and Deno runs, then links it in the public runtime comparison. This is available to everyone and defaults off because the output can be noisy.'}
+                    ? 'Stores bounded V8 optimization and disassembly output for Node.js runs, then links it in the public runtime comparison. Donors get this preselected; uncheck it for lighter runs.'
+                    : 'Stores bounded V8 optimization and disassembly output for Node.js runs, then links it in the public runtime comparison. This is available to everyone and defaults off because the output can be noisy.'}
                 </span>
               </span>
             </span>

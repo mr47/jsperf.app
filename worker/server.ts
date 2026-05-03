@@ -479,7 +479,7 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
           runtime: target,
           script,
           profile,
-        profiling: target.runtime === 'node' || target.runtime === 'deno' ? profiling : null,
+          profiling: target.runtime === 'node' ? profiling : null,
           collectPerf: COLLECT_PERF,
           timeoutMs: PER_RUN_TIMEOUT_MS,
           signal,
@@ -517,7 +517,7 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
         stderrTail: outcome.result.state === 'errored' ? outcome.stderrTail : undefined,
       }
 
-      if (profiling?.v8Jit === true && (target.runtime === 'node' || target.runtime === 'deno')) {
+      if (profiling?.v8Jit === true && target.runtime === 'node') {
         console.info('[worker] jit capture result', {
           runtime: target.id,
           runtimeName: target.runtime,

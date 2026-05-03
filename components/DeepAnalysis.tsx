@@ -31,7 +31,7 @@ const STEP_META = {
   'quickjs-worker': { label: 'Running worker-side QuickJS-WASM', desc: 'Donor worker handles QuickJS profiles, complexity, and runtime jobs' },
   v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
   'multi-runtime': { label: 'Running Node / Deno / Bun', desc: 'Compares the same tests across server runtimes' },
-  'jit-artifacts': { label: 'Capturing JIT output', desc: 'Stores V8 optimized-code and assembly artifacts for Node / Deno' },
+  'jit-artifacts': { label: 'Capturing JIT output', desc: 'Stores V8 optimized-code and assembly artifacts for Node.js' },
   complexity: { label: 'Estimating complexity', desc: 'Checks time, space, and async behavior from the code shape' },
   prediction: { label: 'Building prediction model', desc: 'JIT amplification and memory-response analysis' },
 }
@@ -419,13 +419,13 @@ function collectJitArtifactEntries(results) {
   return entries
 }
 
-function hasNodeOrDenoRuntime(results) {
+function hasNodeRuntime(results) {
   if (!Array.isArray(results)) return false
   return results.some(result => {
     const runtimes = result.runtimeComparison?.runtimes
     return Array.isArray(runtimes) && runtimes.some(runtimeData => {
       const runtime = String(runtimeData.runtime || runtimeData.runtimeName || '').toLowerCase()
-      return runtime.startsWith('node') || runtime.startsWith('deno')
+      return runtime.startsWith('node')
     })
   })
 }
@@ -485,7 +485,7 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
   const entries = collectJitArtifactEntries(results)
   const artifacts = entries.filter(entry => entry.ref)
   const errors = summarizeJitArtifactErrors(entries)
-  const hasV8Runtime = hasNodeOrDenoRuntime(results)
+  const hasV8Runtime = hasNodeRuntime(results)
   const groups = groupJitArtifactEntries(entries)
 
   if (!hasV8Runtime && entries.length === 0) return null
@@ -520,7 +520,7 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
         <p className="rounded-lg border border-border/50 bg-background/70 p-3 text-xs text-muted-foreground">
           {captureRequested
             ? 'JIT capture was requested, but the worker did not return a JIT artifact. Redeploy or restart the benchmark worker with the updated capture code, then run JIT capture again.'
-            : 'No JIT artifact is attached to the current result. Run JIT capture to generate public viewer links for Node.js and Deno.'}
+            : 'No JIT artifact is attached to the current result. Run JIT capture to generate public viewer links for Node.js.'}
         </p>
       ) : (
         <div className="space-y-3">
@@ -529,7 +529,7 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
               {error.message}
               {error.count > 1 && (
                 <span className="ml-1 text-red-500/80 dark:text-red-300/80">
-                  ({error.count} Node/Deno captures affected)
+                  ({error.count} Node.js captures affected)
                 </span>
               )}
             </div>

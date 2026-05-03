@@ -99,7 +99,7 @@ export default function JitArtifactPage() {
     <>
       <SEO
         title={title}
-        description="Inspect captured V8 optimized-code and assembly output from jsPerf Node.js and Deno benchmark runs."
+        description="Inspect captured V8 optimized-code and assembly output from jsPerf Node.js benchmark runs."
         canonical={id ? `/jit/${id}` : undefined}
         ogImage={undefined}
       />
