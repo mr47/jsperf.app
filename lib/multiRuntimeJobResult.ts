@@ -39,6 +39,12 @@ export async function getShapedMultiRuntimeJob(jobId: string, {
       const stored = await loadStoredMultiRuntimeResults(cacheKey, [{ testIndex: numericTestIndex }], { requireAll: true })
       const storedResult = stored?.results?.[0]
       if (storedResult) {
+        console.info('[analysis] multi-runtime store hit', {
+          cacheKey,
+          testIndex: numericTestIndex,
+          jitArtifacts: countJitArtifacts(storedResult.runtimes),
+          jitErrors: countJitErrors(storedResult.runtimes),
+        })
         return {
           storeHit: true,
           payload: {
@@ -57,6 +63,15 @@ export async function getShapedMultiRuntimeJob(jobId: string, {
 
   if (job === null) return { status: 404, payload: { error: 'Unknown job' } }
   if (job.unavailable) return { status: 503, payload: { error: job.error } }
+
+  console.info('[analysis] multi-runtime worker job status', {
+    jobId,
+    cacheKey,
+    testIndex: numericTestIndex,
+    state: job.state || null,
+    hasResult: Boolean(job.result),
+    error: job.error || null,
+  })
 
   if (job.state === 'errored') {
     return { payload: { state: 'errored', error: job.error || 'unknown error' } }
@@ -86,6 +101,15 @@ export async function getShapedMultiRuntimeJob(jobId: string, {
     })
   }
   const runtimeComparison = buildRuntimeComparison(runtimes)
+  console.info('[analysis] multi-runtime job shaped', {
+    jobId,
+    cacheKey,
+    testIndex: numericTestIndex,
+    runtimeCount: Object.keys(runtimes || {}).length,
+    jitArtifacts: countJitArtifacts(runtimes),
+    jitErrors: countJitErrors(runtimes),
+    runtimeComparisonAvailable: Boolean(runtimeComparison?.available),
+  })
   const payload: ShapedJobPayload = { state: 'done', runtimes, runtimeComparison }
 
   if (cacheKey && numericTestIndex != null && runtimeComparison?.available) {
@@ -114,4 +138,26 @@ export function shapePartial(partial: PartialRuntimeState | null | undefined) {
     }
   }
   return out
+}
+
+function countJitArtifacts(runtimes: unknown) {
+  let count = 0
+  if (!runtimes || typeof runtimes !== 'object') return count
+  for (const runtime of Object.values(runtimes as Record<string, any>)) {
+    for (const profile of runtime?.profiles || []) {
+      if (profile?.jitArtifactRef || profile?.jitArtifact) count += 1
+    }
+  }
+  return count
+}
+
+function countJitErrors(runtimes: unknown) {
+  let count = 0
+  if (!runtimes || typeof runtimes !== 'object') return count
+  for (const runtime of Object.values(runtimes as Record<string, any>)) {
+    for (const profile of runtime?.profiles || []) {
+      if (profile?.jitArtifactError) count += 1
+    }
+  }
+  return count
 }

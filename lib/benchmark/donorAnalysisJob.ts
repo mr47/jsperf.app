@@ -137,11 +137,28 @@ export function serializeDonorAnalysisJob(session, job: DonorAnalysisJob): Advan
 
 async function advanceWorkerPhase(session, job: DonorAnalysisJob) {
   const signal = AbortSignal.timeout(DONOR_JOB_STEP_TIMEOUT_MS)
+  console.info('[analysis] donor worker phase starting', {
+    jobId: job.id,
+    sessionId: session.id,
+    mode: session.workerExecutionMode || 'split',
+    multiRuntimeCacheKey: session.multiRuntimeCacheKey,
+    profiling: session.multiRuntimeOptions?.profiling || null,
+    tests: session.prepared?.runtime?.tests?.length || 0,
+  })
+
   if (session.workerExecutionMode === WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE) {
     const composite = await runWorkerCompositeAnalysis(session, { signal })
     if (composite?.unavailable) {
       throw new Error(composite.error || 'Worker-side QuickJS analysis failed')
     }
+
+    console.info('[analysis] donor worker composite result', {
+      jobId: job.id,
+      sessionId: session.id,
+      multiRuntime: summarizeMultiRuntimeForLog(composite.multiRuntime),
+      quickjsProfiles: Array.isArray(composite.quickjsProfiles) ? composite.quickjsProfiles.length : 0,
+      complexities: Array.isArray(composite.complexities) ? composite.complexities.length : 0,
+    })
 
     job.workerStarted = true
     job.quickjsProfiles = composite.quickjsProfiles
@@ -167,8 +184,31 @@ async function advanceWorkerPhase(session, job: DonorAnalysisJob) {
   job.complexities = complexityResult.status === 'fulfilled'
     ? complexityResult.value
     : Array(session.prepared.runtime.tests.length).fill(null)
+  console.info('[analysis] donor worker split result', {
+    jobId: job.id,
+    sessionId: session.id,
+    multiRuntime: summarizeMultiRuntimeForLog(job.multiRuntime),
+    complexities: Array.isArray(job.complexities) ? job.complexities.length : 0,
+  })
   job.updatedAt = Date.now()
   await saveDonorAnalysisJob(job)
+}
+
+function summarizeMultiRuntimeForLog(multiRuntime: any) {
+  if (!multiRuntime) return null
+  if (multiRuntime.unavailable || multiRuntime.error) {
+    return {
+      unavailable: Boolean(multiRuntime.unavailable),
+      error: multiRuntime.error || null,
+    }
+  }
+  return {
+    stored: Boolean(multiRuntime.stored || multiRuntime.fromStore),
+    jobs: Array.isArray(multiRuntime.jobs) ? multiRuntime.jobs.length : 0,
+    results: Array.isArray(multiRuntime.results) ? multiRuntime.results.length : 0,
+    cacheKey: multiRuntime.cacheKey || null,
+    profiling: multiRuntime.profiling || null,
+  }
 }
 
 async function advanceQuickJSPhase(session, job: DonorAnalysisJob) {

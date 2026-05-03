@@ -78,6 +78,15 @@ export async function enqueueMultiRuntimeJob(code, {
     }
   }
 
+  console.info('[analysis] enqueue multi-runtime worker job', {
+    workerUrl: redactWorkerUrl(workerUrl),
+    runtimes,
+    profiles: profiles.map(profile => profile.label),
+    timeMs,
+    isAsync,
+    profiling,
+  })
+
   let response
   try {
     response = await fetch(`${workerUrl.replace(/\/+$/, '')}/api/jobs`, {
@@ -104,15 +113,30 @@ export async function enqueueMultiRuntimeJob(code, {
     })
   } catch (err) {
     if (err.name === 'AbortError') throw err
+    console.warn('[analysis] multi-runtime worker unreachable', {
+      workerUrl: redactWorkerUrl(workerUrl),
+      error: err.message || String(err),
+    })
     return { unavailable: true, error: `Worker unreachable: ${err.message || String(err)}` }
   }
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')
+    console.warn('[analysis] multi-runtime worker enqueue failed', {
+      workerUrl: redactWorkerUrl(workerUrl),
+      status: response.status,
+      body: text.slice(0, 200),
+    })
     return { unavailable: true, error: `Worker error ${response.status}: ${text.slice(0, 200)}` }
   }
 
   const body = await response.json().catch(() => ({}))
+  console.info('[analysis] multi-runtime worker enqueue response', {
+    workerUrl: redactWorkerUrl(workerUrl),
+    jobId: body.jobId || null,
+    deadlineMs: body.deadlineMs || null,
+    state: body.state || null,
+  })
   if (!body.jobId) {
     return { unavailable: true, error: 'Worker response missing jobId' }
   }
@@ -163,4 +187,13 @@ function workerHeaders() {
     headers.Authorization = `Bearer ${process.env.BENCHMARK_WORKER_SECRET}`
   }
   return headers
+}
+
+function redactWorkerUrl(workerUrl) {
+  try {
+    const url = new URL(workerUrl)
+    return `${url.protocol}//${url.host}`
+  } catch {
+    return workerUrl ? '[configured]' : '[missing]'
+  }
 }

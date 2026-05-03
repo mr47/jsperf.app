@@ -54,6 +54,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await saveAnalysisSession(session)
 
     const cached = await readCachedAnalysis(session)
+    console.info('[analysis] start session', {
+      sessionId: session.id,
+      tier,
+      workerExecutionMode: session.workerExecutionMode || null,
+      cached: Boolean(cached),
+      codeHash: session.codeHash,
+      multiRuntimeCacheKey: session.multiRuntimeCacheKey,
+      profiling: session.multiRuntimeOptions?.profiling || null,
+      runtimes: session.multiRuntimeOptions?.runtimes || null,
+    })
     res.setHeader('X-Analysis-Cache', cached ? 'HIT' : 'MISS')
     return res.status(200).json({
       sessionId: session.id,

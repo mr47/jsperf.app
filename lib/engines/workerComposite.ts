@@ -34,6 +34,15 @@ export async function runWorkerCompositeAnalysis(session: any, { signal }: Worke
     { requireAll: true },
   )
 
+  console.info('[analysis] worker composite preparing request', {
+    workerUrl: redactWorkerUrl(workerUrl),
+    cacheKey,
+    profiling: options.profiling || null,
+    runnableTests: runnableTests.length,
+    storedResults: stored?.results?.length || 0,
+    willEnqueueRuntimeJobs: !stored,
+  })
+
   const multiRuntimeFallback = buildMultiRuntimeFallback({
     prepared,
     cacheKey,
@@ -85,15 +94,32 @@ export async function runWorkerCompositeAnalysis(session: any, { signal }: Worke
     })
   } catch (err) {
     if ((err as Error).name === 'AbortError') throw err
+    console.warn('[analysis] worker composite unreachable', {
+      workerUrl: redactWorkerUrl(workerUrl),
+      error: (err as Error).message || String(err),
+    })
     return { unavailable: true, error: `Worker unreachable: ${(err as Error).message || String(err)}` }
   }
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')
+    console.warn('[analysis] worker composite failed', {
+      workerUrl: redactWorkerUrl(workerUrl),
+      status: response.status,
+      body: text.slice(0, 200),
+    })
     return { unavailable: true, error: `Worker error ${response.status}: ${text.slice(0, 200)}` }
   }
 
   const body = await response.json().catch(() => null)
+  console.info('[analysis] worker composite response', {
+    workerUrl: redactWorkerUrl(workerUrl),
+    quickjsProfiles: Array.isArray(body?.quickjsProfiles) ? body.quickjsProfiles.length : 0,
+    complexities: Array.isArray(body?.complexities) ? body.complexities.length : 0,
+    runtimeJobs: Array.isArray(body?.multiRuntime?.jobs) ? body.multiRuntime.jobs.length : 0,
+    runtimeError: body?.multiRuntime?.error || null,
+    usedStoredResults: Boolean(stored),
+  })
   const quickjsProfiles = normalizeQuickJSProfiles(body?.quickjsProfiles, prepared.runtime.tests.length)
   if (!quickjsProfiles) {
     return { unavailable: true, error: 'Worker response missing QuickJS profiles' }
@@ -146,6 +172,15 @@ function workerHeaders() {
     headers.Authorization = `Bearer ${process.env.BENCHMARK_WORKER_SECRET}`
   }
   return headers
+}
+
+function redactWorkerUrl(workerUrl: string) {
+  try {
+    const url = new URL(workerUrl)
+    return `${url.protocol}//${url.host}`
+  } catch {
+    return workerUrl ? '[configured]' : '[missing]'
+  }
 }
 
 function isPreparedAsync(originalTest: any, runtimeTest: any) {
