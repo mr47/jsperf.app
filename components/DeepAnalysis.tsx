@@ -7,7 +7,7 @@ import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
 import CompatibilityMatrix from './CompatibilityMatrix'
 import BenchmarkDoctor from './BenchmarkDoctor'
-import { Microscope, RefreshCw, Database } from 'lucide-react'
+import { Cpu, Download, ExternalLink, Microscope, RefreshCw, Database } from 'lucide-react'
 import { buildBenchmarkDoctor } from '../lib/benchmark/doctor'
 
 function formatRelativeTime(value) {
@@ -30,6 +30,7 @@ const STEP_META = {
   'quickjs-worker': { label: 'Running worker-side QuickJS-WASM', desc: 'Donor worker handles QuickJS profiles, complexity, and runtime jobs' },
   v8: { label: 'Running V8 Firecracker', desc: 'Realistic JIT profiling in microVM' },
   'multi-runtime': { label: 'Running Node / Deno / Bun', desc: 'Compares the same tests across server runtimes' },
+  'jit-artifacts': { label: 'Capturing JIT output', desc: 'Stores V8 optimized-code and assembly artifacts for Node / Deno' },
   complexity: { label: 'Estimating complexity', desc: 'Checks time, space, and async behavior from the code shape' },
   prediction: { label: 'Building prediction model', desc: 'JIT amplification and memory-response analysis' },
 }
@@ -306,8 +307,12 @@ export default function DeepAnalysis({
         results={enrichedResults}
         status={mrStatus}
         error={mrError}
-        onJitCaptureRequest={onJitCaptureRequest}
-        jitCaptureRequested={jitCaptureRequested}
+      />
+
+      <JitArtifactsSection
+        results={enrichedResults}
+        onCaptureRequest={onJitCaptureRequest}
+        captureRequested={jitCaptureRequested}
       />
     </div>
   )
@@ -391,12 +396,59 @@ function mergeMultiRuntime(baseResults, mrData) {
   })
 }
 
-function MultiRuntimeSection({ results, status, error, onJitCaptureRequest, jitCaptureRequested }) {
+function collectJitArtifactEntries(results) {
+  if (!Array.isArray(results)) return []
+  const entries = []
+  for (const result of results) {
+    const comparison = result.runtimeComparison
+    if (!comparison?.available || !Array.isArray(comparison.runtimes)) continue
+    for (const runtimeData of comparison.runtimes) {
+      const profile = runtimeData.profiles?.[0] || {}
+      if (!profile.jitArtifactRef && !profile.jitArtifactError) continue
+      entries.push({
+        testIndex: result.testIndex,
+        title: result.title || `Test ${Number(result.testIndex) + 1}`,
+        runtime: runtimeData.runtime,
+        runtimeLabel: runtimeData.label || runtimeData.runtime || 'Runtime',
+        ref: profile.jitArtifactRef || null,
+        error: profile.jitArtifactError || null,
+      })
+    }
+  }
+  return entries
+}
+
+function hasNodeOrDenoRuntime(results) {
+  if (!Array.isArray(results)) return false
+  return results.some(result => {
+    const runtimes = result.runtimeComparison?.runtimes
+    return Array.isArray(runtimes) && runtimes.some(runtimeData => {
+      const runtime = String(runtimeData.runtime || runtimeData.runtimeName || '').toLowerCase()
+      return runtime.startsWith('node') || runtime.startsWith('deno')
+    })
+  })
+}
+
+function formatBytes(n) {
+  if (n == null) return '0B'
+  if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)}MB`
+  if (n >= 1024) return `${(n / 1024).toFixed(1)}KB`
+  return `${n}B`
+}
+
+function formatBig(n) {
+  if (n == null || !Number.isFinite(n)) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(Math.round(n))
+}
+
+function MultiRuntimeSection({ results, status, error }) {
   if (status === 'idle' || status === 'unavailable') {
     // Nothing to show — either no worker configured, or worker unreachable
     // and we deliberately don't surface a panel for that. (RuntimeComparison
     // already handles the multiRuntimeError case for partial failures.)
-    return <RuntimeComparison results={results} onJitCaptureRequest={onJitCaptureRequest} jitCaptureRequested={jitCaptureRequested} />
+    return <RuntimeComparison results={results} />
   }
 
   if (status === 'pending') {
@@ -425,5 +477,84 @@ function MultiRuntimeSection({ results, status, error, onJitCaptureRequest, jitC
     )
   }
 
-  return <RuntimeComparison results={results} onJitCaptureRequest={onJitCaptureRequest} jitCaptureRequested={jitCaptureRequested} />
+  return <RuntimeComparison results={results} />
+}
+
+function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
+  const entries = collectJitArtifactEntries(results)
+  const hasV8Runtime = hasNodeOrDenoRuntime(results)
+
+  if (!hasV8Runtime && entries.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-sky-500/25 bg-sky-500/5 p-5 shadow-sm">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-2">
+          <Cpu className="mt-0.5 h-4 w-4 flex-shrink-0 text-sky-500" />
+          <div>
+            <h3 className="text-base font-semibold text-foreground">JIT output artifacts</h3>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              V8 optimization trace and generated assembly captured as a separate Deep Analysis artifact.
+            </p>
+          </div>
+        </div>
+        {onCaptureRequest && entries.length === 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="border-sky-500/40 bg-sky-500/10 text-sky-700 hover:bg-sky-500/15 dark:text-sky-300"
+            onClick={onCaptureRequest}
+          >
+            <Cpu className="h-3.5 w-3.5" />
+            Run JIT capture
+          </Button>
+        )}
+      </div>
+
+      {entries.length === 0 ? (
+        <p className="rounded-lg border border-border/50 bg-background/70 p-3 text-xs text-muted-foreground">
+          {captureRequested
+            ? 'JIT capture was requested, but the worker did not return a JIT artifact. Redeploy or restart the benchmark worker with the updated capture code, then run JIT capture again.'
+            : 'No JIT artifact is attached to the current result. Run JIT capture to generate public viewer links for Node.js and Deno.'}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {entries.map(entry => (
+            <div key={`${entry.testIndex}:${entry.runtime}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/70 px-3 py-2">
+              <div className="min-w-0 text-xs">
+                <span className="font-semibold text-foreground">{entry.title}</span>
+                <span className="ml-2 text-muted-foreground">{entry.runtimeLabel}</span>
+                {entry.ref && (
+                  <span className="ml-2 text-muted-foreground">
+                    {formatBig(entry.ref.lineCount || 0)} lines · {formatBytes(entry.ref.sizeBytes || 0)}
+                    {entry.ref.truncated ? ' · truncated' : ''}
+                  </span>
+                )}
+                {entry.error && (
+                  <span className="ml-2 text-red-600 dark:text-red-400">{entry.error}</span>
+                )}
+              </div>
+              {entry.ref && (
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="outline" size="xs">
+                    <a href={`/jit/${entry.ref.id}`} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3" />
+                      Viewer
+                    </a>
+                  </Button>
+                  <Button asChild variant="outline" size="xs">
+                    <a href={`/api/benchmark/jit-artifact/${entry.ref.id}?download=1`}>
+                      <Download className="h-3 w-3" />
+                      .txt
+                    </a>
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }

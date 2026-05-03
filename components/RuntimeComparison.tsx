@@ -68,7 +68,7 @@ function Help({ text }) {
   )
 }
 
-export default function RuntimeComparison({ results, onJitCaptureRequest = null, jitCaptureRequested = false }) {
+export default function RuntimeComparison({ results }) {
   if (!results || results.length === 0) return null
 
   const anyData = results.some(r => r.runtimeComparison?.available)
@@ -106,7 +106,7 @@ export default function RuntimeComparison({ results, onJitCaptureRequest = null,
           {results.map((r) => {
             const cmp = r.runtimeComparison
             if (!cmp || !cmp.available) return null
-            return <TestRuntimePanel key={r.testIndex} title={r.title} comparison={cmp} onJitCaptureRequest={onJitCaptureRequest} jitCaptureRequested={jitCaptureRequested} />
+            return <TestRuntimePanel key={r.testIndex} title={r.title} comparison={cmp} />
           })}
         </div>
       </CardContent>
@@ -131,7 +131,7 @@ function RuntimeLegend() {
   )
 }
 
-function TestRuntimePanel({ title, comparison, onJitCaptureRequest, jitCaptureRequested }) {
+function TestRuntimePanel({ title, comparison }) {
   const ordered = [...comparison.runtimes].sort(compareRuntimeEntries)
 
   const series = ordered.map((rt) => {
@@ -265,7 +265,6 @@ function TestRuntimePanel({ title, comparison, onJitCaptureRequest, jitCaptureRe
       <UnifiedTable series={series} sections={tableSections} />
 
       <CpuProfileLinks series={series} />
-      <JitArtifactLinks series={series} onCaptureRequest={onJitCaptureRequest} captureRequested={jitCaptureRequested} />
 
       {series.some(s => s.hasError) && (
         <div className="text-[11px] text-red-600 dark:text-red-400 space-y-0.5">
@@ -336,86 +335,6 @@ function CpuProfileLinks({ series }) {
           )
         })}
       </div>
-    </div>
-  )
-}
-
-function JitArtifactLinks({ series, onCaptureRequest, captureRequested }) {
-  const artifacts = series.filter(s => s.jitArtifactRef || s.jitArtifactError)
-  const hasV8Runtime = series.some(s => {
-    const runtime = runtimeId(s)
-    return runtime.startsWith('node') || runtime.startsWith('deno')
-  })
-  if (artifacts.length === 0 && !hasV8Runtime) return null
-
-  return (
-    <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <Cpu className="h-4 w-4 text-sky-500" />
-        <div>
-          <div className="text-xs font-semibold text-foreground">JIT output</div>
-          <div className="text-[11px] text-muted-foreground">
-            V8 optimization trace and generated assembly captured from Node.js / Deno.
-          </div>
-        </div>
-      </div>
-
-      {artifacts.length === 0 ? (
-        <div className="rounded-md border border-border/50 bg-background/70 px-3 py-3">
-          <div className="text-xs text-muted-foreground">
-            {captureRequested
-              ? 'JIT capture was requested, but this worker result did not include a JIT artifact. Restart or redeploy the benchmark worker so it runs the updated capture code, then re-run Deep Analysis.'
-              : 'This comparison was produced without a stored JIT artifact, so there is no viewer link for the current result. Start a new Deep Analysis run with Node/Deno JIT capture enabled to generate public viewer links.'}
-          </div>
-          {onCaptureRequest && (
-            <Button type="button" variant="outline" size="sm" className="mt-3 border-sky-500/40 bg-sky-500/10 text-sky-700 hover:bg-sky-500/15 dark:text-sky-300" onClick={onCaptureRequest}>
-              <Cpu className="h-3 w-3" />
-              Run Deep Analysis with JIT capture
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {artifacts.map((s) => {
-          const ref = s.jitArtifactRef
-          return (
-            <div key={s.runtime} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/70 px-3 py-2">
-              <div className="min-w-0 text-xs">
-                <span className={`font-semibold ${s.meta.text}`}>{s.meta.label}</span>
-                {ref && (
-                  <span className="ml-2 text-muted-foreground">
-                    {formatBig(ref.lineCount || 0)} lines · {formatBytes(ref.sizeBytes || 0)}
-                    {ref.truncated ? ' · truncated' : ''}
-                  </span>
-                )}
-                {s.jitArtifactError && (
-                  <span className="ml-2 text-red-600 dark:text-red-400">
-                    {s.jitArtifactError}
-                  </span>
-                )}
-              </div>
-
-              {ref && (
-                <div className="flex items-center gap-2">
-                  <Button asChild variant="outline" size="xs">
-                    <a href={`/jit/${ref.id}`} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-3 w-3" />
-                      Viewer
-                    </a>
-                  </Button>
-                  <Button asChild variant="outline" size="xs">
-                    <a href={`/api/benchmark/jit-artifact/${ref.id}?download=1`}>
-                      <Download className="h-3 w-3" />
-                      .txt
-                    </a>
-                  </Button>
-                </div>
-              )}
-            </div>
-          )
-          })}
-        </div>
-      )}
     </div>
   )
 }

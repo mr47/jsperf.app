@@ -124,14 +124,16 @@ export function assertSessionActive(session) {
   }
 }
 
-export function buildPipeline({ workerExecutionMode }: { workerExecutionMode?: string | null } = {}) {
+export function buildPipeline({ workerExecutionMode, profiling }: { workerExecutionMode?: string | null, profiling?: Record<string, any> | null } = {}) {
+  const capturesJit = profiling?.v8Jit === true
   if (workerExecutionMode === WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE && process.env.BENCHMARK_WORKER_URL) {
-    return ['quickjs-worker', 'v8', 'prediction']
+    return ['quickjs-worker', 'v8', ...(capturesJit ? ['jit-artifacts'] : []), 'prediction']
   }
 
   const engines = ['quickjs', 'v8']
   if (process.env.BENCHMARK_WORKER_URL) {
     engines.push('multi-runtime')
+    if (capturesJit) engines.push('jit-artifacts')
     engines.push('complexity')
   }
   engines.push('prediction')

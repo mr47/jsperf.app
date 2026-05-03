@@ -68,7 +68,7 @@ export function useDeepAnalysis({
     })
   }, [])
 
-  const pollMultiRuntime = useCallback(async ({ jobs, codeHash, deadlineMs, deadlineAt }: any) => {
+  const pollMultiRuntime = useCallback(async ({ jobs, codeHash, deadlineMs, deadlineAt, expectJitArtifacts = false }: any) => {
     if (!Array.isArray(jobs) || jobs.length === 0) return
 
     setMultiRuntimeStatus('pending')
@@ -119,6 +119,7 @@ export function useDeepAnalysis({
       if (remaining.size > 0) {
         setMultiRuntimeStatus('errored')
         setMultiRuntimeError('Multi-runtime comparison is still running on the worker. Please try again in a moment.')
+        if (expectJitArtifacts) setAnalysisStepStatus('jit-artifacts', 'error')
         return
       }
 
@@ -126,9 +127,11 @@ export function useDeepAnalysis({
       if (allErrored) {
         setMultiRuntimeStatus('errored')
         setMultiRuntimeError(firstError || 'All multi-runtime jobs failed')
+        if (expectJitArtifacts) setAnalysisStepStatus('jit-artifacts', 'error')
       } else {
         setMultiRuntimeStatus('done')
         setMultiRuntimeError(null)
+        if (expectJitArtifacts) setAnalysisStepStatus('jit-artifacts', 'done')
       }
     }
 
@@ -156,8 +159,8 @@ export function useDeepAnalysis({
         collected.set(body.testIndex, {
           testIndex: body.testIndex,
           state: 'done',
-          runtimes: body.runtimes,
-          runtimeComparison: body.runtimeComparison,
+          runtimes: expectJitArtifacts ? markMissingJitArtifacts(body.runtimes) : body.runtimes,
+          runtimeComparison: expectJitArtifacts ? markMissingJitArtifactsInComparison(body.runtimeComparison) : body.runtimeComparison,
         })
         remaining.delete(body.testIndex)
       } else if (body.state === 'errored') {
@@ -207,7 +210,7 @@ export function useDeepAnalysis({
     }
 
     openStream()
-  }, [])
+  }, [setAnalysisStepStatus])
 
   const runDeepAnalysis = useCallback(async ({ force = false, profilingOverride = null }: any = {}) => {
     setAnalysisStatus('loading')
@@ -256,10 +259,16 @@ export function useDeepAnalysis({
         if (!info) return
         if (info.results) {
           setAnalysisStepStatus('multi-runtime', 'done')
-          setMultiRuntimeData({ results: info.results || [] })
+          if (nextV8JitProfiling) setAnalysisStepStatus('jit-artifacts', 'done')
+          setMultiRuntimeData({
+            results: nextV8JitProfiling
+              ? (info.results || []).map(markMissingJitArtifactsInStoredResult)
+              : (info.results || []),
+          })
           setMultiRuntimeStatus('done')
         } else if (info.jobs) {
           setAnalysisStepStatus('multi-runtime', 'done')
+          if (nextV8JitProfiling) setAnalysisStepStatus('jit-artifacts', 'running')
           setMultiRuntimeStatus('pending')
           setMultiRuntimeData({
             results: (info.jobs || []).map(j => ({ testIndex: j.testIndex, state: 'pending' })),
@@ -269,9 +278,11 @@ export function useDeepAnalysis({
             codeHash: info.cacheKey || codeHash || null,
             deadlineMs: info.deadlineMs,
             deadlineAt: info.deadlineAt,
+            expectJitArtifacts: nextV8JitProfiling,
           })
         } else if (info.error || info.unavailable) {
           setAnalysisStepStatus('multi-runtime', info.unavailable ? 'done' : 'error')
+          if (nextV8JitProfiling) setAnalysisStepStatus('jit-artifacts', 'error')
           setMultiRuntimeStatus(info.unavailable ? 'unavailable' : 'errored')
           setMultiRuntimeError(info.error || null)
         }
@@ -312,10 +323,12 @@ export function useDeepAnalysis({
             setAnalysisStepStatus('complexity', 'done')
             if (!data.multiRuntime) {
               setAnalysisStepStatus('multi-runtime', 'done')
+              if (nextV8JitProfiling) setAnalysisStepStatus('jit-artifacts', 'error')
             }
           } else {
             setAnalysisStepStatus('complexity', 'running')
             setAnalysisStepStatus('multi-runtime', 'running')
+            if (nextV8JitProfiling) setAnalysisStepStatus('jit-artifacts', 'pending')
           }
 
           if (!usesWorkerQuickJS) {
@@ -552,4 +565,54 @@ async function formatNonJsonError(res: Response, url: string) {
   const title = text.match(/<title[^>]*>(.*?)<\/title>/i)?.[1]
   const label = title ? title.replace(/\s+/g, ' ').trim() : text.slice(0, 120)
   return `${url} returned ${res.status}${label ? ` (${label})` : ''}`
+}
+
+function markMissingJitArtifacts(runtimes: any) {
+  if (!runtimes || typeof runtimes !== 'object') return runtimes
+  return Object.fromEntries(Object.entries(runtimes).map(([runtimeId, runtimeData]: [string, any]) => {
+    if (!isV8Runtime(runtimeId, runtimeData)) return [runtimeId, runtimeData]
+    return [runtimeId, {
+      ...runtimeData,
+      profiles: markProfilesMissingJit(runtimeData?.profiles),
+    }]
+  }))
+}
+
+function markMissingJitArtifactsInComparison(comparison: any) {
+  if (!comparison?.available || !Array.isArray(comparison.runtimes)) return comparison
+  return {
+    ...comparison,
+    runtimes: comparison.runtimes.map((runtimeData: any) => {
+      if (!isV8Runtime(runtimeData?.runtime, runtimeData)) return runtimeData
+      return {
+        ...runtimeData,
+        profiles: markProfilesMissingJit(runtimeData?.profiles),
+      }
+    }),
+  }
+}
+
+function markMissingJitArtifactsInStoredResult(result: any) {
+  if (!result || result.state !== 'done') return result
+  return {
+    ...result,
+    runtimes: markMissingJitArtifacts(result.runtimes),
+    runtimeComparison: markMissingJitArtifactsInComparison(result.runtimeComparison),
+  }
+}
+
+function markProfilesMissingJit(profiles: any) {
+  if (!Array.isArray(profiles)) return profiles
+  return profiles.map((profile: any) => {
+    if (profile?.jitArtifactRef || profile?.jitArtifactError) return profile
+    return {
+      ...profile,
+      jitArtifactError: 'JIT capture was requested, but the benchmark worker did not return a JIT artifact. Redeploy/restart the worker with the updated capture code, then re-run.',
+    }
+  })
+}
+
+function isV8Runtime(runtimeId: any, runtimeData: any) {
+  const runtime = String(runtimeData?.runtime || runtimeData?.runtimeName || runtimeId || '').toLowerCase()
+  return runtime.startsWith('node') || runtime.startsWith('deno')
 }

@@ -60,7 +60,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       tier,
       workerExecutionMode: session.workerExecutionMode || null,
       deadlineAt: session.deadlineAt,
-      pipeline: buildPipeline({ workerExecutionMode: session.workerExecutionMode }),
+      pipeline: buildPipeline({
+        workerExecutionMode: session.workerExecutionMode,
+        profiling: session.multiRuntimeOptions?.profiling || null,
+      }),
       codeHash: session.codeHash,
       multiRuntimeCacheKey: session.multiRuntimeCacheKey,
       cached: Boolean(cached),
