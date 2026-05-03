@@ -174,6 +174,8 @@ export function buildRuntimeComparison(runtimes) {
         cpuProfileRef: p.cpuProfileRef || null,
         cpuProfileMeta: p.cpuProfileMeta || null,
         cpuProfileError: p.cpuProfileError || null,
+        jitArtifactRef: p.jitArtifactRef || null,
+        jitArtifactError: p.jitArtifactError || null,
         methodology: p.methodology || null,
       })),
       scalingType: scaling.type,

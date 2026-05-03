@@ -330,6 +330,30 @@ describe('buildRuntimeComparison', () => {
     expect(cmp.fastestRuntime).toBe('node@24')
   })
 
+  it('preserves JIT artifact refs and errors for the artifact panel', () => {
+    const nodeProfile = {
+      ...sampleProfile('1x', 1, 1000),
+      jitArtifactRef: {
+        id: 'jit-node',
+        sizeBytes: 1234,
+        lineCount: 42,
+      },
+    }
+    const denoProfile = {
+      ...sampleProfile('1x', 1, 0),
+      jitArtifactError: 'No V8 JIT output was captured for this run',
+    }
+    const cmp = buildRuntimeComparison({
+      node: { profiles: [nodeProfile] },
+      deno: { profiles: [denoProfile] },
+    })
+
+    const node = cmp.runtimes.find(r => r.runtime === 'node')
+    const deno = cmp.runtimes.find(r => r.runtime === 'deno')
+    expect(node.profiles[0].jitArtifactRef).toEqual(nodeProfile.jitArtifactRef)
+    expect(deno.profiles[0].jitArtifactError).toBe(denoProfile.jitArtifactError)
+  })
+
   it('reports no available data when all runtimes errored', () => {
     const cmp = buildRuntimeComparison({
       node: { profiles: [sampleProfile('1x', 1, 0)] },
