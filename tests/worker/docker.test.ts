@@ -8,9 +8,11 @@ describe('worker docker JIT capture helpers', () => {
       '--trace-opt',
       '--trace-deopt',
       '--print-opt-code',
-      '--print-opt-code-filter=jsperfUserBenchmark',
+      '--log-code',
+      '--logfile=/work/v8.log',
     ]))
     expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-code')
+    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--log-code')
     expect(__testing.denoV8Flags({ v8Jit: false })).toBe('--expose-gc')
   })
 

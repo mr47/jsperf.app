@@ -246,6 +246,14 @@ export async function runInContainer({
     const result = parsedStdout.result
     const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
     const runtimeStderrTail = captureJit ? stderrTail : stderr.slice(-STDERR_TAIL_BYTES)
+    if (captureJit) {
+      const jitLog = await readJitLogFile(workDir).catch(() => '')
+      if (jitLog) {
+        const next = appendHead(jitStdout, `\n\n--- v8.log ---\n${jitLog}`, JIT_CAPTURE_MAX_BYTES)
+        jitStdout = next.value
+        jitTruncated ||= next.truncated
+      }
+    }
     const jitArtifact = captureJit
       ? buildJitArtifact({
           stdout: stripJsonResultLines(jitStdout),
@@ -305,7 +313,8 @@ function nodeJitFlags() {
     '--trace-opt',
     '--trace-deopt',
     '--print-opt-code',
-    '--print-opt-code-filter=jsperfUserBenchmark',
+    '--log-code',
+    '--logfile=/work/v8.log',
   ]
 }
 
@@ -316,7 +325,8 @@ function denoV8Flags(profiling) {
       '--trace-opt',
       '--trace-deopt',
       '--print-opt-code',
-      '--print-opt-code-filter=jsperfUserBenchmark',
+      '--log-code',
+      '--logfile=/work/v8.log',
     )
   }
   return flags.join(',')
@@ -445,6 +455,18 @@ async function readPerfFile(workDir) {
   }
 
   return Object.keys(counters).length > 0 ? counters : null
+}
+
+async function readJitLogFile(workDir) {
+  const { open } = await import('node:fs/promises')
+  const file = await open(join(workDir, 'v8.log'), 'r')
+  try {
+    const buffer = Buffer.alloc(JIT_CAPTURE_MAX_BYTES)
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
+    return buffer.subarray(0, bytesRead).toString()
+  } finally {
+    await file.close()
+  }
 }
 
 /**

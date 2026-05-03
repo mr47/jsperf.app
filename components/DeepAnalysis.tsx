@@ -482,6 +482,8 @@ function MultiRuntimeSection({ results, status, error }) {
 
 function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
   const entries = collectJitArtifactEntries(results)
+  const artifacts = entries.filter(entry => entry.ref)
+  const errors = summarizeJitArtifactErrors(entries)
   const hasV8Runtime = hasNodeOrDenoRuntime(results)
 
   if (!hasV8Runtime && entries.length === 0) return null
@@ -498,7 +500,7 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
             </p>
           </div>
         </div>
-        {onCaptureRequest && entries.length === 0 && (
+        {onCaptureRequest && artifacts.length === 0 && (
           <Button
             type="button"
             variant="outline"
@@ -519,8 +521,19 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
             : 'No JIT artifact is attached to the current result. Run JIT capture to generate public viewer links for Node.js and Deno.'}
         </p>
       ) : (
-        <div className="space-y-2">
-          {entries.map(entry => (
+        <div className="space-y-3">
+          {errors.map(error => (
+            <div key={error.message} className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-600 dark:text-red-400">
+              {error.message}
+              {error.count > 1 && (
+                <span className="ml-1 text-red-500/80 dark:text-red-300/80">
+                  ({error.count} Node/Deno captures affected)
+                </span>
+              )}
+            </div>
+          ))}
+
+          {artifacts.length > 0 && artifacts.map(entry => (
             <div key={`${entry.testIndex}:${entry.runtime}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/70 px-3 py-2">
               <div className="min-w-0 text-xs">
                 <span className="font-semibold text-foreground">{entry.title}</span>
@@ -530,9 +543,6 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
                     {formatBig(entry.ref.lineCount || 0)} lines · {formatBytes(entry.ref.sizeBytes || 0)}
                     {entry.ref.truncated ? ' · truncated' : ''}
                   </span>
-                )}
-                {entry.error && (
-                  <span className="ml-2 text-red-600 dark:text-red-400">{entry.error}</span>
                 )}
               </div>
               {entry.ref && (
@@ -557,4 +567,15 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
       )}
     </div>
   )
+}
+
+function summarizeJitArtifactErrors(entries) {
+  const byMessage = new Map()
+  for (const entry of entries) {
+    if (!entry.error) continue
+    const current = byMessage.get(entry.error) || { message: entry.error, count: 0 }
+    current.count += 1
+    byMessage.set(entry.error, current)
+  }
+  return [...byMessage.values()]
 }
