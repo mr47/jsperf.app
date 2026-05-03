@@ -80,6 +80,12 @@ export default function JitArtifactPage() {
   }, [data?.output])
 
   const matchCount = useMemo(() => countMatches(data?.output || '', query), [data?.output, query])
+  const outputLines = useMemo(() => splitOutputLines(data?.output || ''), [data?.output])
+  const searchResults = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return []
+    return outputLines.filter(line => line.text.toLowerCase().includes(needle))
+  }, [outputLines, query])
   const optimizedBlocks = useMemo(() => parseOptimizedBlocks(data?.output || ''), [data?.output])
   const activeBlock = optimizedBlocks[activeBlockIndex] || optimizedBlocks[0] || null
   const title = data ? `${runtimeLabel(data)} JIT Output` : 'JIT Output'
@@ -180,16 +186,20 @@ export default function JitArtifactPage() {
                   </label>
                   {query.trim() && (
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {formatBig(matchCount)} {matchCount === 1 ? 'match' : 'matches'} for "{query.trim()}"
+                      {formatBig(matchCount)} {matchCount === 1 ? 'match' : 'matches'} across {formatBig(searchResults.length)} {searchResults.length === 1 ? 'line' : 'lines'} for "{query.trim()}"
                     </p>
                   )}
                 </div>
 
-                <pre className="m-0 max-h-[70vh] overflow-auto bg-[#f6f8fa] p-4 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
-                  {highlighted
-                    ? <code className={`${codeLanguageClass('x86asm', data.output)} block whitespace-pre`} dangerouslySetInnerHTML={{ __html: highlighted }} />
-                    : <code className={`${codeLanguageClass('x86asm', data.output)} block whitespace-pre`}>{data.output}</code>}
-                </pre>
+                {query.trim() ? (
+                  <SearchOutputResults lines={searchResults} query={query} />
+                ) : (
+                  <pre className="m-0 max-h-[70vh] overflow-auto bg-[#f6f8fa] p-4 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
+                    {highlighted
+                      ? <code className={`${codeLanguageClass('x86asm', data.output)} block whitespace-pre`} dangerouslySetInnerHTML={{ __html: highlighted }} />
+                      : <code className={`${codeLanguageClass('x86asm', data.output)} block whitespace-pre`}>{data.output}</code>}
+                  </pre>
+                )}
               </CardContent>
             </Card>
           )}
@@ -237,6 +247,63 @@ function LoadingArtifactShell() {
   )
 }
 
+function SearchOutputResults({
+  lines,
+  query,
+}: {
+  lines: Array<{ number: number; text: string }>
+  query: string
+}) {
+  const needle = query.trim()
+  return (
+    <pre className="m-0 max-h-[70vh] overflow-auto bg-[#f6f8fa] p-0 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
+      <code className="block min-w-max py-4">
+        {lines.length === 0 ? (
+          <span className="block px-5 text-muted-foreground">No matching lines.</span>
+        ) : lines.map(line => (
+          <span key={line.number} className="block px-5 font-mono">
+            <span className="mr-4 inline-block w-12 select-none text-right text-muted-foreground/60">
+              {line.number}
+            </span>
+            <HighlightedSearchLine text={line.text || ' '} query={needle} />
+            {'\n'}
+          </span>
+        ))}
+      </code>
+    </pre>
+  )
+}
+
+function HighlightedSearchLine({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>
+  const lowerText = text.toLowerCase()
+  const lowerQuery = query.toLowerCase()
+  const parts: Array<{ text: string; match: boolean }> = []
+  let cursor = 0
+  let matchIndex = lowerText.indexOf(lowerQuery)
+
+  while (matchIndex !== -1) {
+    if (matchIndex > cursor) parts.push({ text: text.slice(cursor, matchIndex), match: false })
+    parts.push({ text: text.slice(matchIndex, matchIndex + query.length), match: true })
+    cursor = matchIndex + query.length
+    matchIndex = lowerText.indexOf(lowerQuery, cursor)
+  }
+
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), match: false })
+
+  return (
+    <>
+      {parts.map((part, index) => part.match ? (
+        <mark key={index} className="rounded bg-amber-300/70 px-0.5 text-slate-950 dark:bg-amber-400/70">
+          {part.text}
+        </mark>
+      ) : (
+        <span key={index}>{part.text}</span>
+      ))}
+    </>
+  )
+}
+
 function runtimeLabel(data: JitArtifactDoc | null) {
   if (!data) return 'Runtime'
   return data.label || data.runtimeName || data.runtime || 'Runtime'
@@ -260,6 +327,13 @@ function countMatches(value: string, query: string) {
   const needle = query.trim()
   if (!needle) return 0
   return value.toLowerCase().split(needle.toLowerCase()).length - 1
+}
+
+function splitOutputLines(value: string) {
+  return value.split('\n').map((text, index) => ({
+    number: index + 1,
+    text,
+  }))
 }
 
 async function formatNonJsonError(res: Response) {

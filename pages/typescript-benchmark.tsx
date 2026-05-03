@@ -8,6 +8,7 @@ const path = '/typescript-benchmark'
 const title = 'TypeScript Benchmark Tool Online'
 const description =
   'Benchmark TypeScript code online with typed setup, generic helpers, browser results, and cross-runtime analysis for JavaScript, V8, QuickJS, Node, Deno, and Bun.'
+const examplePath = '/synthetic-commerce-jit-cpu-profile'
 
 const faqs = [
   {
@@ -60,7 +61,7 @@ export default function TypeScriptBenchmark() {
         title={title}
         description={description}
         primaryCta={{ href: '/create', label: 'Create a TypeScript benchmark' }}
-        secondaryCta={{ href: '/yepawu', label: 'Open a TypeScript example' }}
+        secondaryCta={{ href: examplePath, label: 'Open synthetic commerce example' }}
         highlights={[
           {
             title: 'Typed source preserved',

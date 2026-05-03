@@ -29,6 +29,9 @@ function sumBy<T, K extends string>(
   // benchmark typed helpers
 }`
 
+const SYNTHETIC_COMMERCE_EXAMPLE_PATH = '/synthetic-commerce-jit-cpu-profile'
+const JIT_VIEWER_EXAMPLE_PATH = '/jit/f727efdaf587c11d81a7f3ef'
+
 export default function Home(props) {
   const highlightedTypeScriptPreview = highlightSanitizedCode(TYPESCRIPT_PREVIEW_CODE, 'typescript')
 
@@ -36,7 +39,7 @@ export default function Home(props) {
     <>
       <SEO 
         title="Online JavaScript and TypeScript Benchmark Tool"
-        description="Run JavaScript and TypeScript benchmarks online. Compare code snippets by ops/sec, save shareable jsPerf tests, and analyze browser, V8, QuickJS, Node, Deno, and Bun behavior."
+        description="Run JavaScript and TypeScript benchmarks online. Compare code snippets by ops/sec, save shareable jsPerf tests, and analyze browser, V8, QuickJS, Node, Deno, Bun, and Node JIT behavior."
         keywords={[
           'js benchmark',
           'javascript benchmark online',
@@ -63,11 +66,11 @@ export default function Home(props) {
               <span className="text-muted-foreground">A modern full rewrite of jsPerf</span>
             </div>
             <Link
-              href="/yepawu"
+              href={SYNTHETIC_COMMERCE_EXAMPLE_PATH}
               className="group inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-500/20 transition-colors"
             >
               <Code2 className="mr-2 h-4 w-4 text-blue-500" />
-              <span>New: TypeScript benchmarks</span>
+              <span>New: Synthetic commerce example</span>
               <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
@@ -87,11 +90,11 @@ export default function Home(props) {
               <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
-              href="#cpu-profiles"
+              href="#jit-viewer"
               className="group inline-flex items-center rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-sm font-medium text-orange-700 dark:text-orange-300 hover:bg-orange-500/20 transition-colors"
             >
               <Flame className="mr-2 h-4 w-4 text-orange-500" />
-              <span>New: Node CPU profiles</span>
+              <span>New: Node JIT viewer</span>
               <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
           </div>
@@ -104,7 +107,7 @@ export default function Home(props) {
               </span>
             </h1>
             <p className="text-xl sm:text-2xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Write, share, and compare JavaScript or TypeScript snippets in the browser, then inspect QuickJS, V8, Node, Deno, and Bun behavior with Deep Analysis.
+              Write, share, and compare JavaScript or TypeScript snippets in the browser, then inspect QuickJS, V8, Node, Deno, Bun, and Node JIT artifacts with Deep Analysis.
             </p>
           </div>
           
@@ -233,9 +236,9 @@ export default function Home(props) {
                 <div className="h-12 w-12 rounded-lg bg-orange-500/10 flex items-center justify-center mb-4">
                   <Flame className="h-6 w-6 text-orange-600 dark:text-orange-500" />
                 </div>
-                <CardTitle className="text-xl">Node CPU Profiles</CardTitle>
+                <CardTitle className="text-xl">Node JIT Viewer</CardTitle>
                 <CardDescription className="text-base mt-2 leading-relaxed">
-                  Capture Chrome DevTools-compatible `.cpuprofile` files during Node runtime runs, then inspect hot functions, call frames, and burn charts in CPUpro.
+                  Capture V8 optimized-code output during Node runs, then inspect source-linked optimized blocks, assembly, and hot JIT paths in a shareable viewer.
                 </CardDescription>
               </CardHeader>
             </Card>
@@ -262,71 +265,98 @@ export default function Home(props) {
           </div>
         </section>
 
-        {/* CPU Profile Spotlight */}
-        <section id="cpu-profiles" className="py-24 border-t border-border/50">
+        {/* Node JIT Viewer Spotlight */}
+        <section id="jit-viewer" className="py-24 border-t border-border/50">
           <div className="max-w-6xl mx-auto">
             <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-12 items-center">
               <div className="space-y-6">
                 <div className="inline-flex items-center rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-sm font-medium">
                   <Flame className="mr-2 h-4 w-4 text-orange-500" />
-                  <span className="text-orange-700 dark:text-orange-300">Node CPU profiling</span>
+                  <span className="text-orange-700 dark:text-orange-300">Node JIT artifact viewer</span>
                 </div>
                 <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
-                  Open real CPU profiles from benchmark runs
+                  Inspect the optimized code Node actually runs
                 </h2>
                 <p className="text-lg text-muted-foreground leading-relaxed">
-                  Deep Analysis can capture a Node `.cpuprofile` alongside runtime results. Open it in jsPerf's profile page, download it for Chrome DevTools, or inspect the full flame and burn charts in CPUpro.
+                  Deep Analysis can capture V8 optimized-code output alongside Node runtime results. Open the JIT viewer to map optimized blocks back to benchmark source, search generated assembly, and share the exact artifact with teammates.
                 </p>
                 <div className="grid gap-3 text-sm">
                   <div className="rounded-xl border border-border/60 bg-card/50 p-4">
-                    <div className="font-semibold">Profile the benchmark loop</div>
-                    <p className="mt-1 text-muted-foreground">The profiler starts around the measured Node run, so setup and teardown noise stay out of the primary sample window.</p>
+                    <div className="font-semibold">Source-linked optimized blocks</div>
+                    <p className="mt-1 text-muted-foreground">Jump between V8 optimized-code sections and the original benchmark lines that triggered them.</p>
                   </div>
                   <div className="rounded-xl border border-border/60 bg-card/50 p-4">
                     <div className="font-semibold">Store once, share by URL</div>
-                    <p className="mt-1 text-muted-foreground">Large profile payloads live in Mongo as separate CPU profile documents while result cards keep lightweight references.</p>
+                    <p className="mt-1 text-muted-foreground">Large JIT artifacts live separately while benchmark result cards keep lightweight references to each captured output.</p>
                   </div>
                   <div className="rounded-xl border border-border/60 bg-card/50 p-4">
-                    <div className="font-semibold">Bring your own tooling</div>
-                    <p className="mt-1 text-muted-foreground">Every capture remains a standard `.cpuprofile`, compatible with Chrome DevTools and other V8 profile viewers.</p>
+                    <div className="font-semibold">Pair JIT evidence with runtime data</div>
+                    <p className="mt-1 text-muted-foreground">Use the synthetic commerce benchmark to compare ops/sec, CPU-profile refs, and optimized-code captures in one workflow.</p>
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 pt-2">
                   <Button asChild size="lg" className="rounded-full px-6">
-                    <Link href="/profile/450cca9f7c948fdce632ec0d" className="flex items-center gap-2">
-                      View sample profile
+                    <Link href={JIT_VIEWER_EXAMPLE_PATH} className="flex items-center gap-2">
+                      View sample JIT output
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </Button>
                   <Button asChild variant="outline" size="lg" className="rounded-full px-6">
-                    <Link href="/create" className="flex items-center gap-2">
-                      Capture your own
+                    <Link href={SYNTHETIC_COMMERCE_EXAMPLE_PATH} className="flex items-center gap-2">
+                      Open benchmark example
                     </Link>
                   </Button>
                 </div>
               </div>
 
-              <Link href="/profile/450cca9f7c948fdce632ec0d" className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 rounded-2xl">
+              <Link href={JIT_VIEWER_EXAMPLE_PATH} className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 rounded-2xl">
                 <div className="absolute -inset-4 bg-gradient-to-tr from-orange-500/20 via-amber-500/10 to-violet-500/20 rounded-2xl blur-2xl transition-opacity group-hover:opacity-80" aria-hidden="true" />
                 <div className="relative overflow-hidden rounded-xl border border-border/60 bg-slate-950 shadow-xl transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
                   <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5 bg-slate-900">
                     <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
-                    <span className="ml-3 text-xs text-slate-400 font-mono truncate">CPUpro report · Node.js profile</span>
+                    <span className="ml-3 text-xs text-slate-400 font-mono truncate">JIT source map viewer · Node.js V8</span>
                   </div>
-                  <Image
-                    src="/cpu-profile-report.png"
-                    alt="CPUpro report showing Node.js profiling time, samples, call frames, and flame graph controls"
-                    width={1440}
-                    height={1100}
-                    className="w-full border-t border-white/5 object-cover"
-                    priority={false}
-                  />
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent p-5">
+                  <div className="grid gap-4 p-5 text-left lg:grid-cols-[0.82fr_1.18fr]">
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-orange-400/30 bg-orange-500/10 p-3">
+                        <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-200">Optimized blocks</div>
+                        <div className="mt-2 text-2xl font-bold text-white">18</div>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-300">Captured from the Node runtime path for the commerce benchmark.</p>
+                      </div>
+                      {[
+                        ['normalizePolymorphic', 'hot path'],
+                        ['routingBySku.get', 'inline cache'],
+                        ['total += order.quantity', 'TurboFan'],
+                      ].map(([label, meta]) => (
+                        <div key={label} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                          <div className="font-mono text-xs text-slate-100">{label}</div>
+                          <div className="mt-1 text-[10px] uppercase tracking-wider text-slate-500">{meta}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-black/30 p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-200">Source mapped assembly</span>
+                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-400">f727ef...</span>
+                      </div>
+                      <pre className="overflow-hidden text-xs leading-relaxed text-slate-300">
+                        <code>{`// synthetic commerce benchmark
+const route = routingBySku.get(order.sku) ?? 0
+total += order.quantity * route
+
+--- Optimized code ---
+0x...  movq rdx,[rbp-0x38]
+0x...  cmpq [rdx+0x17],rax
+0x...  jnz  deopt_inline_cache`}</code>
+                      </pre>
+                    </div>
+                  </div>
+                  <div className="border-t border-white/10 bg-slate-900/80 p-5">
                     <div className="inline-flex items-center rounded-full border border-orange-400/40 bg-orange-500/15 px-3 py-1 text-xs font-semibold text-orange-100 shadow-sm">
                       <Flame className="mr-1.5 h-3.5 w-3.5 text-orange-300" />
-                      Burn chart, hot paths, and call-frame tables
+                      Source map, optimized blocks, and raw V8 output
                     </div>
                   </div>
                 </div>
@@ -400,13 +430,13 @@ export default function Home(props) {
                   </div>
                   <div className="rounded-xl border border-border/60 bg-card/50 p-4">
                     <div className="font-semibold">Seed benchmarks included</div>
-                    <p className="mt-1 text-muted-foreground">Start from examples like typed event routing and generic indexing helpers, then adapt them to your real workload.</p>
+                    <p className="mt-1 text-muted-foreground">Start from the synthetic commerce benchmark, then adapt the typed setup and runtime-friendly data shape to your real workload.</p>
                   </div>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-3 pt-2">
                   <Button asChild size="lg" className="rounded-full px-6">
-                    <Link href="/yepawu" className="flex items-center gap-2">
-                      Open TypeScript example
+                    <Link href={SYNTHETIC_COMMERCE_EXAMPLE_PATH} className="flex items-center gap-2">
+                      Open synthetic commerce example
                       <ArrowRight className="h-4 w-4" />
                     </Link>
                   </Button>
@@ -418,7 +448,7 @@ export default function Home(props) {
                 </div>
               </div>
 
-              <Link href="/yepawu" className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 rounded-2xl">
+              <Link href={SYNTHETIC_COMMERCE_EXAMPLE_PATH} className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 rounded-2xl">
                 <div className="absolute -inset-4 bg-gradient-to-tr from-blue-500/20 via-cyan-500/10 to-violet-500/20 rounded-2xl blur-2xl transition-opacity group-hover:opacity-80" aria-hidden="true" />
                 <div className="relative rounded-xl border border-border/60 bg-card/80 backdrop-blur-sm shadow-xl overflow-hidden transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
                   <div className="flex items-center gap-1.5 border-b border-border/50 px-4 py-2.5 bg-muted/40">
@@ -431,7 +461,7 @@ export default function Home(props) {
                       className="ml-3 h-4 w-auto object-contain transition-[filter] dark:[filter:invert(1)_hue-rotate(180deg)]"
                       aria-hidden="true"
                     />
-                    <span className="text-xs text-muted-foreground font-mono truncate">jsperf.net/yepawu</span>
+                    <span className="text-xs text-muted-foreground font-mono truncate">jsperf.net/synthetic-commerce-jit-cpu-profile</span>
                   </div>
                   <div className="p-6 sm:p-8 bg-gradient-to-br from-blue-50 via-white to-violet-50/40 dark:from-slate-900 dark:via-slate-950 dark:to-blue-950/30">
                     <div className="flex items-center justify-between mb-5">
