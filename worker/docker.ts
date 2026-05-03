@@ -175,6 +175,7 @@ export async function runInContainer({
   let jitTruncated = false
   let jitLogBytes = 0
   let timedOut = false
+  const stdoutResultTracker = createStdoutResultTracker()
 
   console.info('[docker] starting container', {
     container: containerName,
@@ -226,6 +227,7 @@ export async function runInContainer({
 
     child.stdout.on('data', d => {
       const text = d.toString()
+      stdoutResultTracker.push(text)
       if (captureJit) {
         stdoutTail = appendTail(stdoutTail, text, STDOUT_PARSE_TAIL_BYTES)
         const next = appendHead(jitStdout, text, JIT_CAPTURE_MAX_BYTES)
@@ -256,7 +258,7 @@ export async function runInContainer({
     if (signal) signal.removeEventListener?.('abort', onAbort)
 
     const durationMs = Date.now() - start
-    const parsedStdout = parseStdoutResult(captureJit ? stdoutTail : stdout)
+    const parsedStdout = captureJit ? stdoutResultTracker.finish() : parseStdoutResult(stdout)
     const result = parsedStdout.result
     const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
     const runtimeStderrTail = captureJit ? stderrTail : stderr.slice(-STDERR_TAIL_BYTES)
@@ -393,9 +395,10 @@ function parseStdoutResult(stdout) {
 
   const lines = trimmed.split('\n').filter(Boolean)
   for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      return { result: JSON.parse(lines[i]), resultLineIndex: i }
-    } catch (_) {
+    const parsed = parseJsonLine(lines[i])
+    if (parsed.ok) {
+      return { result: parsed.value, resultLineIndex: i }
+    } else {
       // V8 diagnostics can trail the benchmark result; keep scanning upward.
     }
   }
@@ -403,6 +406,67 @@ function parseStdoutResult(stdout) {
   return {
     result: { state: 'errored', error: 'Failed to parse runtime output', opsPerSec: 0, latency: null, memory: null },
     resultLineIndex: -1,
+  }
+}
+
+function createStdoutResultTracker() {
+  let bufferedLine = ''
+  let result = null
+  let hasResult = false
+  let hasOutput = false
+  let resultLineIndex = -1
+  let nonEmptyLineIndex = 0
+
+  function processLine(line) {
+    const trimmed = line.trim()
+    if (!trimmed) return
+    hasOutput = true
+
+    const parsed = parseJsonLine(trimmed)
+    if (parsed.ok) {
+      result = parsed.value
+      hasResult = true
+      resultLineIndex = nonEmptyLineIndex
+    }
+    nonEmptyLineIndex += 1
+  }
+
+  return {
+    push(chunk) {
+      bufferedLine += chunk
+      const lines = bufferedLine.split('\n')
+      bufferedLine = lines.pop() || ''
+      for (const line of lines) processLine(line)
+    },
+    finish() {
+      if (bufferedLine) {
+        processLine(bufferedLine)
+        bufferedLine = ''
+      }
+      if (hasResult) return { result, resultLineIndex }
+      if (!hasOutput) {
+        return {
+          result: { state: 'errored', error: 'No output from runtime', opsPerSec: 0, latency: null, memory: null },
+          resultLineIndex: -1,
+        }
+      }
+      return {
+        result: { state: 'errored', error: 'Failed to parse runtime output', opsPerSec: 0, latency: null, memory: null },
+        resultLineIndex: -1,
+      }
+    },
+  }
+}
+
+function parseJsonLine(line) {
+  try {
+    const value = JSON.parse(line.trim())
+    if (!value || typeof value !== 'object' || !('state' in value || 'opsPerSec' in value)) {
+      return { ok: false, value: null }
+    }
+    return { ok: true, value }
+  } catch (_) {
+    return { ok: false, value: null }
   }
 }
 
@@ -466,6 +530,7 @@ export const __testing = {
   nodeJitFlags,
   denoV8Flags,
   parseStdoutResult,
+  createStdoutResultTracker,
   stripJsonResultLines,
   buildJitArtifact,
 }

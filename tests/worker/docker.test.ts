@@ -29,6 +29,21 @@ describe('worker docker JIT capture helpers', () => {
     })
   })
 
+  it('tracks benchmark JSON before a large trailing V8 diagnostic stream', () => {
+    const tracker = __testing.createStdoutResultTracker()
+    tracker.push('[marking 0x123 <JSFunction jsperfUserBenchmark> for optimization]\n')
+    tracker.push('{"state":"completed","opsPer')
+    tracker.push('Sec":4321,"latency":null,"memory":null}\n')
+    tracker.push('{"diagnostic":"not the benchmark result"}\n')
+    tracker.push(`${'--- Optimized code ---\n'.repeat(20_000)}\n`)
+
+    const parsed = tracker.finish()
+    expect(parsed.result).toMatchObject({
+      state: 'completed',
+      opsPerSec: 4321,
+    })
+  })
+
   it('strips benchmark JSON lines from captured JIT text', () => {
     const output = __testing.stripJsonResultLines([
       '--- Optimized code ---',
