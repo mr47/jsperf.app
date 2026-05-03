@@ -101,6 +101,7 @@ app.post('/api/run', async (c) => {
     runtimes: runtimeIds(params.runtimeTargets),
     profiles: profileLabels(params.profiles),
     timeMs: params.timeMs,
+    profiling: params.profiling || null,
   })
 
   const stream = new ReadableStream({
@@ -415,6 +416,7 @@ function enqueueBenchmarkJob(params) {
     runtimes: runtimeIds(params.runtimeTargets),
     profiles: profileLabels(params.profiles),
     timeMs: params.timeMs,
+    profiling: params.profiling || null,
     executionDeadlineMs,
     pollDeadlineMs,
   })
@@ -514,6 +516,22 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
         },
         stderrTail: outcome.result.state === 'errored' ? outcome.stderrTail : undefined,
       }
+
+      if (profiling?.v8Jit === true && (target.runtime === 'node' || target.runtime === 'deno')) {
+        console.info('[worker] jit capture result', {
+          runtime: target.id,
+          runtimeName: target.runtime,
+          version: target.version,
+          profile: profile.label,
+          state: profileResult.state,
+          exitCode: profileResult.exitCode,
+          artifact: Boolean(outcome.jitArtifact),
+          artifactBytes: outcome.jitArtifact?.output ? Buffer.byteLength(outcome.jitArtifact.output) : 0,
+          truncated: outcome.jitArtifact?.truncated || false,
+          error: outcome.jitArtifactError || null,
+        })
+      }
+
       accumulator[target.id].profiles.push(profileResult)
       if (profileResult.state === 'errored' && !accumulator[target.id].error) {
         accumulator[target.id].error = profileResult.error || 'unknown error'
@@ -571,6 +589,7 @@ async function executeJob(job, params) {
     jobId: job.jobId,
     runtimes: runtimeIds(params.runtimeTargets),
     profiles: profileLabels(params.profiles),
+    profiling: params.profiling || null,
     executionDeadlineMs: job.deadlineMs,
   })
 

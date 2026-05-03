@@ -173,6 +173,7 @@ export async function runInContainer({
   let stderrTail = ''
   let jitStderr = ''
   let jitTruncated = false
+  let jitLogBytes = 0
   let timedOut = false
 
   console.info('[docker] starting container', {
@@ -184,8 +185,21 @@ export async function runInContainer({
     memMb: profile.memMb,
     pull: target.pull ? 'preflight' : false,
     perf: usePerf,
+    jitCapture: captureJit,
     timeoutMs,
   })
+
+  if (captureJit) {
+    console.info('[docker] jit capture enabled', {
+      container: containerName,
+      runtime: runtimeId,
+      image,
+      profile: profile.label,
+      flags: runtimeName === 'deno' ? denoV8Flags(profiling).split(',') : nodeJitFlags(),
+      v8LogPath: '/work/v8.log',
+      maxBytes: JIT_CAPTURE_MAX_BYTES,
+    })
+  }
 
   try {
     const child = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -249,19 +263,51 @@ export async function runInContainer({
     if (captureJit) {
       const jitLog = await readJitLogFile(workDir).catch(() => '')
       if (jitLog) {
+        jitLogBytes = Buffer.byteLength(jitLog)
         const next = appendHead(jitStdout, `\n\n--- v8.log ---\n${jitLog}`, JIT_CAPTURE_MAX_BYTES)
         jitStdout = next.value
         jitTruncated ||= next.truncated
       }
     }
+    const strippedJitStdout = captureJit ? stripJsonResultLines(jitStdout) : ''
     const jitArtifact = captureJit
       ? buildJitArtifact({
-          stdout: stripJsonResultLines(jitStdout),
+          stdout: strippedJitStdout,
           stderr: jitStderr,
           runtimeName,
           truncated: jitTruncated,
         })
       : null
+
+    if (captureJit) {
+      const jitLogPayload = {
+        container: containerName,
+        runtime: runtimeId,
+        image,
+        profile: profile.label,
+        exitCode,
+        resultState: result.state,
+        parsedResultLineIndex: parsedStdout.resultLineIndex,
+        stdoutTailBytes: Buffer.byteLength(stdoutTail),
+        rawStdoutBytes: Buffer.byteLength(jitStdout),
+        strippedStdoutBytes: Buffer.byteLength(strippedJitStdout),
+        rawStderrBytes: Buffer.byteLength(jitStderr),
+        stderrTailBytes: Buffer.byteLength(stderrTail),
+        v8LogBytes: jitLogBytes,
+        artifactBytes: Buffer.byteLength(jitArtifact?.output || ''),
+        artifact: Boolean(jitArtifact),
+        truncated: jitTruncated,
+      }
+
+      if (jitArtifact) {
+        console.info('[docker] jit capture artifact built', jitLogPayload)
+      } else {
+        console.warn('[docker] jit capture produced no artifact', {
+          ...jitLogPayload,
+          reason: 'empty diagnostic output after benchmark JSON stripping',
+        })
+      }
+    }
 
     const logPayload = {
       container: containerName,
