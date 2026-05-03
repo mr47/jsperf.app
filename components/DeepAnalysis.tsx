@@ -9,6 +9,7 @@ import CompatibilityMatrix from './CompatibilityMatrix'
 import BenchmarkDoctor from './BenchmarkDoctor'
 import { Cpu, Download, ExternalLink, Microscope, RefreshCw, Database } from 'lucide-react'
 import { buildBenchmarkDoctor } from '../lib/benchmark/doctor'
+import { groupJitArtifactEntries } from '../utils/jitArtifactGroups'
 
 function formatRelativeTime(value) {
   if (!value) return null
@@ -485,6 +486,7 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
   const artifacts = entries.filter(entry => entry.ref)
   const errors = summarizeJitArtifactErrors(entries)
   const hasV8Runtime = hasNodeOrDenoRuntime(results)
+  const groups = groupJitArtifactEntries(entries)
 
   if (!hasV8Runtime && entries.length === 0) return null
 
@@ -533,34 +535,60 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
             </div>
           ))}
 
-          {artifacts.length > 0 && artifacts.map(entry => (
-            <div key={`${entry.testIndex}:${entry.runtime}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/50 bg-background/70 px-3 py-2">
-              <div className="min-w-0 text-xs">
-                <span className="font-semibold text-foreground">{entry.title}</span>
-                <span className="ml-2 text-muted-foreground">{entry.runtimeLabel}</span>
-                {entry.ref && (
+          {groups.length > 0 && groups.map(group => (
+            <div key={group.key} className="rounded-lg border border-border/50 bg-background/70">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+                <div className="min-w-0 text-xs">
+                  <span className="font-semibold text-foreground">{group.title}</span>
                   <span className="ml-2 text-muted-foreground">
-                    {formatBig(entry.ref.lineCount || 0)} lines · {formatBytes(entry.ref.sizeBytes || 0)}
-                    {entry.ref.truncated ? ' · truncated' : ''}
+                    {group.artifacts.length} artifact{group.artifacts.length === 1 ? '' : 's'}
+                    {group.totalLineCount ? ` · ${formatBig(group.totalLineCount)} lines total` : ''}
+                    {group.maxSizeBytes ? ` · largest ${formatBytes(group.maxSizeBytes)}` : ''}
+                  </span>
+                </div>
+                {group.maxSizeBytes >= 32 * 1024 && (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    large optimized output
                   </span>
                 )}
               </div>
-              {entry.ref && (
-                <div className="flex items-center gap-2">
-                  <Button asChild variant="outline" size="xs">
-                    <a href={`/jit/${entry.ref.id}`} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-3 w-3" />
-                      Viewer
-                    </a>
-                  </Button>
-                  <Button asChild variant="outline" size="xs">
-                    <a href={`/api/benchmark/jit-artifact/${entry.ref.id}?download=1`}>
-                      <Download className="h-3 w-3" />
-                      .txt
-                    </a>
-                  </Button>
+
+              {group.errors.length > 0 && (
+                <div className="border-b border-border/50 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                  {group.errors.length} runtime capture{group.errors.length === 1 ? '' : 's'} failed.
                 </div>
               )}
+
+              <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-3">
+                {group.artifacts.map(entry => (
+                  <div key={`${entry.testIndex}:${entry.runtime}`} className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-medium text-foreground">{entry.runtimeLabel}</div>
+                      {entry.ref && (
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          {formatBig(entry.ref.lineCount || 0)} lines · {formatBytes(entry.ref.sizeBytes || 0)}
+                          {entry.ref.truncated ? ' · truncated' : ''}
+                        </div>
+                      )}
+                    </div>
+                    {entry.ref && (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Button asChild variant="outline" size="xs">
+                          <a href={`/jit/${entry.ref.id}`} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="h-3 w-3" />
+                            Viewer
+                          </a>
+                        </Button>
+                        <Button asChild variant="outline" size="icon-xs" aria-label={`Download ${entry.runtimeLabel} JIT artifact`}>
+                          <a href={`/api/benchmark/jit-artifact/${entry.ref.id}?download=1`}>
+                            <Download className="h-3 w-3" />
+                          </a>
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>

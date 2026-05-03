@@ -284,6 +284,9 @@ export async function runInContainer({
           truncated: jitTruncated,
         })
       : null
+    const jitArtifactError = captureJit && !jitArtifact
+      ? jitCaptureMissingReason({ stdout: strippedJitStdout, stderr: jitStderr })
+      : null
 
     if (captureJit) {
       const jitLogPayload = {
@@ -310,7 +313,7 @@ export async function runInContainer({
       } else {
         console.warn('[docker] jit capture produced no artifact', {
           ...jitLogPayload,
-          reason: 'empty diagnostic output after benchmark JSON stripping',
+          reason: jitArtifactError,
         })
       }
     }
@@ -345,7 +348,7 @@ export async function runInContainer({
       result,
       perfCounters,
       jitArtifact,
-      jitArtifactError: captureJit && !jitArtifact ? 'No V8 JIT output was captured for this run' : null,
+      jitArtifactError,
       durationMs,
       exitCode,
       stderrTail: runtimeStderrTail,
@@ -366,6 +369,7 @@ function normalizeGeneratedScript(script) {
 
 function nodeJitFlags() {
   return [
+    '--no-maglev',
     '--no-concurrent-recompilation',
     '--trace-opt',
     '--trace-deopt',
@@ -383,6 +387,7 @@ function denoV8Flags(profiling) {
   const flags = ['--expose-gc']
   if (profiling?.v8Jit === true) {
     flags.push(
+      '--no-maglev',
       '--no-concurrent-recompilation',
       '--trace-opt',
       '--trace-deopt',
@@ -594,6 +599,7 @@ function buildJitArtifact({ stdout, stderr, runtimeName, truncated }) {
   if (stderr?.trim()) sections.push(stderr.trim())
   const output = sections.join('\n\n')
   if (!output) return null
+  if (!hasOptimizedCodeBlock(output)) return null
 
   return {
     output,
@@ -604,6 +610,18 @@ function buildJitArtifact({ stdout, stderr, runtimeName, truncated }) {
   }
 }
 
+function hasOptimizedCodeBlock(output) {
+  return /--- Optimized code ---/.test(output) && /^Instructions\s+\(size\s*=\s*\d+\)/m.test(output)
+}
+
+function jitCaptureMissingReason({ stdout, stderr }) {
+  const output = `${stdout || ''}\n${stderr || ''}`
+  if (/MAGLEV/i.test(output) && !hasOptimizedCodeBlock(output)) {
+    return 'No TurboFan optimized-code block was captured; V8 compiled this benchmark with Maglev only. Re-run JIT capture with the updated TurboFan capture flags.'
+  }
+  return 'No V8 optimized-code block was captured for this run'
+}
+
 export const __testing = {
   nodeJitFlags,
   denoV8Flags,
@@ -611,6 +629,8 @@ export const __testing = {
   createStdoutResultTracker,
   stripJsonResultLines,
   buildJitArtifact,
+  hasOptimizedCodeBlock,
+  jitCaptureMissingReason,
 }
 
 /**

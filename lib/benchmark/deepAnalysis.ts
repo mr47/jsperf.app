@@ -24,6 +24,7 @@ export const DONOR_DEEP_ANALYSIS_LIMIT_MS = 10 * 60_000
 export const DEEP_ANALYSIS_ABORT_MS = 58_000
 export const ANALYSIS_SESSION_TTL_SECONDS = 15 * 60
 export const WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE = 'quickjs-composite'
+const JIT_CAPTURE_CACHE_VERSION = 2
 
 export function prepareDeepAnalysisRequest(body: AnalysisRequestBody = {}) {
   const { tests, setup, teardown, slug, revision, force } = body
@@ -336,6 +337,7 @@ function computeCodeHash(prepared) {
 }
 
 function computeMultiRuntimeCacheKey(prepared, options) {
+  const profiling = normalizeProfilingForCache(options.profiling)
   const content = JSON.stringify({
     language: prepared.language,
     languageOptions: prepared.languageOptions,
@@ -351,7 +353,8 @@ function computeMultiRuntimeCacheKey(prepared, options) {
     teardown: prepared.original.teardown.trim(),
     runtimeTeardown: prepared.runtime.teardown.trim(),
     runtimes: options.runtimes || null,
-    profiling: normalizeProfilingForCache(options.profiling),
+    profiling,
+    jitCaptureVersion: profiling?.v8Jit === true ? JIT_CAPTURE_CACHE_VERSION : null,
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
 }

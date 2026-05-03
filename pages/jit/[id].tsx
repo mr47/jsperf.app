@@ -181,6 +181,16 @@ export default function JitArtifactPage() {
                     onActiveBlockIndexChange={setActiveBlockIndex}
                   />
                 )}
+                {!activeBlock && data.output && (
+                  <div className="border-b border-border/70 bg-amber-500/5 p-5">
+                    <div className="rounded-xl border border-amber-500/25 bg-background/80 p-4">
+                      <h2 className="text-sm font-semibold text-foreground">No optimized code block in this artifact</h2>
+                      <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                        This capture contains V8 trace lines but no `--- Optimized code ---` disassembly. On newer Node versions this usually means the benchmark only reached Maglev, while this viewer needs TurboFan optimized-code output. Re-run JIT capture with the updated capture flags to generate a source-linked artifact.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 <div className="border-b border-border/70 p-5">
                   <label className="relative block">

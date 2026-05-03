@@ -5,6 +5,7 @@ import { __testing } from '../../worker/docker.js'
 describe('worker docker JIT capture helpers', () => {
   it('adds V8 optimized-code flags for Node and Deno captures', () => {
     expect(__testing.nodeJitFlags()).toEqual(expect.arrayContaining([
+      '--no-maglev',
       '--no-concurrent-recompilation',
       '--trace-opt',
       '--trace-deopt',
@@ -16,6 +17,7 @@ describe('worker docker JIT capture helpers', () => {
       '--log-code',
       '--logfile=/work/v8.log',
     ]))
+    expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--no-maglev')
     expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-code')
     expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-source')
     expect(__testing.denoV8Flags({ v8Jit: true })).toContain('--print-opt-code-filter=jsperfUserBenchmark')
@@ -99,17 +101,40 @@ describe('worker docker JIT capture helpers', () => {
 
   it('builds a text artifact from stdout and stderr diagnostics', () => {
     const artifact = __testing.buildJitArtifact({
-      stdout: 'mov rax, rbx',
+      stdout: [
+        '--- Raw source ---',
+        '() { return value }',
+        '',
+        '--- Optimized code ---',
+        'Instructions (size = 16)',
+        '0x1  0  55  push rbp',
+      ].join('\n'),
       stderr: '[trace-opt]',
       runtimeName: 'node',
       truncated: true,
     })
 
     expect(artifact).toMatchObject({
-      output: 'mov rax, rbx\n\n[trace-opt]',
       captureMode: 'v8-opt-code',
       source: 'node-v8',
       truncated: true,
     })
+    expect(artifact?.output).toContain('--- Optimized code ---')
+    expect(artifact?.output).toContain('[trace-opt]')
+  })
+
+  it('does not build viewer artifacts from trace-only Maglev output', () => {
+    const artifact = __testing.buildJitArtifact({
+      stdout: '[completed compiling 0x123 <JSFunction jsperfUserBenchmark> (target MAGLEV)]',
+      stderr: '',
+      runtimeName: 'node',
+      truncated: false,
+    })
+
+    expect(artifact).toBeNull()
+    expect(__testing.jitCaptureMissingReason({
+      stdout: '[completed compiling 0x123 <JSFunction jsperfUserBenchmark> (target MAGLEV)]',
+      stderr: '',
+    })).toContain('Maglev only')
   })
 })
