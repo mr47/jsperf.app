@@ -366,9 +366,14 @@ function normalizeGeneratedScript(script) {
 
 function nodeJitFlags() {
   return [
+    '--no-concurrent-recompilation',
     '--trace-opt',
     '--trace-deopt',
     '--print-opt-code',
+    '--print-opt-code-filter=jsperfUserBenchmark',
+    '--print-opt-source',
+    '--code-comments',
+    '--print-code-verbose',
     '--log-code',
     '--logfile=/work/v8.log',
   ]
@@ -378,9 +383,14 @@ function denoV8Flags(profiling) {
   const flags = ['--expose-gc']
   if (profiling?.v8Jit === true) {
     flags.push(
+      '--no-concurrent-recompilation',
       '--trace-opt',
       '--trace-deopt',
       '--print-opt-code',
+      '--print-opt-code-filter=jsperfUserBenchmark',
+      '--print-opt-source',
+      '--code-comments',
+      '--print-code-verbose',
       '--log-code',
       '--logfile=/work/v8.log',
     )
@@ -467,15 +477,73 @@ function createStdoutResultTracker() {
 }
 
 function parseJsonLine(line) {
-  try {
-    const value = JSON.parse(line.trim())
-    if (!value || typeof value !== 'object' || !('state' in value || 'opsPerSec' in value)) {
-      return { ok: false, value: null }
+  const matches = findBenchmarkJsonResults(line.trim())
+  const match = matches[matches.length - 1]
+  return match ? { ok: true, value: match.value } : { ok: false, value: null }
+}
+
+function findBenchmarkJsonResults(text) {
+  const matches = []
+  for (let start = 0; start < text.length; start++) {
+    if (text[start] !== '{' || !looksLikeJsonObjectStart(text, start)) continue
+
+    const end = findJsonObjectEnd(text, start)
+    if (end === -1) continue
+
+    try {
+      const value = JSON.parse(text.slice(start, end + 1))
+      if (isBenchmarkResultObject(value)) {
+        matches.push({ value, start, end: end + 1 })
+      }
+    } catch (_) {
+      // V8 diagnostics can contain source-looking fragments; ignore those.
     }
-    return { ok: true, value }
-  } catch (_) {
-    return { ok: false, value: null }
   }
+  return matches
+}
+
+function looksLikeJsonObjectStart(text, start) {
+  let index = start + 1
+  while (/\s/.test(text[index] || '')) index += 1
+  return text[index] === '"'
+}
+
+function findJsonObjectEnd(text, start) {
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < text.length; index++) {
+    const char = text[index]
+
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+
+  return -1
+}
+
+function isBenchmarkResultObject(value) {
+  if (!value || typeof value !== 'object') return false
+  if (!['completed', 'errored', 'aborted-with-statistics'].includes(value.state)) return false
+  return Number.isFinite(value.opsPerSec) && 'latency' in value && 'memory' in value
 }
 
 function appendHead(current, chunk, maxBytes) {
@@ -504,16 +572,18 @@ function appendTail(current, chunk, maxBytes) {
 function stripJsonResultLines(output) {
   return output
     .split(/\r?\n/)
-    .filter((line) => {
-      const trimmed = line.trim()
-      if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return true
-      try {
-        const parsed = JSON.parse(trimmed)
-        return !parsed || typeof parsed !== 'object' || !('opsPerSec' in parsed || 'state' in parsed)
-      } catch (_) {
-        return true
+    .map((line) => {
+      const matches = findBenchmarkJsonResults(line)
+      if (matches.length === 0) return line
+
+      let stripped = line
+      for (let i = matches.length - 1; i >= 0; i--) {
+        const match = matches[i]
+        stripped = stripped.slice(0, match.start) + stripped.slice(match.end)
       }
+      return stripped
     })
+    .filter((line) => line.trim())
     .join('\n')
     .trim()
 }

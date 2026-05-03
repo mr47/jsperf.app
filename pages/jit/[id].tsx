@@ -6,7 +6,8 @@ import Layout from '../../components/Layout'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { codeLanguageClass, highlightSanitizedCode } from '../../utils/hljs'
-import { parseOptimizedBlocks, type OptimizedBlock } from '../../utils/jitSourceMap'
+import { parseOptimizedBlocks } from '../../utils/jitSourceMap'
+import JitSourceMapViewer from '../../components/JitSourceMapViewer'
 
 type JitArtifactDoc = {
   id: string
@@ -174,61 +175,11 @@ export default function JitArtifactPage() {
                 </div>
 
                 {activeBlock && (
-                  <div className="border-b border-border/70 bg-muted/20 p-5">
-                    <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <div>
-                        <h2 className="text-lg font-semibold tracking-tight">Source to optimized code</h2>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          V8 emitted {optimizedBlocks.length} optimized-code {optimizedBlocks.length === 1 ? 'block' : 'blocks'} with captured source snippets.
-                        </p>
-                      </div>
-                      {optimizedBlocks.length > 1 && (
-                        <div className="flex flex-wrap gap-2">
-                          {optimizedBlocks.map((block, index) => (
-                            <Button
-                              key={block.id}
-                              type="button"
-                              variant={index === activeBlockIndex ? 'default' : 'outline'}
-                              size="sm"
-                              className="rounded-full"
-                              onClick={() => setActiveBlockIndex(index)}
-                            >
-                              Block {index + 1}
-                            </Button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="grid overflow-hidden rounded-2xl border border-border bg-background shadow-sm lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-                      <div className="border-b border-border lg:border-b-0 lg:border-r">
-                        <SectionHeader
-                          title="Raw source"
-                          detail={activeBlock.name ? `${activeBlock.name}${activeBlock.kind ? ` - ${activeBlock.kind}` : ''}` : activeBlock.kind || 'Captured snippet'}
-                        />
-                        <SourceMapping block={activeBlock} />
-                        <pre className="m-0 max-h-[52vh] overflow-auto bg-[#f6f8fa] p-4 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
-                          <code
-                            className={`${codeLanguageClass('javascript', activeBlock.source)} block whitespace-pre`}
-                            dangerouslySetInnerHTML={{ __html: highlightSanitizedCode(activeBlock.source, 'javascript') }}
-                          />
-                        </pre>
-                      </div>
-                      <div>
-                        <SectionHeader
-                          title="Optimized code"
-                          detail={activeBlock.name || activeBlock.kind || 'Generated assembly'}
-                        />
-                        <OptimizedMetadata block={activeBlock} />
-                        <pre className="m-0 max-h-[52vh] overflow-auto bg-[#f6f8fa] p-4 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
-                          <code
-                            className={`${codeLanguageClass('x86asm', activeBlock.optimizedBody)} block whitespace-pre`}
-                            dangerouslySetInnerHTML={{ __html: highlightSanitizedCode(activeBlock.optimizedBody, 'x86asm') }}
-                          />
-                        </pre>
-                      </div>
-                    </div>
-                  </div>
+                  <JitSourceMapViewer
+                    blocks={optimizedBlocks}
+                    activeBlockIndex={activeBlockIndex}
+                    onActiveBlockIndexChange={setActiveBlockIndex}
+                  />
                 )}
 
                 <div className="border-b border-border/70 p-5">
@@ -268,87 +219,6 @@ function DarkMetric({ label, value }: { label: string; value: string }) {
     <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
       <div className="text-xs text-slate-400">{label}</div>
       <div className="mt-1 truncate font-mono text-sm font-semibold text-slate-100">{value}</div>
-    </div>
-  )
-}
-
-function SectionHeader({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-3">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
-        <div className="truncate font-mono text-xs text-muted-foreground">{detail}</div>
-      </div>
-    </div>
-  )
-}
-
-function OptimizedMetadata({ block }: { block: OptimizedBlock }) {
-  const items = [
-    ['Function', block.name],
-    ['Kind', block.kind],
-    ['Compiler', block.compiler],
-    ['Optimization ID', block.optimizationId],
-    ['Source position', block.sourcePosition],
-    ['Instructions', block.instructionSize ? `${block.instructionSize} bytes` : null],
-  ].filter(([, value]) => Boolean(value))
-
-  if (items.length === 0) return null
-
-  return (
-    <div className="grid gap-2 border-b border-border bg-background px-4 py-3 sm:grid-cols-2 xl:grid-cols-3">
-      {items.map(([label, value]) => (
-        <div key={label} className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-          <div className="mt-1 truncate font-mono text-xs text-foreground">{value}</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function SourceMapping({ block }: { block: OptimizedBlock }) {
-  const match = block.astMatch
-  if (!match) {
-    return (
-      <div className="border-b border-border bg-background px-4 py-3 text-xs text-muted-foreground">
-        No AST mapping available for this source snippet.
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-2 border-b border-border bg-background px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
-          Likely AST construct
-        </span>
-        <span className="rounded-full border border-border bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-foreground">
-          {match.label}
-        </span>
-        <span className="rounded-full border border-border bg-muted/50 px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-          {match.type}
-        </span>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <MiniMetric label="V8 source position" value={block.sourcePosition || 'unknown'} />
-        <MiniMetric label="Mapped offset" value={block.mappedSourcePosition == null ? 'unknown' : String(block.mappedSourcePosition)} />
-        <MiniMetric label="Node range" value={`${match.start}-${match.end}`} />
-      </div>
-      {match.snippet && (
-        <pre className="m-0 overflow-auto rounded-lg border border-border/70 bg-muted/40 p-2 font-mono text-xs text-foreground">
-          {match.snippet}
-        </pre>
-      )}
-    </div>
-  )
-}
-
-function MiniMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-1 truncate font-mono text-xs text-foreground">{value}</div>
     </div>
   )
 }

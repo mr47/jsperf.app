@@ -8,6 +8,36 @@ export type AstMatch = {
   snippet: string
 }
 
+export type JitInstructionLine = {
+  text: string
+  address: string | null
+  pcOffset: number | null
+  pcOffsetHex: string | null
+}
+
+export type JitSourcePositionEntry = {
+  pcOffset: number
+  pcOffsetHex: string
+  sourcePosition: number
+  mappedSourcePosition: number | null
+}
+
+export type JitSourceMapRange = {
+  id: string
+  pcOffset: number
+  pcOffsetHex: string
+  endPcOffset: number | null
+  endPcOffsetHex: string | null
+  sourcePosition: number
+  mappedSourcePosition: number
+  sourceStart: number
+  sourceEnd: number
+  sourceSnippet: string
+  instructions: string
+  instructionCount: number
+  astMatch: AstMatch | null
+}
+
 export type OptimizedBlock = {
   id: string
   index: number
@@ -15,13 +45,19 @@ export type OptimizedBlock = {
   rawSource: string
   optimized: string
   optimizedBody: string
+  instructionBody: string
   optimizationId: string | null
   sourcePosition: string | null
   mappedSourcePosition: number | null
+  functionSourceStart: number | null
   kind: string | null
   name: string | null
   compiler: string | null
   instructionSize: string | null
+  instructions: JitInstructionLine[]
+  sourcePositions: JitSourcePositionEntry[]
+  mappedRanges: JitSourceMapRange[]
+  hasPreciseSourceMap: boolean
   astMatch: AstMatch | null
 }
 
@@ -39,8 +75,10 @@ type AstNode = {
   [key: string]: unknown
 }
 
-const WRAPPER_PREFIX_RE = /^\(\)\s*{\s*\n?/
-const WRAPPER_SUFFIX_RE = /\n?\s*\}\)$/m
+const FUNCTION_SOURCE_RE = /^--- FUNCTION SOURCE [^\n]*\bstart\{(\d+)\} [^\n]*---$/gm
+const WRAPPER_PREFIX_RE = /^(?:async\s+)?(?:function(?:\s+[A-Za-z_$][\w$]*)?\s*)?\([^)]*\)\s*\{\s*\n?/
+const WRAPPER_SUFFIX_RE = /\n?\s*\}\)?\s*$/m
+const INSTRUCTION_LINE_RE = /^\s*(0x[0-9a-f]+)\s+([0-9a-f]+)\s+(.+)$/i
 const HIGHLIGHT_NODE_TYPES = new Set([
   'ArrayExpression',
   'ArrowFunctionExpression',
@@ -82,7 +120,8 @@ export function parseOptimizedBlocks(output: string): OptimizedBlock[] {
 
     const nextRawStart = output.indexOf(rawMarker, optimizedStart + optimizedMarker.length)
     const rawSource = output.slice(rawStart + rawMarker.length, optimizedStart).trim()
-    const sourceInfo = cleanRawSource(rawSource)
+    const functionSourceStart = findFunctionSourceStartBefore(output, rawStart)
+    const sourceInfo = cleanRawSource(rawSource, functionSourceStart)
     const optimized = output
       .slice(
         optimizedStart + optimizedMarker.length,
@@ -94,6 +133,14 @@ export function parseOptimizedBlocks(output: string): OptimizedBlock[] {
       const index = blocks.length
       const sourcePosition = findMetadata(optimized, 'source_position')
       const mappedSourcePosition = mapSourcePositionToCleanSource(sourcePosition, sourceInfo)
+      const instructions = parseInstructionLines(optimized)
+      const sourcePositions = parseSourcePositions(optimized, sourceInfo)
+      const mappedRanges = buildMappedRanges({
+        blockId: `optimized-block-${index}`,
+        source: sourceInfo.source,
+        instructions,
+        sourcePositions,
+      })
       blocks.push({
         id: `optimized-block-${index}`,
         index,
@@ -101,26 +148,32 @@ export function parseOptimizedBlocks(output: string): OptimizedBlock[] {
         rawSource,
         optimized,
         optimizedBody: stripOptimizedMetadata(optimized),
+        instructionBody: extractInstructionBody(optimized),
         optimizationId: findMetadata(optimized, 'optimization_id'),
         sourcePosition,
         mappedSourcePosition,
+        functionSourceStart,
         kind: findMetadata(optimized, 'kind'),
         name: findMetadata(optimized, 'name'),
         compiler: findMetadata(optimized, 'compiler'),
         instructionSize: findInstructionSize(optimized),
+        instructions,
+        sourcePositions,
+        mappedRanges,
+        hasPreciseSourceMap: mappedRanges.length > 0,
         astMatch: mappedSourcePosition == null
           ? findRepresentativeAstNode(sourceInfo.source)
           : findAstNodeAt(sourceInfo.source, mappedSourcePosition),
       })
     }
 
-    cursor = nextRawStart === -1 ? output.length : nextRawStart + rawMarker.length
+    cursor = nextRawStart === -1 ? output.length : nextRawStart
   }
 
   return blocks
 }
 
-function cleanRawSource(rawSource: string) {
+function cleanRawSource(rawSource: string, functionSourceStart: number | null = null) {
   const prefix = rawSource.match(WRAPPER_PREFIX_RE)?.[0] || ''
   const withoutPrefix = prefix ? rawSource.slice(prefix.length) : rawSource
   const suffixMatch = withoutPrefix.match(WRAPPER_SUFFIX_RE)
@@ -130,13 +183,17 @@ function cleanRawSource(rawSource: string) {
   return {
     source: source || rawSource.trim(),
     prefixLength: prefix.length + leadingTrim,
+    absoluteBaseOffset: functionSourceStart == null ? null : functionSourceStart + prefix.length + leadingTrim,
   }
 }
 
-function mapSourcePositionToCleanSource(sourcePosition: string | null, sourceInfo: { source: string; prefixLength: number }) {
+function mapSourcePositionToCleanSource(
+  sourcePosition: string | number | null,
+  sourceInfo: { source: string; prefixLength: number; absoluteBaseOffset?: number | null },
+) {
   const absolute = Number(sourcePosition)
   if (!Number.isFinite(absolute)) return null
-  const mapped = absolute - sourceInfo.prefixLength
+  const mapped = absolute - (sourceInfo.absoluteBaseOffset ?? sourceInfo.prefixLength)
   if (mapped < 0) return 0
   if (mapped > sourceInfo.source.length) return sourceInfo.source.length
   return mapped
@@ -288,6 +345,18 @@ function memberName(node: AstNode) {
   return null
 }
 
+function findFunctionSourceStartBefore(output: string, rawStart: number) {
+  let match: RegExpExecArray | null
+  let start: number | null = null
+  FUNCTION_SOURCE_RE.lastIndex = 0
+  while ((match = FUNCTION_SOURCE_RE.exec(output))) {
+    if (match.index > rawStart) break
+    const parsed = Number(match[1])
+    if (Number.isFinite(parsed)) start = parsed
+  }
+  return start
+}
+
 function findMetadata(block: string, key: string) {
   const match = block.match(new RegExp(`^${key}\\s*=\\s*(.+)$`, 'm'))
   return match?.[1]?.trim() || null
@@ -302,4 +371,123 @@ function stripOptimizedMetadata(block: string) {
   const instructionsIndex = block.search(/^Instructions\s+\(size\s*=\s*\d+\)/m)
   if (instructionsIndex === -1) return block
   return block.slice(instructionsIndex).trim()
+}
+
+function extractInstructionBody(block: string) {
+  const instructionsIndex = block.search(/^Instructions\s+\(size\s*=\s*\d+\)/m)
+  if (instructionsIndex === -1) return ''
+  const rest = block.slice(instructionsIndex)
+  const endMatch = rest.search(/^\s*(Source positions:|Safepoints\s+\(|RelocInfo\s+\(|Deoptimization Input Data|Inlined functions\s+\()/m)
+  return (endMatch === -1 ? rest : rest.slice(0, endMatch)).trim()
+}
+
+function parseInstructionLines(block: string): JitInstructionLine[] {
+  const body = extractInstructionBody(block)
+  if (!body) return []
+
+  return body
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(INSTRUCTION_LINE_RE)
+      if (!match) {
+        return {
+          text: line,
+          address: null,
+          pcOffset: null,
+          pcOffsetHex: null,
+        }
+      }
+      const pcOffset = parseInt(match[2], 16)
+      return {
+        text: line,
+        address: match[1],
+        pcOffset: Number.isFinite(pcOffset) ? pcOffset : null,
+        pcOffsetHex: match[2].toLowerCase(),
+      }
+    })
+}
+
+function parseSourcePositions(
+  block: string,
+  sourceInfo: { source: string; prefixLength: number; absoluteBaseOffset?: number | null },
+): JitSourcePositionEntry[] {
+  const lines = block.split(/\r?\n/)
+  const startIndex = lines.findIndex(line => line.trim() === 'Source positions:')
+  if (startIndex === -1) return []
+
+  const entries: JitSourcePositionEntry[] = []
+  for (const line of lines.slice(startIndex + 1)) {
+    const trimmed = line.trim()
+    if (!trimmed || /^pc offset\s+position$/i.test(trimmed)) continue
+
+    const match = trimmed.match(/^([0-9a-f]+)\s+(-?\d+)$/i)
+    if (!match) {
+      if (entries.length > 0) break
+      continue
+    }
+
+    const pcOffset = parseInt(match[1], 16)
+    const sourcePosition = Number(match[2])
+    if (!Number.isFinite(pcOffset) || !Number.isFinite(sourcePosition) || sourcePosition < 0) continue
+
+    entries.push({
+      pcOffset,
+      pcOffsetHex: match[1].toLowerCase(),
+      sourcePosition,
+      mappedSourcePosition: mapSourcePositionToCleanSource(sourcePosition, sourceInfo),
+    })
+  }
+
+  return entries
+}
+
+function buildMappedRanges({
+  blockId,
+  source,
+  instructions,
+  sourcePositions,
+}: {
+  blockId: string
+  source: string
+  instructions: JitInstructionLine[]
+  sourcePositions: JitSourcePositionEntry[]
+}): JitSourceMapRange[] {
+  const instructionRows = instructions.filter((line): line is JitInstructionLine & { pcOffset: number } =>
+    typeof line.pcOffset === 'number'
+  )
+  if (instructionRows.length === 0 || sourcePositions.length === 0) return []
+
+  return sourcePositions
+    .filter((entry): entry is JitSourcePositionEntry & { mappedSourcePosition: number } =>
+      typeof entry.mappedSourcePosition === 'number'
+    )
+    .map((entry, index, entries) => {
+      const next = entries[index + 1] || null
+      const rangeInstructions = instructionRows.filter(line =>
+        line.pcOffset >= entry.pcOffset && (next ? line.pcOffset < next.pcOffset : true)
+      )
+      if (rangeInstructions.length === 0) return null
+
+      const astMatch = findAstNodeAt(source, entry.mappedSourcePosition)
+      const sourceStart = astMatch?.start ?? entry.mappedSourcePosition
+      const sourceEnd = Math.max(astMatch?.end ?? entry.mappedSourcePosition + 1, sourceStart + 1)
+      const sourceSnippet = (astMatch?.snippet || source.slice(sourceStart, sourceEnd)).trim()
+
+      return {
+        id: `${blockId}-range-${index}`,
+        pcOffset: entry.pcOffset,
+        pcOffsetHex: entry.pcOffsetHex,
+        endPcOffset: next?.pcOffset ?? null,
+        endPcOffsetHex: next?.pcOffsetHex ?? null,
+        sourcePosition: entry.sourcePosition,
+        mappedSourcePosition: entry.mappedSourcePosition,
+        sourceStart,
+        sourceEnd: Math.min(source.length, sourceEnd),
+        sourceSnippet,
+        instructions: rangeInstructions.map(line => line.text).join('\n'),
+        instructionCount: rangeInstructions.length,
+        astMatch,
+      }
+    })
+    .filter((range): range is JitSourceMapRange => Boolean(range))
 }
