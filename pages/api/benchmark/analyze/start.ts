@@ -87,9 +87,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 function applyDonorProfilingDefault(body: any, tier: string) {
-  if (tier !== 'donor' || body?.profiling != null) return body
+  if (tier !== 'donor') return body
+  const profiling = body?.profiling && typeof body.profiling === 'object' ? body.profiling : {}
   return {
     ...(body || {}),
-    profiling: { nodeCpu: true },
+    profiling: {
+      nodeCpu: profiling.nodeCpu ?? true,
+      v8Jit: profiling.v8Jit ?? true,
+    },
   }
 }

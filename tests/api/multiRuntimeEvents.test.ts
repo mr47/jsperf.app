@@ -87,6 +87,47 @@ describe('GET /api/benchmark/multi-runtime/events', () => {
     expect(updateOneMock).toHaveBeenCalled()
   })
 
+  it('stores successful runtime data when another runtime failed', async () => {
+    const runtimes = {
+      node: {
+        runtime: 'node',
+        profiles: [{ label: '1x', state: 'completed', opsPerSec: 1000 }],
+        avgOpsPerSec: 1000,
+        error: null,
+      },
+      deno: {
+        runtime: 'deno',
+        profiles: [{ label: '1x', state: 'errored', opsPerSec: 0, error: 'Failed to parse runtime output' }],
+        avgOpsPerSec: 0,
+        error: 'Failed to parse runtime output',
+      },
+    }
+    const runtimeComparison = {
+      available: true,
+      fastestRuntime: 'node',
+      runtimes: [
+        { runtime: 'node', avgOpsPerSec: 1000, profiles: [{ opsPerSec: 1000 }] },
+        { runtime: 'deno', avgOpsPerSec: 0, hasError: true, profiles: [{ opsPerSec: 0 }] },
+      ],
+    }
+    getJobMock.mockResolvedValueOnce({ state: 'done', result: { runtimes } })
+    buildRuntimeComparisonMock.mockReturnValueOnce(runtimeComparison)
+
+    const res = createMockRes()
+    await handler(createMockReq({
+      jobs: '0:job-1',
+      codeHash: 'mr-key',
+      deadlineMs: '120000',
+    }), res)
+
+    expect(res._body).toContain('"state":"done"')
+    expect(res._body).toContain('"deno"')
+    expect(updateOneMock).toHaveBeenCalled()
+    const update = (updateOneMock.mock.calls[0] as any[])[1]
+    expect(update.$set.runtimes.node.profiles[0].state).toBe('completed')
+    expect(update.$set.runtimes.deno.profiles[0].state).toBe('errored')
+  })
+
   it('returns 400 when no jobs are provided', async () => {
     const res = createMockRes()
     await handler(createMockReq({}), res)

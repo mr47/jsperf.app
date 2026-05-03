@@ -186,7 +186,7 @@ export function buildRuntimeComparison(runtimes) {
   })
 
   const ranked = entries
-    .filter(e => !e.hasError && e.avgOpsPerSec > 0)
+    .filter(e => e.avgOpsPerSec > 0)
     .sort((a, b) => b.avgOpsPerSec - a.avgOpsPerSec)
 
   const fastestRuntime = ranked[0]?.runtime || null

@@ -206,7 +206,7 @@ describe('split deep analysis API routes', () => {
     expect(workerRes._json.multiRuntime.deadlineAt).toBeGreaterThan(Date.now() + 60_000)
   })
 
-  it('defaults donor starts to Node CPU profiling unless explicitly disabled', async () => {
+  it('defaults donor starts to Node CPU and JIT profiling unless explicitly disabled', async () => {
     const token = 'a'.repeat(64)
     redisStore.set('donor:session:' + token, JSON.stringify({ name: 'Ada', source: 'test' }))
     const donorHeaders = { cookie: `jsperf_donor=${token}` }
@@ -217,17 +217,27 @@ describe('split deep analysis API routes', () => {
     expect(defaultRes._status).toBe(200)
     expect(defaultRes._json.tier).toBe('donor')
     const defaultSession = JSON.parse(redisStore.get(`analysis_session:${defaultRes._json.sessionId}`))
-    expect(defaultSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: true })
+    expect(defaultSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: true, v8Jit: true })
+
+    const cpuOptedOutRes = createMockRes()
+    await startHandler(createMockReq({
+      tests: [{ code: 'x + 1', title: 'test' }],
+      profiling: { nodeCpu: false },
+    }, 'POST', donorHeaders), cpuOptedOutRes)
+
+    expect(cpuOptedOutRes._status).toBe(200)
+    const cpuOptedOutSession = JSON.parse(redisStore.get(`analysis_session:${cpuOptedOutRes._json.sessionId}`))
+    expect(cpuOptedOutSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: false, v8Jit: true })
 
     const optedOutRes = createMockRes()
     await startHandler(createMockReq({
       tests: [{ code: 'x + 1', title: 'test' }],
-      profiling: { nodeCpu: false },
+      profiling: { nodeCpu: false, v8Jit: false },
     }, 'POST', donorHeaders), optedOutRes)
 
     expect(optedOutRes._status).toBe(200)
     const optedOutSession = JSON.parse(redisStore.get(`analysis_session:${optedOutRes._json.sessionId}`))
-    expect(optedOutSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: false })
+    expect(optedOutSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: false, v8Jit: false })
   })
 
   it('accepts public V8 JIT capture profiling and includes it in the multi-runtime cache key', async () => {

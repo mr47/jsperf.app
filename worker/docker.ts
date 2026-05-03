@@ -41,6 +41,7 @@ const ENTRYPOINT_BY_RUNTIME = {
 const JIT_CAPTURE_MAX_BYTES = 4 * 1024 * 1024
 const STDOUT_PARSE_TAIL_BYTES = 256 * 1024
 const STDERR_TAIL_BYTES = 500
+const FAILURE_STDOUT_TAIL_BYTES = 2000
 
 // Host-visible work directory. We MUST write benchmark scripts here (not
 // /tmp inside the orchestrator container) because we bind-mount this path
@@ -262,6 +263,9 @@ export async function runInContainer({
     const result = parsedStdout.result
     const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
     const runtimeStderrTail = captureJit ? stderrTail : stderr.slice(-STDERR_TAIL_BYTES)
+    const runtimeStdoutTail = captureJit
+      ? appendTail('', stdoutTail, FAILURE_STDOUT_TAIL_BYTES)
+      : appendTail('', stdout, FAILURE_STDOUT_TAIL_BYTES)
     if (captureJit) {
       const jitLog = await readJitLogFile(workDir).catch(() => '')
       if (jitLog) {
@@ -329,6 +333,10 @@ export async function runInContainer({
       console.warn('[docker] container failed', {
         ...logPayload,
         error: result.error || null,
+        parsedResultLineIndex: parsedStdout.resultLineIndex,
+        stdoutBytes: captureJit ? null : Buffer.byteLength(stdout),
+        stdoutTailBytes: Buffer.byteLength(runtimeStdoutTail),
+        stdoutTail: runtimeStdoutTail || null,
         stderrTail: runtimeStderrTail || null,
       })
     }

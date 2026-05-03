@@ -317,6 +317,25 @@ describe('buildRuntimeComparison', () => {
     expect(cmp.ranking).toHaveLength(1)
   })
 
+  it('keeps successful profiles ranked when another profile failed', () => {
+    const cmp = buildRuntimeComparison({
+      node: {
+        error: '2x profile failed',
+        profiles: [
+          sampleProfile('1x', 1, 1000),
+          sampleProfile('2x', 2, 0),
+        ],
+      },
+      deno: { error: 'parse failed', profiles: [sampleProfile('1x', 1, 0)] },
+    })
+
+    const node = cmp.runtimes.find(r => r.runtime === 'node')
+    expect(node.hasError).toBe(true)
+    expect(cmp.available).toBe(true)
+    expect(cmp.fastestRuntime).toBe('node')
+    expect(cmp.ranking).toEqual([{ runtime: 'node', avgOpsPerSec: 1000 }])
+  })
+
   it('keeps version metadata for versioned runtime keys', () => {
     const cmp = buildRuntimeComparison({
       'node@22': { runtime: 'node', version: '22', label: 'Node.js 22', profiles: [sampleProfile('1x', 1, 1000)] },

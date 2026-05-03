@@ -38,13 +38,16 @@ export function useDeepAnalysis({
   const [runtimeTargets, setRuntimeTargets] = useState<any>(null)
   const [workerSideQuickJS, setWorkerSideQuickJS] = useState(true)
   const [nodeCpuProfiling, setNodeCpuProfiling] = useState(isDonor)
-  const [v8JitProfiling, setV8JitProfiling] = useState(false)
+  const [v8JitProfiling, setV8JitProfiling] = useState(isDonor)
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
   const [runtimeModalForce, setRuntimeModalForce] = useState(false)
   const multiRuntimeAbortRef = useRef<{ abort: () => void } | null>(null)
 
   useEffect(() => {
-    if (isDonor) setNodeCpuProfiling(true)
+    if (isDonor) {
+      setNodeCpuProfiling(true)
+      setV8JitProfiling(true)
+    }
   }, [isDonor])
 
   const setAnalysisStepStatus = useCallback((engine: string, status: string) => {
