@@ -97,6 +97,14 @@ export default function Home(props) {
               <span>New: Node JIT viewer</span>
               <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
+            <Link
+              href="#cpu-profiles"
+              className="group inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-sm font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 transition-colors"
+            >
+              <Cpu className="mr-2 h-4 w-4 text-amber-500" />
+              <span>Node CPU profiles</span>
+              <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+            </Link>
           </div>
           
           <div className="space-y-6 max-w-4xl mx-auto px-4">
@@ -243,6 +251,18 @@ export default function Home(props) {
               </CardHeader>
             </Card>
 
+            <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm">
+              <CardHeader>
+                <div className="h-12 w-12 rounded-lg bg-amber-500/10 flex items-center justify-center mb-4">
+                  <Cpu className="h-6 w-6 text-amber-600 dark:text-amber-500" />
+                </div>
+                <CardTitle className="text-xl">Node CPU Profiles</CardTitle>
+                <CardDescription className="text-base mt-2 leading-relaxed">
+                  Capture Chrome DevTools-compatible `.cpuprofile` files during Node runtime runs, then inspect hot functions, call frames, and burn charts in CPUpro.
+                </CardDescription>
+              </CardHeader>
+            </Card>
+
             <Card className="bg-card/50 backdrop-blur-sm border-border/50 hover:border-primary/50 transition-colors shadow-sm flex flex-col justify-between">
               <CardHeader>
                 <div className="h-12 w-12 rounded-lg bg-foreground/5 flex items-center justify-center mb-4">
@@ -262,6 +282,79 @@ export default function Home(props) {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+        </section>
+
+        {/* CPU Profile Spotlight */}
+        <section id="cpu-profiles" className="py-24 border-t border-border/50">
+          <div className="max-w-6xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-12 items-center">
+              <div className="space-y-6">
+                <div className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-sm font-medium">
+                  <Cpu className="mr-2 h-4 w-4 text-amber-500" />
+                  <span className="text-amber-700 dark:text-amber-300">Node CPU profiling</span>
+                </div>
+                <h2 className="text-3xl md:text-4xl font-bold tracking-tight">
+                  Open real CPU profiles from benchmark runs
+                </h2>
+                <p className="text-lg text-muted-foreground leading-relaxed">
+                  Deep Analysis can capture a Node `.cpuprofile` alongside runtime results. Open it in jsPerf's profile page, download it for Chrome DevTools, or inspect flame graphs and burn charts in CPUpro.
+                </p>
+                <div className="grid gap-3 text-sm">
+                  <div className="rounded-xl border border-border/60 bg-card/50 p-4">
+                    <div className="font-semibold">Profile the benchmark loop</div>
+                    <p className="mt-1 text-muted-foreground">The profiler starts around the measured Node run, so setup and teardown noise stay out of the primary sample window.</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-card/50 p-4">
+                    <div className="font-semibold">Store once, share by URL</div>
+                    <p className="mt-1 text-muted-foreground">Large profile payloads live as separate CPU profile documents while result cards keep lightweight references.</p>
+                  </div>
+                  <div className="rounded-xl border border-border/60 bg-card/50 p-4">
+                    <div className="font-semibold">Use a profile with real work</div>
+                    <p className="mt-1 text-muted-foreground">The synthetic commerce example gives the profiler a richer workload than the older slim sample profile.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                  <Button asChild size="lg" className="rounded-full px-6">
+                    <Link href={SYNTHETIC_COMMERCE_EXAMPLE_PATH} className="flex items-center gap-2">
+                      Open benchmark example
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" size="lg" className="rounded-full px-6">
+                    <Link href="/create" className="flex items-center gap-2">
+                      Capture your own
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+
+              <Link href={SYNTHETIC_COMMERCE_EXAMPLE_PATH} className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 rounded-2xl">
+                <div className="absolute -inset-4 bg-gradient-to-tr from-amber-500/20 via-orange-500/10 to-violet-500/20 rounded-2xl blur-2xl transition-opacity group-hover:opacity-80" aria-hidden="true" />
+                <div className="relative overflow-hidden rounded-xl border border-border/60 bg-slate-950 shadow-xl transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
+                  <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5 bg-slate-900">
+                    <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
+                    <span className="ml-3 text-xs text-slate-400 font-mono truncate">CPUpro report · Node.js profile</span>
+                  </div>
+                  <Image
+                    src="/cpu-profile-report.png"
+                    alt="CPUpro report showing Node.js profiling time, samples, call frames, and flame graph controls"
+                    width={1440}
+                    height={1100}
+                    className="w-full border-t border-white/5 object-cover"
+                    priority={false}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-950/80 to-transparent p-5">
+                    <div className="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/15 px-3 py-1 text-xs font-semibold text-amber-100 shadow-sm">
+                      <Cpu className="mr-1.5 h-3.5 w-3.5 text-amber-300" />
+                      Burn chart, hot paths, and call-frame tables
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            </div>
           </div>
         </section>
 
