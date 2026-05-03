@@ -13,6 +13,10 @@ hljs.registerLanguage('ts', typescript);
 import xml from 'highlight.js/lib/languages/xml'
 hljs.registerLanguage('xml', xml);
 
+import x86asm from 'highlight.js/lib/languages/x86asm'
+hljs.registerLanguage('x86asm', x86asm);
+hljs.registerLanguage('asm', x86asm);
+
 hljs.configure({ ignoreUnescapedHTML: true })
 
 const TYPESCRIPT_SYNTAX_RE = [
@@ -27,13 +31,17 @@ const TYPESCRIPT_SYNTAX_RE = [
 ]
 
 function normalizeCodeLanguage(language = 'javascript', code = '') {
+  const requested = String(language || '').toLowerCase()
+  if (requested === 'asm' || requested === 'x86asm' || requested === 'jit' || requested === 'v8') return 'x86asm'
   if (language === 'typescript' || language === 'ts') return 'ts'
   if (TYPESCRIPT_SYNTAX_RE.some(pattern => pattern.test(code || ''))) return 'ts'
   return 'js'
 }
 
 export function codeLanguageClass(language = 'javascript', code = '') {
-  return normalizeCodeLanguage(language, code) === 'ts'
+  const normalized = normalizeCodeLanguage(language, code)
+  if (normalized === 'x86asm') return 'hljs language-x86asm'
+  return normalized === 'ts'
     ? 'hljs language-typescript'
     : 'hljs language-javascript'
 }

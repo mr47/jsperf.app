@@ -23,10 +23,24 @@ import { DEFAULT_RUNTIME_TARGETS, resolveRuntimeTarget } from './runtime-targets
 
 const ENTRYPOINT_BY_RUNTIME = {
   // --allow-hrtime was removed in Deno 2 (always-on), so we don't pass it.
-  node: (file) => ['node', '--expose-gc', file],
-  deno: (file) => ['deno', 'run', '--v8-flags=--expose-gc', file],
+  node: (file, profiling) => [
+    'node',
+    '--expose-gc',
+    ...(profiling?.v8Jit === true ? nodeJitFlags() : []),
+    file,
+  ],
+  deno: (file, profiling) => [
+    'deno',
+    'run',
+    `--v8-flags=${denoV8Flags(profiling)}`,
+    file,
+  ],
   bun: (file) => ['bun', 'run', file],
 }
+
+const JIT_CAPTURE_MAX_BYTES = 1024 * 1024
+const STDOUT_PARSE_TAIL_BYTES = 256 * 1024
+const STDERR_TAIL_BYTES = 500
 
 // Host-visible work directory. We MUST write benchmark scripts here (not
 // /tmp inside the orchestrator container) because we bind-mount this path
@@ -63,6 +77,7 @@ export async function prepareRuntimeImages(runtimeTargets) {
  * @param {'node'|'deno'|'bun'|object} opts.runtime
  * @param {string} opts.script - Generated JS source to execute
  * @param {object} opts.profile - { label, cpus, memMb }
+ * @param {object|null} [opts.profiling] - Optional runtime diagnostics flags
  * @param {boolean} [opts.collectPerf=false] - Wrap with `perf stat` if host allows
  * @param {number} [opts.timeoutMs=30000] - Hard wall-clock ceiling for THIS
  *   container. On expiry we send SIGKILL to the docker child process AND
@@ -78,6 +93,7 @@ export async function runInContainer({
   runtime,
   script,
   profile,
+  profiling,
   collectPerf = false,
   timeoutMs = 30_000,
   signal,
@@ -88,6 +104,7 @@ export async function runInContainer({
   const runtimeName = target.runtime
   const runtimeId = target.id
   const usePerf = collectPerf && target.supportsPerf
+  const captureJit = profiling?.v8Jit === true && (runtimeName === 'node' || runtimeName === 'deno')
 
   await ensureImageReady(target)
   await ensureWorkDirBase()
@@ -102,7 +119,7 @@ export async function runInContainer({
   // Build the runtime invocation, optionally wrapped with `perf stat`.
   // Perf events are written to a known path inside the container so we can
   // mount it back out as part of the bind-mount.
-  const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtimeName](`/work/${scriptFile}`)
+  const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtimeName](`/work/${scriptFile}`, profiling)
   const innerCmd = usePerf
     ? [
         'perf', 'stat',
@@ -150,7 +167,12 @@ export async function runInContainer({
   const start = Date.now()
   let exitCode = -1
   let stdout = ''
+  let stdoutTail = ''
+  let jitStdout = ''
   let stderr = ''
+  let stderrTail = ''
+  let jitStderr = ''
+  let jitTruncated = false
   let timedOut = false
 
   console.info('[docker] starting container', {
@@ -188,8 +210,28 @@ export async function runInContainer({
       onAbort()
     }, timeoutMs)
 
-    child.stdout.on('data', d => { stdout += d.toString() })
-    child.stderr.on('data', d => { stderr += d.toString() })
+    child.stdout.on('data', d => {
+      const text = d.toString()
+      if (captureJit) {
+        stdoutTail = appendTail(stdoutTail, text, STDOUT_PARSE_TAIL_BYTES)
+        const next = appendHead(jitStdout, text, JIT_CAPTURE_MAX_BYTES)
+        jitStdout = next.value
+        jitTruncated ||= next.truncated
+      } else {
+        stdout += text
+      }
+    })
+    child.stderr.on('data', d => {
+      const text = d.toString()
+      if (captureJit) {
+        stderrTail = appendTail(stderrTail, text, STDERR_TAIL_BYTES)
+        const next = appendHead(jitStderr, text, JIT_CAPTURE_MAX_BYTES)
+        jitStderr = next.value
+        jitTruncated ||= next.truncated
+      } else {
+        stderr += text
+      }
+    })
 
     exitCode = await new Promise((resolve) => {
       child.once('close', (code) => resolve(code ?? -1))
@@ -200,9 +242,18 @@ export async function runInContainer({
     if (signal) signal.removeEventListener?.('abort', onAbort)
 
     const durationMs = Date.now() - start
-    const result = parseStdoutResult(stdout)
+    const parsedStdout = parseStdoutResult(captureJit ? stdoutTail : stdout)
+    const result = parsedStdout.result
     const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
-    const stderrTail = stderr.slice(-500)
+    const runtimeStderrTail = captureJit ? stderrTail : stderr.slice(-STDERR_TAIL_BYTES)
+    const jitArtifact = captureJit
+      ? buildJitArtifact({
+          stdout: stripJsonResultLines(jitStdout),
+          stderr: jitStderr,
+          runtimeName,
+          truncated: jitTruncated,
+        })
+      : null
 
     const logPayload = {
       container: containerName,
@@ -222,16 +273,18 @@ export async function runInContainer({
       console.warn('[docker] container failed', {
         ...logPayload,
         error: result.error || null,
-        stderrTail: stderrTail || null,
+        stderrTail: runtimeStderrTail || null,
       })
     }
 
     return {
       result,
       perfCounters,
+      jitArtifact,
+      jitArtifactError: captureJit && !jitArtifact ? 'No V8 JIT output was captured for this run' : null,
       durationMs,
       exitCode,
-      stderrTail,
+      stderrTail: runtimeStderrTail,
     }
   } finally {
     rm(workDir, { recursive: true, force: true }).catch(() => {})
@@ -247,6 +300,28 @@ function normalizeGeneratedScript(script) {
   return { source, extension }
 }
 
+function nodeJitFlags() {
+  return [
+    '--trace-opt',
+    '--trace-deopt',
+    '--print-opt-code',
+    '--print-opt-code-filter=jsperfUserBenchmark',
+  ]
+}
+
+function denoV8Flags(profiling) {
+  const flags = ['--expose-gc']
+  if (profiling?.v8Jit === true) {
+    flags.push(
+      '--trace-opt',
+      '--trace-deopt',
+      '--print-opt-code',
+      '--print-opt-code-filter=jsperfUserBenchmark',
+    )
+  }
+  return flags.join(',')
+}
+
 /**
  * The generated script writes a single JSON line to stdout. If it crashed
  * before reaching that point we won't find one — return an errored stub.
@@ -254,16 +329,89 @@ function normalizeGeneratedScript(script) {
 function parseStdoutResult(stdout) {
   const trimmed = stdout.trim()
   if (!trimmed) {
-    return { state: 'errored', error: 'No output from runtime', opsPerSec: 0, latency: null, memory: null }
+    return {
+      result: { state: 'errored', error: 'No output from runtime', opsPerSec: 0, latency: null, memory: null },
+      resultLineIndex: -1,
+    }
   }
 
   const lines = trimmed.split('\n').filter(Boolean)
-  const lastLine = lines[lines.length - 1]
-  try {
-    return JSON.parse(lastLine)
-  } catch (_) {
-    return { state: 'errored', error: 'Failed to parse runtime output', opsPerSec: 0, latency: null, memory: null }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    try {
+      return { result: JSON.parse(lines[i]), resultLineIndex: i }
+    } catch (_) {
+      // V8 diagnostics can trail the benchmark result; keep scanning upward.
+    }
   }
+
+  return {
+    result: { state: 'errored', error: 'Failed to parse runtime output', opsPerSec: 0, latency: null, memory: null },
+    resultLineIndex: -1,
+  }
+}
+
+function appendHead(current, chunk, maxBytes) {
+  const currentBytes = Buffer.byteLength(current)
+  if (currentBytes >= maxBytes) return { value: current, truncated: true }
+
+  const chunkBytes = Buffer.byteLength(chunk)
+  if (currentBytes + chunkBytes <= maxBytes) {
+    return { value: current + chunk, truncated: false }
+  }
+
+  const remaining = Math.max(0, maxBytes - currentBytes)
+  return {
+    value: current + Buffer.from(chunk).subarray(0, remaining).toString(),
+    truncated: true,
+  }
+}
+
+function appendTail(current, chunk, maxBytes) {
+  const combined = current + chunk
+  const combinedBytes = Buffer.byteLength(combined)
+  if (combinedBytes <= maxBytes) return combined
+  return Buffer.from(combined).subarray(combinedBytes - maxBytes).toString()
+}
+
+function stripJsonResultLines(output) {
+  return output
+    .split(/\r?\n/)
+    .filter((line) => {
+      const trimmed = line.trim()
+      if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return true
+      try {
+        const parsed = JSON.parse(trimmed)
+        return !parsed || typeof parsed !== 'object' || !('opsPerSec' in parsed || 'state' in parsed)
+      } catch (_) {
+        return true
+      }
+    })
+    .join('\n')
+    .trim()
+}
+
+function buildJitArtifact({ stdout, stderr, runtimeName, truncated }) {
+  const sections = []
+  if (stdout?.trim()) sections.push(stdout.trim())
+  if (stderr?.trim()) sections.push(stderr.trim())
+  const output = sections.join('\n\n')
+  if (!output) return null
+
+  return {
+    output,
+    captureMode: 'v8-opt-code',
+    source: runtimeName === 'deno' ? 'deno-v8' : 'node-v8',
+    truncated: Boolean(truncated),
+    maxBytes: JIT_CAPTURE_MAX_BYTES,
+  }
+}
+
+export const __testing = {
+  nodeJitFlags,
+  denoV8Flags,
+  parseStdoutResult,
+  stripJsonResultLines,
+  buildJitArtifact,
 }
 
 /**

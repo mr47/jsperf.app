@@ -6,6 +6,7 @@ const buildRuntimeComparisonMock = vi.hoisted(() => vi.fn())
 const multiRuntimeFindMock = vi.hoisted(() => vi.fn())
 const updateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
 const cpuProfileUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
+const jitArtifactUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
 
 vi.mock('../../lib/engines/multiruntime', () => ({
   getMultiRuntimeJob: (...args) => getJobMock(...args),
@@ -22,6 +23,9 @@ vi.mock('../../lib/mongodb', () => ({
   })),
   cpuProfilesCollection: vi.fn(async () => ({
     updateOne: (...args) => cpuProfileUpdateOneMock(...args),
+  })),
+  jitArtifactsCollection: vi.fn(async () => ({
+    updateOne: (...args) => jitArtifactUpdateOneMock(...args),
   })),
 }))
 
@@ -170,5 +174,63 @@ describe('GET /api/benchmark/multi-runtime/[jobId]', () => {
       }),
       { upsert: true },
     )
+  })
+
+  it('stores raw JIT artifacts separately and returns refs', async () => {
+    const runtimes = {
+      node: {
+        runtime: 'node',
+        avgOpsPerSec: 1000,
+        profiles: [{
+          label: '1x',
+          opsPerSec: 1000,
+          jitArtifact: {
+            output: '--- Optimized code ---\nmov rax, rbx\nret',
+            captureMode: 'v8-opt-code',
+            source: 'node-v8',
+            truncated: false,
+            maxBytes: 1024 * 1024,
+          },
+        }],
+      },
+    }
+    buildRuntimeComparisonMock.mockImplementationOnce((shaped) => ({
+      available: true,
+      fastestRuntime: 'node',
+      runtimes: [{ runtime: 'node', profiles: shaped.node.profiles }],
+    }))
+    getJobMock.mockResolvedValueOnce({ state: 'done', result: { runtimes } })
+
+    const res = createMockRes()
+    await handler(createMockReq({ jobId: 'job-1', testIndex: '0', codeHash: 'mr-key' }), res)
+
+    expect(res._status).toBe(200)
+    expect(jitArtifactUpdateOneMock).toHaveBeenCalledWith(
+      { id: expect.any(String) },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          multiRuntimeCacheKey: 'mr-key',
+          testIndex: 0,
+          runtime: 'node',
+          output: '--- Optimized code ---\nmov rax, rbx\nret',
+          meta: expect.objectContaining({
+            format: 'txt',
+            language: 'x86asm',
+            lineCount: 3,
+            truncated: false,
+          }),
+        }),
+      }),
+      { upsert: true },
+    )
+    expect(res._json.runtimes.node.profiles[0].jitArtifact).toBeUndefined()
+    expect(res._json.runtimes.node.profiles[0].jitArtifactRef).toEqual(expect.objectContaining({
+      id: expect.any(String),
+      format: 'txt',
+      language: 'x86asm',
+      runtime: 'node',
+      lineCount: 3,
+      truncated: false,
+    }))
   })
 })

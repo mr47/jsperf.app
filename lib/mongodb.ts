@@ -11,6 +11,7 @@ let client
 let clientPromise
 let multiRuntimeAnalysesReadyPromise
 let cpuProfilesReadyPromise
+let jitArtifactsReadyPromise
 let promoCodesReadyPromise
 
 if (!process.env.MONGODB_URI) {
@@ -71,6 +72,15 @@ export const cpuProfilesCollection = async function() {
   await ensureCpuProfiles(db)
 
   return db.collection('cpuProfiles')
+}
+
+export const jitArtifactsCollection = async function() {
+  const client = await clientPromise
+
+  const db = client.db('jsperf')
+  await ensureJitArtifacts(db)
+
+  return db.collection('jitArtifacts')
 }
 
 export const promoCodesCollection = async function() {
@@ -138,6 +148,37 @@ async function ensureCpuProfiles(db) {
   }
 
   return cpuProfilesReadyPromise
+}
+
+async function ensureJitArtifacts(db) {
+  if (!jitArtifactsReadyPromise) {
+    jitArtifactsReadyPromise = (async () => {
+      try {
+        await db.createCollection('jitArtifacts')
+      } catch (err) {
+        if (err?.code !== 48 && err?.codeName !== 'NamespaceExists') throw err
+      }
+
+      const collection = db.collection('jitArtifacts')
+      await collection.createIndex(
+        { id: 1 },
+        { unique: true, name: 'uniq_jit_artifact_id' },
+      )
+      await collection.createIndex(
+        { multiRuntimeCacheKey: 1, testIndex: 1, runtime: 1 },
+        { name: 'jit_artifact_lookup' },
+      )
+      await collection.createIndex(
+        { updatedAt: -1 },
+        { name: 'jit_artifact_updatedAt_desc' },
+      )
+    })().catch((err) => {
+      jitArtifactsReadyPromise = null
+      throw err
+    })
+  }
+
+  return jitArtifactsReadyPromise
 }
 
 async function ensurePromoCodes(db) {

@@ -230,6 +230,18 @@ describe('split deep analysis API routes', () => {
     expect(optedOutSession.multiRuntimeOptions.profiling).toEqual({ nodeCpu: false })
   })
 
+  it('accepts public V8 JIT capture profiling and includes it in the multi-runtime cache key', async () => {
+    const base = prepareDeepAnalysisRequest({ tests: [{ code: 'x + 1', title: 'test' }] })
+    const withJit = prepareDeepAnalysisRequest({
+      tests: [{ code: 'x + 1', title: 'test' }],
+      profiling: { v8Jit: true },
+    })
+    if (base.error || withJit.error) throw new Error('unexpected preparation error')
+
+    expect(withJit.multiRuntimeOptions.profiling).toEqual({ v8Jit: true })
+    expect(withJit.multiRuntimeCacheKey).not.toBe(base.multiRuntimeCacheKey)
+  })
+
   it('advances donor deep analysis across resumable poll requests', async () => {
     const prepared = prepareDeepAnalysisRequest({ tests: [{ code: 'x + 1', title: 'test' }] })
     if (prepared.error) throw new Error('unexpected preparation error')

@@ -349,7 +349,7 @@ function computeMultiRuntimeCacheKey(prepared, options) {
     teardown: prepared.original.teardown.trim(),
     runtimeTeardown: prepared.runtime.teardown.trim(),
     runtimes: options.runtimes || null,
-    profiling: options.profiling?.nodeCpu === true ? options.profiling : null,
+    profiling: normalizeProfilingForCache(options.profiling),
   })
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16)
 }
@@ -383,7 +383,18 @@ function parseMultiRuntimeOptions(body) {
 
 function normalizeProfilingRequest(input) {
   if (!input || typeof input !== 'object') return null
-  return typeof input.nodeCpu === 'boolean' ? { nodeCpu: input.nodeCpu } : null
+  const profiling: Record<string, boolean> = {}
+  if (typeof input.nodeCpu === 'boolean') profiling.nodeCpu = input.nodeCpu
+  if (typeof input.v8Jit === 'boolean') profiling.v8Jit = input.v8Jit
+  return Object.keys(profiling).length > 0 ? profiling : null
+}
+
+function normalizeProfilingForCache(input) {
+  if (!input || typeof input !== 'object') return null
+  return {
+    nodeCpu: input.nodeCpu === true,
+    v8Jit: input.v8Jit === true,
+  }
 }
 
 function normalizeWorkerExecutionMode(input) {

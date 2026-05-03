@@ -368,7 +368,10 @@ function sanitizeTests(input) {
 
 function sanitizeProfiling(input) {
   if (!input || typeof input !== 'object') return null
-  return input.nodeCpu === true ? { nodeCpu: true } : null
+  const profiling = {}
+  if (input.nodeCpu === true) profiling.nodeCpu = true
+  if (input.v8Jit === true) profiling.v8Jit = true
+  return Object.keys(profiling).length > 0 ? profiling : null
 }
 
 async function estimateComplexityBatch({ tests, setup, language, sourceMode }) {
@@ -474,6 +477,7 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
           runtime: target,
           script,
           profile,
+        profiling: target.runtime === 'node' || target.runtime === 'deno' ? profiling : null,
           collectPerf: COLLECT_PERF,
           timeoutMs: PER_RUN_TIMEOUT_MS,
           signal,
@@ -497,6 +501,8 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
         exitCode: outcome.exitCode,
         perfCounters: outcome.perfCounters,
         ...outcome.result,
+        ...(outcome.jitArtifact ? { jitArtifact: outcome.jitArtifact } : {}),
+        ...(outcome.jitArtifactError ? { jitArtifactError: outcome.jitArtifactError } : {}),
         methodology: {
           ...(outcome.result.methodology || {}),
           async: Boolean(isAsync),

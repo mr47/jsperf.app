@@ -148,6 +148,8 @@ function TestRuntimePanel({ title, comparison }) {
       error: rt.error,
       cpuProfileRef: p.cpuProfileRef || null,
       cpuProfileError: p.cpuProfileError || null,
+      jitArtifactRef: p.jitArtifactRef || null,
+      jitArtifactError: p.jitArtifactError || null,
       values: {
         opsPerSec:    rt.avgOpsPerSec || 0,
         latencyMean:  p.latencyMean ?? null,
@@ -263,6 +265,7 @@ function TestRuntimePanel({ title, comparison }) {
       <UnifiedTable series={series} sections={tableSections} />
 
       <CpuProfileLinks series={series} />
+      <JitArtifactLinks series={series} />
 
       {series.some(s => s.hasError) && (
         <div className="text-[11px] text-red-600 dark:text-red-400 space-y-0.5">
@@ -325,6 +328,66 @@ function CpuProfileLinks({ series }) {
                     <a href={`/api/benchmark/cpu-profile/${ref.id}?download=1`}>
                       <Download className="h-3 w-3" />
                       .cpuprofile
+                    </a>
+                  </Button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function JitArtifactLinks({ series }) {
+  const artifacts = series.filter(s => s.jitArtifactRef || s.jitArtifactError)
+  if (artifacts.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Cpu className="h-4 w-4 text-sky-500" />
+        <div>
+          <div className="text-xs font-semibold text-foreground">JIT output</div>
+          <div className="text-[11px] text-muted-foreground">
+            V8 optimization trace and generated assembly captured from Node.js / Deno.
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {artifacts.map((s) => {
+          const ref = s.jitArtifactRef
+          return (
+            <div key={s.runtime} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/70 px-3 py-2">
+              <div className="min-w-0 text-xs">
+                <span className={`font-semibold ${s.meta.text}`}>{s.meta.label}</span>
+                {ref && (
+                  <span className="ml-2 text-muted-foreground">
+                    {formatBig(ref.lineCount || 0)} lines · {formatBytes(ref.sizeBytes || 0)}
+                    {ref.truncated ? ' · truncated' : ''}
+                  </span>
+                )}
+                {s.jitArtifactError && (
+                  <span className="ml-2 text-red-600 dark:text-red-400">
+                    {s.jitArtifactError}
+                  </span>
+                )}
+              </div>
+
+              {ref && (
+                <div className="flex items-center gap-2">
+                  <Button asChild variant="outline" size="xs">
+                    <a href={`/jit/${ref.id}`} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-3 w-3" />
+                      Viewer
+                    </a>
+                  </Button>
+                  <Button asChild variant="outline" size="xs">
+                    <a href={`/api/benchmark/jit-artifact/${ref.id}?download=1`}>
+                      <Download className="h-3 w-3" />
+                      .txt
                     </a>
                   </Button>
                 </div>

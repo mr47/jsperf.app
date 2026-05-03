@@ -14,6 +14,8 @@ export default function RuntimeAnalysisModal({
   onWorkerSideQuickJSChange,
   nodeCpuProfiling,
   onNodeCpuProfilingChange,
+  v8JitProfiling,
+  onV8JitProfilingChange,
   onClose,
   onConfirm,
 }: {
@@ -27,6 +29,8 @@ export default function RuntimeAnalysisModal({
   onWorkerSideQuickJSChange: (value: boolean) => void
   nodeCpuProfiling: boolean
   onNodeCpuProfilingChange: (value: boolean) => void
+  v8JitProfiling: boolean
+  onV8JitProfilingChange: (value: boolean) => void
   onClose: () => void
   onConfirm: () => void
 }) {
@@ -231,6 +235,26 @@ export default function RuntimeAnalysisModal({
                   {isDonor
                     ? 'Stores a Chrome DevTools / CPUpro compatible `.cpuprofile` for Node.js runtime runs. Donors get this preselected; uncheck it for lighter runs.'
                     : 'Stores a Chrome DevTools / CPUpro compatible `.cpuprofile` for Node.js runtime runs. This is opt-in because profiles can be large.'}
+                </span>
+              </span>
+            </span>
+          </label>
+          <label className="mt-3 block cursor-pointer rounded-2xl border border-sky-500/30 bg-sky-500/5 p-4 transition-colors hover:bg-sky-500/10">
+            <span className="flex gap-3">
+              <input
+                type="checkbox"
+                checked={v8JitProfiling}
+                onChange={(event) => onV8JitProfilingChange(event.target.checked)}
+                disabled={loading}
+                className="mt-1 h-4 w-4 rounded border-border"
+              />
+              <span className="min-w-0">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                  <Cpu className="h-4 w-4 text-sky-500" />
+                  Capture Node/Deno JIT output
+                </span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                  Stores bounded V8 optimization and disassembly output for Node.js and Deno runs, then links it in the public runtime comparison. This is available to everyone and defaults off because the output can be noisy.
                 </span>
               </span>
             </span>
