@@ -1,4 +1,3 @@
-// @ts-nocheck
 import SEO from '../../components/SEO'
 import SEOLandingPage from '../../components/SEOLandingPage'
 import { SEO_LANDING_PAGES } from '../../lib/seo-pages'
@@ -7,28 +6,33 @@ import { breadcrumbSchema, faqPageSchema, webPageSchema } from '../../lib/seo'
 const path = '/guide/how-to-benchmark-javascript'
 const title = 'How to Benchmark JavaScript Correctly'
 const description =
-  'Learn how to benchmark JavaScript code online with useful setup data, repeatable test cases, ops/sec results, runtime context, and shareable benchmark pages.'
+  'A practical guide to JavaScript benchmarking methodology: common measurement styles, microbenchmarks, runtime platforms, and JIT pitfalls to avoid.'
 
 const faqs = [
   {
     question: 'What is a JavaScript microbenchmark?',
     answer:
-      'A JavaScript microbenchmark measures a small piece of code in isolation, such as a loop, function, parser, clone operation, or data transformation.',
+      'A JavaScript microbenchmark measures a small operation in isolation, such as a loop, parser, clone function, serializer, regex, or data transform. It is useful for answering a narrow question, but it should not be treated as a full application performance profile.',
   },
   {
-    question: 'How do I avoid misleading JavaScript benchmark results?',
+    question: 'What is the common way to measure JavaScript performance?',
     answer:
-      'Keep setup outside the measured code, compare equivalent work, warm up runtimes when possible, run multiple times, and interpret browser results alongside runtime and code context.',
+      'Most JavaScript benchmarks run each test many times, measure elapsed time with a high-resolution timer, and report throughput such as ops/sec. Good tools also warm up the code, repeat samples, and show variance instead of relying on one timing.',
+  },
+  {
+    question: 'How do I avoid JIT-optimized benchmark results?',
+    answer:
+      'Avoid no-op tests, constant inputs that can be folded away, unused return values, and cases where one snippet does less work. Consume the result, vary realistic inputs, keep setup outside the timed block, and compare browser JIT results with interpreter or runtime baselines.',
   },
   {
     question: 'Should I optimize based on a microbenchmark?',
     answer:
-      'Use a microbenchmark as evidence, not as the whole decision. Prefer readability unless the benchmark represents a real hot path or a workload that affects users.',
+      'Use a microbenchmark as evidence, not as the whole decision. Prefer readable code unless the benchmark represents a real hot path, a repeated server workload, or client code that users actually wait on.',
   },
   {
-    question: 'Why do JavaScript benchmark results change between browsers?',
+    question: 'Which platforms should I compare?',
     answer:
-      'Different browsers and runtimes use different engines, JIT strategies, garbage collectors, timer precision, and background scheduling, so measured results can vary.',
+      'Start with the browser or server runtime your users actually run. jsPerf browser results are useful for quick feedback, while Deep Analysis adds QuickJS-WASM, V8 Firecracker, Node, Deno, Bun, CPU profiles, and optional Node JIT artifacts for deeper investigation.',
   },
 ]
 
@@ -39,12 +43,15 @@ export default function HowToBenchmarkJavaScript() {
         title={title}
         description={description}
         canonical={path}
+        ogImage="/og-image.png"
         keywords={[
           'how to benchmark javascript',
           'javascript micro benchmark',
           'reliable javascript benchmark',
           'javascript benchmark guide',
           'benchmark javascript code',
+          'javascript benchmark methodology',
+          'avoid jit benchmark optimization',
         ]}
         jsonLd={[
           webPageSchema({ title, description, path }),
@@ -64,44 +71,53 @@ export default function HowToBenchmarkJavaScript() {
         secondaryCta={{ href: '/compare-javascript-performance', label: 'Compare snippets online' }}
         highlights={[
           {
-            title: 'Measure one question',
-            description: 'A useful benchmark compares equivalent implementations of the same workload.',
+            title: 'Measure a decision',
+            description: 'A useful benchmark starts with one question: which implementation is better for this workload and environment?',
           },
           {
-            title: 'Separate setup from work',
-            description: 'Generate inputs once in setup so the measured code focuses on the operation you care about.',
+            title: 'Control the timed work',
+            description: 'Put fixtures, random data, and shared helpers in setup so ops/sec reflects the operation being compared.',
           },
           {
-            title: 'Interpret the result',
-            description: 'Use ops/sec, runtime context, and code shape together instead of trusting a single number.',
+            title: 'Check the runtime story',
+            description: 'Browser, QuickJS, V8, Node, Deno, and Bun can reward different code shapes because their optimizers differ.',
           },
         ]}
         sections={[
           {
-            title: 'Design the benchmark',
-            description: 'Start by writing down the decision the benchmark should inform.',
+            title: 'Common measurement methods',
+            description: 'JavaScript performance is usually measured as elapsed time, throughput, or profile cost.',
             points: [
-              'Use realistic input sizes and data shapes from your application.',
-              'Put shared fixtures in preparation code or setup code, not inside every test body.',
-              'Keep every test case semantically equivalent so the fastest result is solving the same problem.',
+              'Manual timing with performance.now() is useful for quick local checks, but it is easy to under-sample and accidentally include setup, logging, or rendering work.',
+              'Benchmark harnesses such as tinybench-style runners execute each test repeatedly, collect samples, and report ops/sec so small differences are less dependent on one timer read.',
+              'CPU profiles answer a different question: where time goes inside a larger flow. Use them when a microbenchmark is too isolated to explain real application behavior.',
             ],
           },
           {
-            title: 'Run and compare',
-            description: 'A benchmark run is only useful when it is repeatable enough to discuss.',
+            title: 'Design a fair microbenchmark',
+            description: 'Microbenchmarks work best when every case does the same observable work.',
             points: [
-              'Run the same test in the browser more than once and watch for unstable winners.',
-              'Use Deep Analysis for deterministic QuickJS baselines and canonical V8 behavior when browser noise is too high.',
-              'Save the benchmark URL so teammates can rerun it after code, browser, or runtime versions change.',
+              'Use realistic input sizes and data shapes from your application, then test more than one size if production data ranges from tiny to large.',
+              'Generate fixtures in setup, keep teardown separate, and make each test return or write a result so the engine cannot treat the body as unused work.',
+              'Compare equivalent algorithms. A faster snippet is only meaningful if it parses, filters, allocates, validates, or transforms the same data as the alternatives.',
             ],
           },
           {
-            title: 'Decide responsibly',
-            description: 'Performance is one input into engineering judgment.',
+            title: 'Use platform results carefully',
+            description: 'Different platforms expose different parts of the performance picture.',
             points: [
-              'Prefer the clearer implementation unless the measured difference matters for a real hot path.',
-              'Document the environment, data shape, and conclusion when sharing results.',
-              'Re-benchmark after dependency, browser, runtime, or hardware changes.',
+              'Browser runs show what happens in the user agent, but they can be affected by extensions, tabs, battery mode, thermal throttling, timer precision, and background scheduling.',
+              'QuickJS-WASM is a deterministic interpreter baseline. It has no browser JIT, so it helps separate algorithmic cost from optimizer behavior.',
+              'V8 Firecracker, Node, Deno, and Bun runs show server-side and engine-specific behavior. Use them when code may ship outside the browser or when JIT behavior matters.',
+            ],
+          },
+          {
+            title: 'Avoid JIT benchmark traps',
+            description: 'Modern engines optimize hot code aggressively, which is good in production but can mislead a small benchmark.',
+            points: [
+              'Warmup matters: the first iterations may include parsing, inline cache setup, baseline compilation, or optimizing compiler work that later iterations do not include.',
+              'Do not benchmark no-ops, constant expressions, unused results, or impossible inputs. Engines can inline, fold constants, remove dead code, and specialize around stable shapes.',
+              'Treat a big win as a hypothesis. Rerun the benchmark, inspect variance, compare at least one non-JIT baseline, and confirm the faster version still wins in the real path.',
             ],
           },
         ]}

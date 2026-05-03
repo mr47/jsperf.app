@@ -361,8 +361,8 @@ export default function Home(props) {
         {/* Node JIT Viewer Spotlight */}
         <section id="jit-viewer" className="py-24 border-t border-border/50">
           <div className="max-w-6xl mx-auto">
-            <div className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-12 items-center">
-              <div className="space-y-6">
+            <div className="grid min-w-0 grid-cols-1 gap-12 items-center lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="min-w-0 space-y-6">
                 <div className="inline-flex items-center rounded-full border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-sm font-medium">
                   <Flame className="mr-2 h-4 w-4 text-orange-500" />
                   <span className="text-orange-700 dark:text-orange-300">Node JIT artifact viewer</span>
@@ -402,17 +402,17 @@ export default function Home(props) {
                 </div>
               </div>
 
-              <Link href={JIT_VIEWER_EXAMPLE_PATH} className="group block relative focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 rounded-2xl">
+              <Link href={JIT_VIEWER_EXAMPLE_PATH} className="group relative mx-auto block min-w-0 w-[calc(100%-10px)] max-w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/60 rounded-2xl">
                 <div className="absolute -inset-4 bg-gradient-to-tr from-orange-500/20 via-amber-500/10 to-violet-500/20 rounded-2xl blur-2xl transition-opacity group-hover:opacity-80" aria-hidden="true" />
-                <div className="relative overflow-hidden rounded-xl border border-border/60 bg-slate-950 shadow-xl transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
+                <div className="relative max-w-full overflow-hidden rounded-xl border border-border/60 bg-slate-950 shadow-xl transition-transform group-hover:-translate-y-0.5 group-hover:shadow-2xl">
                   <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5 bg-slate-900">
                     <span className="h-2.5 w-2.5 rounded-full bg-rose-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-amber-400/70" />
                     <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/70" />
                     <span className="ml-3 text-xs text-slate-400 font-mono truncate">JIT source map viewer · Node.js V8</span>
                   </div>
-                  <div className="grid gap-4 p-5 text-left lg:grid-cols-[0.82fr_1.18fr]">
-                    <div className="space-y-3">
+                  <div className="grid min-w-0 gap-4 p-5 text-left lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                    <div className="min-w-0 space-y-3">
                       <div className="rounded-lg border border-orange-400/30 bg-orange-500/10 p-3">
                         <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-orange-200">Optimized blocks</div>
                         <div className="mt-2 text-2xl font-bold text-white">18</div>
@@ -423,18 +423,18 @@ export default function Home(props) {
                         ['routingBySku.get', 'inline cache'],
                         ['total += order.quantity', 'TurboFan'],
                       ].map(([label, meta]) => (
-                        <div key={label} className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
-                          <div className="font-mono text-xs text-slate-100">{label}</div>
+                        <div key={label} className="overflow-hidden rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                          <div className="truncate font-mono text-xs text-slate-100">{label}</div>
                           <div className="mt-1 text-[10px] uppercase tracking-wider text-slate-500">{meta}</div>
                         </div>
                       ))}
                     </div>
-                    <div className="rounded-lg border border-white/10 bg-black/30 p-4">
+                    <div className="min-w-0 rounded-lg border border-white/10 bg-black/30 p-4">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-sky-200">Source mapped assembly</span>
                         <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-400">f727ef...</span>
                       </div>
-                      <pre className="overflow-hidden text-xs leading-relaxed text-slate-300">
+                      <pre className="max-w-full overflow-hidden whitespace-pre-wrap break-words text-xs leading-relaxed text-slate-300">
                         <code>{`// synthetic commerce benchmark
 const route = routingBySku.get(order.sku) ?? 0
 total += order.quantity * route
