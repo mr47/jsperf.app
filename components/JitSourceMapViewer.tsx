@@ -30,7 +30,7 @@ export default function JitSourceMapViewer({
           <h2 className="text-base font-semibold tracking-tight">JIT source map</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {hasPreciseMap
-              ? `${activeBlock.mappedRanges.length} source-position ${activeBlock.mappedRanges.length === 1 ? 'range' : 'ranges'} from benchmark source to generated assembly.`
+              ? `${activeBlock.mappedRanges.length} source ${activeBlock.mappedRanges.length === 1 ? 'span' : 'spans'} linked to generated assembly.`
               : 'No source-position table in this artifact. Showing source beside the full optimized function.'}
           </p>
         </div>
@@ -127,7 +127,7 @@ function MappedSpanList({
     <div className="border-t border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <div className="text-xs font-medium text-foreground">Mapped spans</div>
-        <div className="text-[11px] text-muted-foreground">source offset {'->'} pc offset</div>
+        <div className="text-[11px] text-muted-foreground">source {'->'} pc ranges</div>
       </div>
       <div className="max-h-52 overflow-auto">
         {ranges.map((range, index) => (
@@ -145,7 +145,7 @@ function MappedSpanList({
             <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
             <span className="truncate font-mono text-xs text-foreground">{range.sourceSnippet || '(source)'}</span>
             <span className="font-mono text-[11px] text-muted-foreground">
-              {range.mappedSourcePosition} {'->'} {range.pcOffsetHex}
+              {range.mappedSourcePosition} {'->'} {formatPcRangeSummary(range)}
             </span>
           </button>
         ))}
@@ -213,6 +213,11 @@ function splitSourceLines(source: string) {
 
 function formatPcRange(range: JitSourceMapRange) {
   return `${range.pcOffsetHex}${range.endPcOffsetHex ? `-${range.endPcOffsetHex}` : '+'}`
+}
+
+function formatPcRangeSummary(range: JitSourceMapRange) {
+  if (range.pcRanges.length <= 1) return formatPcRange(range)
+  return `${range.pcRanges.length} ranges`
 }
 
 function assemblyMeta(block: OptimizedBlock, selectedRange: JitSourceMapRange | null) {

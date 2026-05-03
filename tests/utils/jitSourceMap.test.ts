@@ -146,4 +146,45 @@ describe('parseOptimizedBlocks', () => {
     })
     expect(block.mappedRanges[1].instructions).toContain('ret')
   })
+
+  it('merges adjacent pc ranges that point at the same source span', () => {
+    const rawSource = '(a,b){ const c=[...a,...b] }'
+    const functionStart = 10
+    const bodyStart = rawSource.indexOf('const c')
+    const output = [
+      `--- FUNCTION SOURCE ([eval]:jsperfUserBenchmark) id{4,-1} start{${functionStart}} ---`,
+      rawSource,
+      '--- END ---',
+      '--- Raw source ---',
+      rawSource,
+      '',
+      '--- Optimized code ---',
+      'name = jsperfUserBenchmark',
+      'Instructions (size = 32)',
+      '0x1000     0  55             push rbp',
+      '0x1004     4  4889e5         mov rbp,rsp',
+      '0x1008     8  c3             ret',
+      '',
+      'Source positions:',
+      ' pc offset  position',
+      `        0        ${functionStart + bodyStart}`,
+      `        4        ${functionStart + bodyStart}`,
+      `        8        ${functionStart + bodyStart}`,
+      '',
+      'Inlined functions (count = 0)',
+    ].join('\n')
+
+    const [block] = parseOptimizedBlocks(output)
+
+    expect(block.sourcePositions).toHaveLength(3)
+    expect(block.mappedRanges).toHaveLength(1)
+    expect(block.mappedRanges[0]).toMatchObject({
+      pcOffset: 0,
+      pcOffsetHex: '0',
+      instructionCount: 3,
+    })
+    expect(block.mappedRanges[0].pcRanges).toHaveLength(3)
+    expect(block.mappedRanges[0].instructions).toContain('push rbp')
+    expect(block.mappedRanges[0].instructions).toContain('ret')
+  })
 })

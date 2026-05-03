@@ -28,6 +28,12 @@ export type JitSourceMapRange = {
   pcOffsetHex: string
   endPcOffset: number | null
   endPcOffsetHex: string | null
+  pcRanges: Array<{
+    start: number
+    startHex: string
+    end: number | null
+    endHex: string | null
+  }>
   sourcePosition: number
   mappedSourcePosition: number
   sourceStart: number
@@ -457,7 +463,7 @@ function buildMappedRanges({
   )
   if (instructionRows.length === 0 || sourcePositions.length === 0) return []
 
-  return sourcePositions
+  const ranges = sourcePositions
     .filter((entry): entry is JitSourcePositionEntry & { mappedSourcePosition: number } =>
       typeof entry.mappedSourcePosition === 'number'
     )
@@ -479,6 +485,12 @@ function buildMappedRanges({
         pcOffsetHex: entry.pcOffsetHex,
         endPcOffset: next?.pcOffset ?? null,
         endPcOffsetHex: next?.pcOffsetHex ?? null,
+        pcRanges: [{
+          start: entry.pcOffset,
+          startHex: entry.pcOffsetHex,
+          end: next?.pcOffset ?? null,
+          endHex: next?.pcOffsetHex ?? null,
+        }],
         sourcePosition: entry.sourcePosition,
         mappedSourcePosition: entry.mappedSourcePosition,
         sourceStart,
@@ -490,4 +502,35 @@ function buildMappedRanges({
       }
     })
     .filter((range): range is JitSourceMapRange => Boolean(range))
+
+  return mergeRangesForSameSourceSpan(ranges, blockId)
+}
+
+function mergeRangesForSameSourceSpan(ranges: JitSourceMapRange[], blockId: string) {
+  const merged: JitSourceMapRange[] = []
+
+  for (const range of ranges) {
+    const previous = merged[merged.length - 1]
+    if (
+      previous &&
+      previous.sourceStart === range.sourceStart &&
+      previous.sourceEnd === range.sourceEnd &&
+      previous.sourcePosition === range.sourcePosition
+    ) {
+      previous.endPcOffset = range.endPcOffset
+      previous.endPcOffsetHex = range.endPcOffsetHex
+      previous.pcRanges.push(...range.pcRanges)
+      previous.instructions = `${previous.instructions}\n${range.instructions}`
+      previous.instructionCount += range.instructionCount
+      continue
+    }
+
+    merged.push({
+      ...range,
+      id: `${blockId}-span-${merged.length}`,
+      pcRanges: [...range.pcRanges],
+    })
+  }
+
+  return merged
 }
