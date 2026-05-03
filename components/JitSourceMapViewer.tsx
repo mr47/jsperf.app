@@ -3,6 +3,8 @@ import { Button } from '@/components/ui/button'
 import { codeLanguageClass, highlightSanitizedCode } from '../utils/hljs'
 import type { JitSourceMapRange, OptimizedBlock } from '../utils/jitSourceMap'
 
+type AssemblyViewMode = 'highlight' | 'filter'
+
 export default function JitSourceMapViewer({
   blocks,
   activeBlockIndex,
@@ -14,6 +16,7 @@ export default function JitSourceMapViewer({
 }) {
   const activeBlock = blocks[activeBlockIndex] || blocks[0] || null
   const [selectedRangeId, setSelectedRangeId] = useState<string | null>(null)
+  const [assemblyViewMode, setAssemblyViewMode] = useState<AssemblyViewMode>('highlight')
   const selectedRange = useMemo(() => {
     if (!activeBlock?.mappedRanges.length) return null
     return activeBlock.mappedRanges.find(range => range.id === selectedRangeId) || activeBlock.mappedRanges[0]
@@ -55,8 +58,8 @@ export default function JitSourceMapViewer({
         )}
       </div>
 
-      <div className="grid xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-        <div className="min-w-0 border-b border-border xl:border-b-0 xl:border-r">
+      <div className="grid min-h-[72vh] xl:h-[72vh] xl:min-h-[680px] xl:grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.1fr)]">
+        <div className="flex min-h-0 min-w-0 flex-col border-b border-border xl:border-b-0 xl:border-r">
           <PaneHeader
             title="Source"
             detail={activeBlock.name || 'jsperfUserBenchmark'}
@@ -72,29 +75,51 @@ export default function JitSourceMapViewer({
           )}
         </div>
 
-        <div className="min-w-0">
+        <div className="flex min-h-0 min-w-0 flex-col">
           <PaneHeader
             title="Assembly"
-            detail={hasPreciseMap && selectedRange ? `pc ${formatPcRange(selectedRange)}` : 'optimized function'}
+            detail={hasPreciseMap && selectedRange ? formatAssemblyDetail(selectedRange, assemblyViewMode) : 'optimized function'}
             meta={assemblyMeta(activeBlock, selectedRange)}
           />
           {hasPreciseMap && selectedRange && (
-            <div className="border-b border-border bg-muted/20 px-4 py-3">
-              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Selected source</div>
-              <div className="mt-1 truncate font-mono text-sm text-foreground">{selectedRange.sourceSnippet}</div>
+            <div className="flex flex-col gap-3 border-b border-border bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Selected source</div>
+                <div className="mt-1 truncate font-mono text-sm text-foreground">{selectedRange.sourceSnippet}</div>
+              </div>
+              <AssemblyModeToggle value={assemblyViewMode} onChange={setAssemblyViewMode} />
             </div>
           )}
-          <pre className="m-0 max-h-[64vh] overflow-auto bg-[#f6f8fa] p-4 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
-            <code
-              className={`${codeLanguageClass('x86asm', selectedRange?.instructions || activeBlock.instructionBody || activeBlock.optimizedBody)} block whitespace-pre`}
-              dangerouslySetInnerHTML={{
-                __html: highlightSanitizedCode(selectedRange?.instructions || activeBlock.instructionBody || activeBlock.optimizedBody, 'x86asm'),
-              }}
-            />
-          </pre>
+          <AssemblyCode block={activeBlock} selectedRange={selectedRange} viewMode={assemblyViewMode} />
         </div>
       </div>
     </section>
+  )
+}
+
+function AssemblyModeToggle({
+  value,
+  onChange,
+}: {
+  value: AssemblyViewMode
+  onChange: (value: AssemblyViewMode) => void
+}) {
+  return (
+    <div className="inline-flex w-fit rounded-lg border border-border bg-background p-1">
+      {(['highlight', 'filter'] as const).map(mode => (
+        <Button
+          key={mode}
+          type="button"
+          variant={value === mode ? 'secondary' : 'ghost'}
+          size="sm"
+          className="h-7 rounded-md px-3 text-xs capitalize"
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => onChange(mode)}
+        >
+          {mode}
+        </Button>
+      ))}
+    </div>
   )
 }
 
@@ -124,28 +149,37 @@ function MappedSpanList({
   onSelect: (id: string) => void
 }) {
   return (
-    <div className="border-t border-border bg-background">
+    <div className="flex min-h-0 flex-1 flex-col border-t border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <div className="text-xs font-medium text-foreground">Mapped spans</div>
-        <div className="text-[11px] text-muted-foreground">source {'->'} pc ranges</div>
+        <div className="text-xs font-medium text-foreground">Source regions</div>
+        <div className="text-[11px] text-muted-foreground">linked assembly</div>
       </div>
-      <div className="max-h-52 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto">
         {ranges.map((range, index) => (
           <button
             key={range.id}
             type="button"
-            className={`grid w-full grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-4 py-2 text-left transition-colors last:border-b-0 ${
+            className={`grid w-full grid-cols-[3rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-border/60 px-4 py-2.5 text-left transition-colors last:border-b-0 ${
               range.id === selectedRange?.id
                 ? 'bg-sky-500/10'
                 : 'bg-background hover:bg-muted/40'
             }`}
             onClick={() => onSelect(range.id)}
+            onMouseDown={event => event.preventDefault()}
             title={range.sourceSnippet}
           >
             <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
-            <span className="truncate font-mono text-xs text-foreground">{range.sourceSnippet || '(source)'}</span>
-            <span className="font-mono text-[11px] text-muted-foreground">
-              {range.mappedSourcePosition} {'->'} {formatPcRangeSummary(range)}
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-foreground">
+                {range.astMatch?.label || 'source region'}
+              </span>
+              <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground">
+                {range.sourceSnippet || '(source)'}
+              </span>
+            </span>
+            <span className="text-right font-mono text-[11px] text-muted-foreground">
+              {range.instructionCount} ins
+              <span className="block">{formatPcRangeSummary(range)}</span>
             </span>
           </button>
         ))}
@@ -157,47 +191,117 @@ function MappedSpanList({
 function SourceCode({ source, selectedRange }: { source: string; selectedRange: JitSourceMapRange | null }) {
   const lines = splitSourceLines(source)
   return (
-    <pre className="m-0 max-h-[44vh] overflow-auto bg-[#f6f8fa] p-0 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
-      <code className="block min-w-max py-4">
-        {lines.map((line, index) => (
-          <span key={`${line.start}:${index}`} className="block px-4 font-mono">
-            <span className="mr-4 inline-block w-7 select-none text-right text-muted-foreground/60">
-              {index + 1}
+    <pre className="m-0 min-h-[360px] flex-[0_0_62%] overflow-auto bg-[#f6f8fa] p-0 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
+      <code className={`${codeLanguageClass('javascript', source)} block min-w-max py-4`}>
+        {lines.map((line, index) => {
+          const selected = isSelectedSourceLine(line, selectedRange)
+          return (
+            <span
+              key={`${line.start}:${index}`}
+              className={`relative block px-5 font-mono ${
+                selected
+                  ? 'bg-sky-500/10 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-1 before:rounded-r before:bg-sky-400'
+                  : ''
+              }`}
+            >
+              <span className={`mr-4 inline-block w-7 select-none text-right ${
+                selected ? 'text-sky-500' : 'text-muted-foreground/60'
+              }`}>
+                {index + 1}
+              </span>
+              <SourceLine line={line} />
+              {'\n'}
             </span>
-            <SourceLine line={line} selectedRange={selectedRange} />
-            {'\n'}
-          </span>
-        ))}
+          )
+        })}
       </code>
     </pre>
   )
 }
 
-function SourceLine({
-  line,
+function AssemblyCode({
+  block,
   selectedRange,
+  viewMode,
 }: {
-  line: { text: string; start: number; end: number }
+  block: OptimizedBlock
   selectedRange: JitSourceMapRange | null
+  viewMode: AssemblyViewMode
 }) {
-  if (!selectedRange || selectedRange.sourceEnd <= line.start || selectedRange.sourceStart >= line.end) {
-    return <span>{line.text || ' '}</span>
-  }
-
-  const highlightStart = Math.max(selectedRange.sourceStart, line.start) - line.start
-  const highlightEnd = Math.min(selectedRange.sourceEnd, line.end) - line.start
-  const before = line.text.slice(0, highlightStart)
-  const selected = line.text.slice(highlightStart, highlightEnd) || ' '
-  const after = line.text.slice(highlightEnd)
+  const allLines = block.instructions.length > 0
+    ? block.instructions
+    : splitPlainAssembly(block.instructionBody || block.optimizedBody)
+  const lines = viewMode === 'filter' && selectedRange
+    ? allLines.filter(line => isSelectedAssemblyLine(line.pcOffset, selectedRange))
+    : allLines
 
   return (
-    <>
-      <span>{before}</span>
-      <mark className="rounded-sm bg-sky-400/20 px-0.5 text-foreground ring-1 ring-sky-400/30">
-        {selected}
-      </mark>
-      <span>{after}</span>
-    </>
+    <pre className="m-0 min-h-0 flex-1 overflow-auto bg-[#f6f8fa] p-0 text-xs leading-relaxed dark:bg-[#0d1117] sm:text-sm">
+      <code className={`${codeLanguageClass('x86asm', block.instructionBody || block.optimizedBody)} block min-w-max whitespace-pre py-5`}>
+        {lines.map((line, index) => {
+          const selected = viewMode === 'highlight' && isSelectedAssemblyLine(line.pcOffset, selectedRange)
+          return (
+            <span
+              key={`${line.pcOffsetHex || 'line'}:${index}`}
+              className={`relative block px-5 font-mono ${
+                selected
+                  ? 'bg-sky-500/10 before:absolute before:bottom-1 before:left-0 before:top-1 before:w-1 before:rounded-r before:bg-sky-400'
+                  : ''
+              }`}
+            >
+              <HighlightedAssemblyPart code={line.text || ' '} />
+              {'\n'}
+            </span>
+          )
+        })}
+      </code>
+    </pre>
+  )
+}
+
+function isSelectedAssemblyLine(pcOffset: number | null, selectedRange: JitSourceMapRange | null) {
+  if (pcOffset == null || !selectedRange) return false
+  return selectedRange.pcRanges.some(range =>
+    pcOffset >= range.start && (range.end == null ? pcOffset >= range.start : pcOffset < range.end)
+  )
+}
+
+function HighlightedAssemblyPart({ code }: { code: string }) {
+  if (!code) return null
+  return (
+    <span
+      dangerouslySetInnerHTML={{
+        __html: highlightSanitizedCode(code, 'x86asm'),
+      }}
+    />
+  )
+}
+
+function SourceLine({
+  line,
+}: {
+  line: { text: string; start: number; end: number }
+}) {
+  return <HighlightedSourcePart code={line.text || ' '} />
+}
+
+function isSelectedSourceLine(
+  line: { text: string; start: number; end: number },
+  selectedRange: JitSourceMapRange | null,
+) {
+  if (!selectedRange) return false
+  const lineEnd = line.end === line.start ? line.end + 1 : line.end
+  return selectedRange.sourceStart < lineEnd && selectedRange.sourceEnd > line.start
+}
+
+function HighlightedSourcePart({ code }: { code: string }) {
+  if (!code) return null
+  return (
+    <span
+      dangerouslySetInnerHTML={{
+        __html: highlightSanitizedCode(code, 'javascript'),
+      }}
+    />
   )
 }
 
@@ -211,6 +315,15 @@ function splitSourceLines(source: string) {
   })
 }
 
+function splitPlainAssembly(source: string) {
+  return source.split('\n').map(text => ({
+    text,
+    address: null,
+    pcOffset: null,
+    pcOffsetHex: null,
+  }))
+}
+
 function formatPcRange(range: JitSourceMapRange) {
   return `${range.pcOffsetHex}${range.endPcOffsetHex ? `-${range.endPcOffsetHex}` : '+'}`
 }
@@ -218,6 +331,11 @@ function formatPcRange(range: JitSourceMapRange) {
 function formatPcRangeSummary(range: JitSourceMapRange) {
   if (range.pcRanges.length <= 1) return formatPcRange(range)
   return `${range.pcRanges.length} ranges`
+}
+
+function formatAssemblyDetail(range: JitSourceMapRange, viewMode: AssemblyViewMode) {
+  const prefix = viewMode === 'filter' ? 'filtered' : 'highlighting'
+  return range.pcRanges.length <= 1 ? `${prefix} pc ${formatPcRange(range)}` : `${prefix} ${range.pcRanges.length} pc ranges`
 }
 
 function assemblyMeta(block: OptimizedBlock, selectedRange: JitSourceMapRange | null) {

@@ -138,12 +138,14 @@ describe('parseOptimizedBlocks', () => {
       mappedSourcePosition: 0,
       instructionCount: 2,
     })
+    expect(block.mappedRanges[0].sourceSnippet).toBe('const c=[...a,...b];')
     expect(block.mappedRanges[0].instructions).toContain('push rbp')
     expect(block.mappedRanges[1]).toMatchObject({
       pcOffset: 8,
       pcOffsetHex: '8',
       instructionCount: 1,
     })
+    expect(block.mappedRanges[1].sourceSnippet).toBe('return c.length')
     expect(block.mappedRanges[1].instructions).toContain('ret')
   })
 
@@ -186,5 +188,84 @@ describe('parseOptimizedBlocks', () => {
     expect(block.mappedRanges[0].pcRanges).toHaveLength(3)
     expect(block.mappedRanges[0].instructions).toContain('push rbp')
     expect(block.mappedRanges[0].instructions).toContain('ret')
+  })
+
+  it('groups repeated source positions by source extent instead of token offsets', () => {
+    const rawSource = '(a){ const total = a + 1; return total }'
+    const functionStart = 10
+    const declarationStart = rawSource.indexOf('const total')
+    const expressionStart = rawSource.indexOf('a + 1')
+    const returnStart = rawSource.indexOf('return')
+    const output = [
+      `--- FUNCTION SOURCE ([eval]:jsperfUserBenchmark) id{4,-1} start{${functionStart}} ---`,
+      rawSource,
+      '--- END ---',
+      '--- Raw source ---',
+      rawSource,
+      '',
+      '--- Optimized code ---',
+      'name = jsperfUserBenchmark',
+      'Instructions (size = 32)',
+      '0x1000     0  55             push rbp',
+      '0x1004     4  4889e5         mov rbp,rsp',
+      '0x1008     8  c3             ret',
+      '0x100c     c  90             nop',
+      '',
+      'Source positions:',
+      ' pc offset  position',
+      `        0        ${functionStart + declarationStart}`,
+      `        4        ${functionStart + expressionStart}`,
+      `        8        ${functionStart + returnStart}`,
+      `        c        ${functionStart + declarationStart}`,
+      '',
+      'Inlined functions (count = 0)',
+    ].join('\n')
+
+    const [block] = parseOptimizedBlocks(output)
+
+    expect(block.mappedRanges).toHaveLength(2)
+    expect(block.mappedRanges[0]).toMatchObject({
+      sourceSnippet: 'const total = a + 1;',
+      instructionCount: 3,
+    })
+    expect(block.mappedRanges[0].pcRanges).toHaveLength(3)
+    expect(block.mappedRanges[0].instructions).toContain('push rbp')
+    expect(block.mappedRanges[0].instructions).toContain('nop')
+    expect(block.mappedRanges[0].instructions).not.toContain('ret')
+    expect(block.mappedRanges[1]).toMatchObject({
+      sourceSnippet: 'return total',
+      instructionCount: 1,
+    })
+  })
+
+  it('keeps nested block source instead of trimming at the first closing brace line', () => {
+    const rawSource = [
+      '(col) {',
+      'const fn = (col) => {',
+      '  let rr = [];',
+      '  for (let i = 0; i < a.length; i++) {',
+      '    if (i % 3 === col - 1) {',
+      '      rr.push(a[i]);',
+      '    }',
+      '  }',
+      '  return rr;',
+      '}',
+      '})',
+    ].join('\n')
+    const output = [
+      '--- Raw source ---',
+      rawSource,
+      '',
+      '--- Optimized code ---',
+      'name = jsperfUserBenchmark',
+      'Instructions (size = 64)',
+      '0x1  0  55  push rbp',
+    ].join('\n')
+
+    const [block] = parseOptimizedBlocks(output)
+
+    expect(block.source).toContain('rr.push(a[i]);')
+    expect(block.source).toContain('return rr;')
+    expect(block.source.trim().endsWith('}')).toBe(true)
   })
 })

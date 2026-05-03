@@ -83,8 +83,16 @@ type AstNode = {
 
 const FUNCTION_SOURCE_RE = /^--- FUNCTION SOURCE [^\n]*\bstart\{(\d+)\} [^\n]*---$/gm
 const WRAPPER_PREFIX_RE = /^(?:async\s+)?(?:function(?:\s+[A-Za-z_$][\w$]*)?\s*)?\([^)]*\)\s*\{\s*\n?/
-const WRAPPER_SUFFIX_RE = /\n?\s*\}\)?\s*$/m
+const WRAPPER_SUFFIX_RE = /\n?\s*\}\)?\s*$/
 const INSTRUCTION_LINE_RE = /^\s*(0x[0-9a-f]+)\s+([0-9a-f]+)\s+(.+)$/i
+const TOKEN_SIZED_NODE_TYPES = new Set([
+  'Identifier',
+  'NumericLiteral',
+  'StringLiteral',
+  'BooleanLiteral',
+  'NullLiteral',
+  'ThisExpression',
+])
 const HIGHLIGHT_NODE_TYPES = new Set([
   'ArrayExpression',
   'ArrowFunctionExpression',
@@ -93,6 +101,7 @@ const HIGHLIGHT_NODE_TYPES = new Set([
   'BinaryExpression',
   'CallExpression',
   'ConditionalExpression',
+  'ExpressionStatement',
   'ForOfStatement',
   'ForStatement',
   'FunctionDeclaration',
@@ -206,18 +215,30 @@ function mapSourcePositionToCleanSource(
 }
 
 function findAstNodeAt(source: string, position: number): AstMatch | null {
+  return findAstNodeAtWithOptions(source, position, { allowTokenSized: true })
+}
+
+function findSourceExtentAt(source: string, position: number): AstMatch | null {
+  return findAstNodeAtWithOptions(source, position, { allowTokenSized: false })
+}
+
+function findAstNodeAtWithOptions(source: string, position: number, options: { allowTokenSized: boolean }): AstMatch | null {
   const ast = parseSource(source)
   if (!ast) return findRepresentativeAstNode(source)
 
   const candidates: AstNode[] = []
   visitAst(ast as unknown as AstNode, (node) => {
     if (!isInterestingNode(node)) return
+    if (!options.allowTokenSized && isTokenSizedNode(node)) return
     if (typeof node.start !== 'number' || typeof node.end !== 'number') return
     if (node.start <= position && position <= node.end) candidates.push(node)
   })
 
   const best = candidates
-    .sort((a, b) => ((a.end! - a.start!) - (b.end! - b.start!)))[0]
+    .sort((a, b) => {
+      if (options.allowTokenSized) return ((a.end! - a.start!) - (b.end! - b.start!))
+      return scoreSourceExtent(a, position) - scoreSourceExtent(b, position)
+    })[0]
 
   return best ? toAstMatch(best, source) : findRepresentativeAstNode(source)
 }
@@ -292,6 +313,22 @@ function isInterestingNode(node: AstNode) {
   return Boolean(node.type && HIGHLIGHT_NODE_TYPES.has(node.type))
 }
 
+function isTokenSizedNode(node: AstNode) {
+  return Boolean(node.type && TOKEN_SIZED_NODE_TYPES.has(node.type))
+}
+
+function scoreSourceExtent(node: AstNode, position: number) {
+  const size = Math.max(0, (node.end || 0) - (node.start || 0))
+  const type = String(node.type || '')
+  if (type === 'ExpressionStatement') return size - 1000
+  if (type === 'VariableDeclaration' || type === 'ReturnStatement') return size - 950
+  if (type === 'ForStatement' || type === 'ForOfStatement' || type === 'IfStatement') return size - 900
+  if (type === 'CallExpression') return size - 200
+  if (type === 'ArrayExpression' || type === 'ObjectExpression') return size - 150
+  if ((node.start || 0) === position && size <= 2) return size + 1000
+  return size + 100
+}
+
 function toAstMatch(node: AstNode, source: string): AstMatch {
   const start = Math.max(0, Number(node.start) || 0)
   const end = Math.max(start, Number(node.end) || start)
@@ -321,6 +358,8 @@ function describeAstNode(node: AstNode) {
       return 'array literal'
     case 'ObjectExpression':
       return 'object literal'
+    case 'ExpressionStatement':
+      return 'expression statement'
     case 'ReturnStatement':
       return 'return statement'
     case 'ForStatement':
@@ -474,7 +513,7 @@ function buildMappedRanges({
       )
       if (rangeInstructions.length === 0) return null
 
-      const astMatch = findAstNodeAt(source, entry.mappedSourcePosition)
+      const astMatch = findSourceExtentAt(source, entry.mappedSourcePosition)
       const sourceStart = astMatch?.start ?? entry.mappedSourcePosition
       const sourceEnd = Math.max(astMatch?.end ?? entry.mappedSourcePosition + 1, sourceStart + 1)
       const sourceSnippet = (astMatch?.snippet || source.slice(sourceStart, sourceEnd)).trim()
@@ -507,30 +546,36 @@ function buildMappedRanges({
 }
 
 function mergeRangesForSameSourceSpan(ranges: JitSourceMapRange[], blockId: string) {
-  const merged: JitSourceMapRange[] = []
+  const bySourceSpan = new Map<string, JitSourceMapRange>()
 
   for (const range of ranges) {
-    const previous = merged[merged.length - 1]
-    if (
-      previous &&
-      previous.sourceStart === range.sourceStart &&
-      previous.sourceEnd === range.sourceEnd &&
-      previous.sourcePosition === range.sourcePosition
-    ) {
-      previous.endPcOffset = range.endPcOffset
-      previous.endPcOffsetHex = range.endPcOffsetHex
-      previous.pcRanges.push(...range.pcRanges)
-      previous.instructions = `${previous.instructions}\n${range.instructions}`
-      previous.instructionCount += range.instructionCount
+    const key = `${range.sourceStart}:${range.sourceEnd}`
+    const existing = bySourceSpan.get(key)
+
+    if (!existing) {
+      bySourceSpan.set(key, {
+        ...range,
+        pcRanges: [...range.pcRanges],
+      })
       continue
     }
 
-    merged.push({
-      ...range,
-      id: `${blockId}-span-${merged.length}`,
-      pcRanges: [...range.pcRanges],
-    })
+    existing.pcOffset = Math.min(existing.pcOffset, range.pcOffset)
+    existing.pcOffsetHex = existing.pcOffset.toString(16)
+    existing.sourcePosition = Math.min(existing.sourcePosition, range.sourcePosition)
+    existing.mappedSourcePosition = Math.min(existing.mappedSourcePosition, range.mappedSourcePosition)
+    existing.endPcOffset = range.endPcOffset ?? existing.endPcOffset
+    existing.endPcOffsetHex = range.endPcOffsetHex ?? existing.endPcOffsetHex
+    existing.pcRanges.push(...range.pcRanges)
+    existing.instructions = `${existing.instructions}\n${range.instructions}`
+    existing.instructionCount += range.instructionCount
   }
 
-  return merged
+  return Array.from(bySourceSpan.values())
+    .sort((a, b) => a.sourceStart - b.sourceStart || a.pcOffset - b.pcOffset)
+    .map((range, index) => ({
+      ...range,
+      id: `${blockId}-span-${index}`,
+      pcRanges: range.pcRanges.sort((a, b) => a.start - b.start),
+    }))
 }
