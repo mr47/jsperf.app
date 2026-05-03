@@ -60,7 +60,7 @@ export default function RuntimeAnalysisModal({
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-border/60 p-5">
           <div>
             <h2 id="runtime-analysis-title" className="text-lg font-semibold text-foreground">
@@ -83,7 +83,7 @@ export default function RuntimeAnalysisModal({
           </Button>
         </div>
 
-        <div className="p-5">
+        <div className="overflow-y-auto p-5">
           {isDonor && (
             <label className="group relative mb-5 block cursor-pointer overflow-hidden rounded-2xl border border-amber-400/40 bg-gradient-to-br from-amber-500/15 via-orange-500/10 to-violet-500/10 p-4 shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-amber-400/70 hover:shadow-lg hover:shadow-amber-500/10">
               <span className="pointer-events-none absolute -right-12 -top-14 h-36 w-36 rounded-full bg-amber-400/20 blur-3xl transition-transform duration-500 group-hover:scale-125" />

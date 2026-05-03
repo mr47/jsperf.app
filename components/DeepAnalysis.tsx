@@ -159,8 +159,8 @@ function AnalysisProgress({ progress, testCount, pipeline, seenMultiRuntime, ste
 }
 
 export default function DeepAnalysis({
-  status, analysis, error, onRetry, progress, pipeline, stepStatuses, testCount,
-  multiRuntime, cachedAt, stats, tests, setup, teardown, showCompatibilityMatrix = false,
+  status, analysis, error, onRetry, onJitCaptureRequest, progress, pipeline, stepStatuses, testCount,
+  multiRuntime, cachedAt, stats, tests, setup, teardown, showCompatibilityMatrix = false, jitCaptureRequested = false,
 }) {
   const mrStatus = multiRuntime?.status || 'idle'
   const mrData = multiRuntime?.data || null
@@ -306,6 +306,8 @@ export default function DeepAnalysis({
         results={enrichedResults}
         status={mrStatus}
         error={mrError}
+        onJitCaptureRequest={onJitCaptureRequest}
+        jitCaptureRequested={jitCaptureRequested}
       />
     </div>
   )
@@ -389,12 +391,12 @@ function mergeMultiRuntime(baseResults, mrData) {
   })
 }
 
-function MultiRuntimeSection({ results, status, error }) {
+function MultiRuntimeSection({ results, status, error, onJitCaptureRequest, jitCaptureRequested }) {
   if (status === 'idle' || status === 'unavailable') {
     // Nothing to show — either no worker configured, or worker unreachable
     // and we deliberately don't surface a panel for that. (RuntimeComparison
     // already handles the multiRuntimeError case for partial failures.)
-    return <RuntimeComparison results={results} />
+    return <RuntimeComparison results={results} onJitCaptureRequest={onJitCaptureRequest} jitCaptureRequested={jitCaptureRequested} />
   }
 
   if (status === 'pending') {
@@ -423,5 +425,5 @@ function MultiRuntimeSection({ results, status, error }) {
     )
   }
 
-  return <RuntimeComparison results={results} />
+  return <RuntimeComparison results={results} onJitCaptureRequest={onJitCaptureRequest} jitCaptureRequested={jitCaptureRequested} />
 }

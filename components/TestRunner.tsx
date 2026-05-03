@@ -599,6 +599,10 @@ export default function Tests(props) {
           analysis={analysis}
           error={analysisError}
           onRetry={() => openRuntimeAnalysisModal(true)}
+          onJitCaptureRequest={() => {
+            setV8JitProfiling(true)
+            openRuntimeAnalysisModal(true)
+          }}
           progress={analysisProgress}
           pipeline={analysisPipeline}
           stepStatuses={analysisStepStatuses}
@@ -609,6 +613,7 @@ export default function Tests(props) {
           setup={setup}
           teardown={teardown}
           showCompatibilityMatrix={isDonor && analysisStatus === 'done' && !!analysis}
+          jitCaptureRequested={v8JitProfiling}
           multiRuntime={{
             status: multiRuntimeStatus,
             data: multiRuntimeData,

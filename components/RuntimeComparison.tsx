@@ -68,7 +68,7 @@ function Help({ text }) {
   )
 }
 
-export default function RuntimeComparison({ results }) {
+export default function RuntimeComparison({ results, onJitCaptureRequest = null, jitCaptureRequested = false }) {
   if (!results || results.length === 0) return null
 
   const anyData = results.some(r => r.runtimeComparison?.available)
@@ -106,7 +106,7 @@ export default function RuntimeComparison({ results }) {
           {results.map((r) => {
             const cmp = r.runtimeComparison
             if (!cmp || !cmp.available) return null
-            return <TestRuntimePanel key={r.testIndex} title={r.title} comparison={cmp} />
+            return <TestRuntimePanel key={r.testIndex} title={r.title} comparison={cmp} onJitCaptureRequest={onJitCaptureRequest} jitCaptureRequested={jitCaptureRequested} />
           })}
         </div>
       </CardContent>
@@ -131,7 +131,7 @@ function RuntimeLegend() {
   )
 }
 
-function TestRuntimePanel({ title, comparison }) {
+function TestRuntimePanel({ title, comparison, onJitCaptureRequest, jitCaptureRequested }) {
   const ordered = [...comparison.runtimes].sort(compareRuntimeEntries)
 
   const series = ordered.map((rt) => {
@@ -265,7 +265,7 @@ function TestRuntimePanel({ title, comparison }) {
       <UnifiedTable series={series} sections={tableSections} />
 
       <CpuProfileLinks series={series} />
-      <JitArtifactLinks series={series} />
+      <JitArtifactLinks series={series} onCaptureRequest={onJitCaptureRequest} captureRequested={jitCaptureRequested} />
 
       {series.some(s => s.hasError) && (
         <div className="text-[11px] text-red-600 dark:text-red-400 space-y-0.5">
@@ -340,9 +340,13 @@ function CpuProfileLinks({ series }) {
   )
 }
 
-function JitArtifactLinks({ series }) {
+function JitArtifactLinks({ series, onCaptureRequest, captureRequested }) {
   const artifacts = series.filter(s => s.jitArtifactRef || s.jitArtifactError)
-  if (artifacts.length === 0) return null
+  const hasV8Runtime = series.some(s => {
+    const runtime = runtimeId(s)
+    return runtime.startsWith('node') || runtime.startsWith('deno')
+  })
+  if (artifacts.length === 0 && !hasV8Runtime) return null
 
   return (
     <div className="rounded-lg border border-sky-500/30 bg-sky-500/5 p-3">
@@ -356,8 +360,23 @@ function JitArtifactLinks({ series }) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        {artifacts.map((s) => {
+      {artifacts.length === 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/70 px-3 py-2">
+          <div className="min-w-0 text-xs text-muted-foreground">
+            {captureRequested
+              ? 'JIT capture was requested, but this worker result did not include a JIT artifact. Restart or redeploy the benchmark worker so it runs the updated capture code, then re-run Deep Analysis.'
+              : 'No JIT artifact captured for this comparison yet. Re-run Deep Analysis with Node/Deno JIT output enabled to generate public viewer links.'}
+          </div>
+          {onCaptureRequest && (
+            <Button type="button" variant="outline" size="xs" onClick={onCaptureRequest}>
+              <Cpu className="h-3 w-3" />
+              Re-run with JIT capture
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {artifacts.map((s) => {
           const ref = s.jitArtifactRef
           return (
             <div key={s.runtime} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/70 px-3 py-2">
@@ -394,8 +413,9 @@ function JitArtifactLinks({ series }) {
               )}
             </div>
           )
-        })}
-      </div>
+          })}
+        </div>
+      )}
     </div>
   )
 }
