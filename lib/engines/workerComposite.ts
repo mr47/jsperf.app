@@ -28,18 +28,22 @@ export async function runWorkerCompositeAnalysis(session: any, { signal }: Worke
     }))
     .filter(entry => entry.browserApis.length === 0)
 
-  const stored = await loadStoredMultiRuntimeResults(
+  const rawStored = await loadStoredMultiRuntimeResults(
     cacheKey,
     runnableTests.map(({ index }) => ({ testIndex: index })),
     { requireAll: true },
   )
+  const storedDecision = chooseStoredMultiRuntimeResults(rawStored, options)
+  const stored = storedDecision.useStored ? rawStored : null
 
   console.info('[analysis] worker composite preparing request', {
     workerUrl: redactWorkerUrl(workerUrl),
     cacheKey,
     profiling: options.profiling || null,
     runnableTests: runnableTests.length,
-    storedResults: stored?.results?.length || 0,
+    storedResults: rawStored?.results?.length || 0,
+    storedUsable: Boolean(stored),
+    storedBypassReason: storedDecision.reason,
     willEnqueueRuntimeJobs: !stored,
   })
 
@@ -141,6 +145,30 @@ function buildMultiRuntimeFallback({ prepared, runnableTests, stored, setup, tea
 
   if (!process.env.BENCHMARK_WORKER_URL) return null
   return { error: formatBrowserApiSkip(prepared.original.tests, setup, teardown) }
+}
+
+function chooseStoredMultiRuntimeResults(stored: any, options: any = {}) {
+  if (!stored?.results?.length) return { useStored: false, reason: 'no-stored-results' }
+  if (options?.profiling?.v8Jit !== true) return { useStored: true, reason: null }
+
+  const storedHasJitArtifacts = stored.results.every((result: any) =>
+    countStoredJitArtifacts(result?.runtimes) > 0
+  )
+
+  return storedHasJitArtifacts
+    ? { useStored: true, reason: null }
+    : { useStored: false, reason: 'jit-requested-without-stored-artifacts' }
+}
+
+function countStoredJitArtifacts(runtimes: any) {
+  let count = 0
+  if (!runtimes || typeof runtimes !== 'object') return count
+  for (const runtime of Object.values(runtimes) as any[]) {
+    for (const profile of runtime?.profiles || []) {
+      if (profile?.jitArtifactRef || profile?.jitArtifact) count += 1
+    }
+  }
+  return count
 }
 
 function normalizeQuickJSProfiles(value: unknown, testCount: number) {

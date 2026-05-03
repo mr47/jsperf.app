@@ -124,6 +124,68 @@ describe('runWorkerCompositeAnalysis', () => {
     expect(JSON.parse(init.body).multiRuntime.tests).toEqual([])
   })
 
+  it('bypasses stored multi-runtime results for JIT runs without stored artifacts', async () => {
+    loadStoredMultiRuntimeResultsMock.mockResolvedValueOnce({
+      results: [{
+        testIndex: 0,
+        state: 'done',
+        runtimes: {
+          node: { profiles: [{ label: '1x', opsPerSec: 1000 }] },
+        },
+        runtimeComparison: { available: true },
+      }],
+      fromStore: true,
+      cacheKey: 'mr-cache',
+    })
+    const fetchMock = vi.mocked(globalThis.fetch)
+    fetchMock.mockImplementationOnce(() => jsonResponse({
+      quickjsProfiles: [[{ label: '1x', opsPerSec: 1000, state: 'completed' }]],
+      complexities: [null],
+      multiRuntime: { jobs: [{ testIndex: 0, jobId: 'jit-job' }], deadlineMs: 30_000 },
+    }) as any)
+
+    const result = await runWorkerCompositeAnalysis(session({
+      multiRuntimeOptions: { profiling: { nodeCpu: true, v8Jit: true } },
+    }))
+
+    expect(result.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'jit-job' }])
+    const [, initRaw] = fetchMock.mock.calls[0]
+    const init = initRaw as RequestInit & { body: string }
+    const body = JSON.parse(init.body)
+    expect(body.multiRuntime.tests).toHaveLength(1)
+    expect(body.multiRuntime.tests[0].profiling).toEqual({ nodeCpu: true, v8Jit: true })
+  })
+
+  it('uses stored multi-runtime results for JIT runs that already have artifacts', async () => {
+    loadStoredMultiRuntimeResultsMock.mockResolvedValueOnce({
+      results: [{
+        testIndex: 0,
+        state: 'done',
+        runtimes: {
+          node: { profiles: [{ label: '1x', jitArtifactRef: { id: 'jit-1' } }] },
+        },
+        runtimeComparison: { available: true },
+      }],
+      fromStore: true,
+      cacheKey: 'mr-cache',
+    })
+    const fetchMock = vi.mocked(globalThis.fetch)
+    fetchMock.mockImplementationOnce(() => jsonResponse({
+      quickjsProfiles: [[{ label: '1x', opsPerSec: 1000, state: 'completed' }]],
+      complexities: [null],
+      multiRuntime: null,
+    }) as any)
+
+    const result = await runWorkerCompositeAnalysis(session({
+      multiRuntimeOptions: { profiling: { nodeCpu: true, v8Jit: true } },
+    }))
+
+    expect(result.multiRuntime.stored).toBe(true)
+    const [, initRaw] = fetchMock.mock.calls[0]
+    const init = initRaw as RequestInit & { body: string }
+    expect(JSON.parse(init.body).multiRuntime.tests).toEqual([])
+  })
+
   it('reports malformed QuickJS profiles as unavailable', async () => {
     const fetchMock = vi.mocked(globalThis.fetch)
     fetchMock.mockImplementationOnce(() => jsonResponse({
