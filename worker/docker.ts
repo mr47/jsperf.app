@@ -38,7 +38,7 @@ const ENTRYPOINT_BY_RUNTIME = {
   bun: (file) => ['bun', 'run', file],
 }
 
-const JIT_CAPTURE_MAX_BYTES = 1024 * 1024
+const JIT_CAPTURE_MAX_BYTES = 4 * 1024 * 1024
 const STDOUT_PARSE_TAIL_BYTES = 256 * 1024
 const STDERR_TAIL_BYTES = 500
 
