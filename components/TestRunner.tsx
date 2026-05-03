@@ -62,6 +62,7 @@ export default function Tests(props) {
     setNodeCpuProfiling,
     v8JitProfiling,
     setV8JitProfiling,
+    runJitCaptureAnalysis,
     openRuntimeAnalysisModal,
     closeRuntimeAnalysisModal,
     confirmRuntimeAnalysis,
@@ -599,10 +600,7 @@ export default function Tests(props) {
           analysis={analysis}
           error={analysisError}
           onRetry={() => openRuntimeAnalysisModal(true)}
-          onJitCaptureRequest={() => {
-            setV8JitProfiling(true)
-            openRuntimeAnalysisModal(true)
-          }}
+          onJitCaptureRequest={runJitCaptureAnalysis}
           progress={analysisProgress}
           pipeline={analysisPipeline}
           stepStatuses={analysisStepStatuses}

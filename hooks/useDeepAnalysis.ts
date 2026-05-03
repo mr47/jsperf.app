@@ -209,7 +209,7 @@ export function useDeepAnalysis({
     openStream()
   }, [])
 
-  const runDeepAnalysis = useCallback(async ({ force = false } = {}) => {
+  const runDeepAnalysis = useCallback(async ({ force = false, profilingOverride = null }: any = {}) => {
     setAnalysisStatus('loading')
     setAnalysisError(null)
     setAnalysisProgress(null)
@@ -223,8 +223,10 @@ export function useDeepAnalysis({
     multiRuntimeAbortRef.current = null
 
     try {
-      const profiling = isDonor || nodeCpuProfiling || v8JitProfiling
-        ? { nodeCpu: nodeCpuProfiling, v8Jit: v8JitProfiling }
+      const nextNodeCpuProfiling = Boolean(profilingOverride?.nodeCpu ?? nodeCpuProfiling)
+      const nextV8JitProfiling = Boolean(profilingOverride?.v8Jit ?? v8JitProfiling)
+      const profiling = isDonor || nextNodeCpuProfiling || nextV8JitProfiling
+        ? { nodeCpu: nextNodeCpuProfiling, v8Jit: nextV8JitProfiling }
         : null
       const analysisPayload = {
         tests: tests.map(t => ({ code: t.code, title: t.title, async: !!t.async })),
@@ -431,6 +433,16 @@ export function useDeepAnalysis({
     runDeepAnalysis({ force })
   }, [runtimeModalForce, runDeepAnalysis])
 
+  const runJitCaptureAnalysis = useCallback(() => {
+    setV8JitProfiling(true)
+    setRuntimeModalOpen(false)
+    setRuntimeModalForce(false)
+    runDeepAnalysis({
+      force: true,
+      profilingOverride: { v8Jit: true },
+    })
+  }, [runDeepAnalysis])
+
   useEffect(() => {
     return () => {
       multiRuntimeAbortRef.current?.abort()
@@ -508,6 +520,7 @@ export function useDeepAnalysis({
     setNodeCpuProfiling,
     v8JitProfiling,
     setV8JitProfiling,
+    runJitCaptureAnalysis,
     openRuntimeAnalysisModal,
     closeRuntimeAnalysisModal,
     confirmRuntimeAnalysis,

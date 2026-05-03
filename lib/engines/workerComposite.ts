@@ -104,7 +104,7 @@ export async function runWorkerCompositeAnalysis(session: any, { signal }: Worke
     complexities: Array.isArray(body?.complexities)
       ? body.complexities
       : Array(prepared.runtime.tests.length).fill(null),
-    multiRuntime: multiRuntimeFallback || normalizeMultiRuntime(body?.multiRuntime, cacheKey),
+    multiRuntime: multiRuntimeFallback || normalizeMultiRuntime(body?.multiRuntime, cacheKey, options),
   }
 }
 
@@ -122,7 +122,7 @@ function normalizeQuickJSProfiles(value: unknown, testCount: number) {
   return value.every(profiles => Array.isArray(profiles)) ? value : null
 }
 
-function normalizeMultiRuntime(value: any, cacheKey: string) {
+function normalizeMultiRuntime(value: any, cacheKey: string, options: any = {}) {
   if (!value) return null
   if (Array.isArray(value.jobs) && value.jobs.length > 0) {
     const deadlineMs = Number(value.deadlineMs) || 30_000
@@ -131,6 +131,7 @@ function normalizeMultiRuntime(value: any, cacheKey: string) {
       deadlineMs,
       deadlineAt: Date.now() + deadlineMs,
       cacheKey,
+      profiling: options.profiling || null,
     }
   }
   if (value.error || value.unavailable) {

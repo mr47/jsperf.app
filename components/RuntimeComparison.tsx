@@ -361,16 +361,16 @@ function JitArtifactLinks({ series, onCaptureRequest, captureRequested }) {
       </div>
 
       {artifacts.length === 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 bg-background/70 px-3 py-2">
-          <div className="min-w-0 text-xs text-muted-foreground">
+        <div className="rounded-md border border-border/50 bg-background/70 px-3 py-3">
+          <div className="text-xs text-muted-foreground">
             {captureRequested
               ? 'JIT capture was requested, but this worker result did not include a JIT artifact. Restart or redeploy the benchmark worker so it runs the updated capture code, then re-run Deep Analysis.'
-              : 'No JIT artifact captured for this comparison yet. Re-run Deep Analysis with Node/Deno JIT output enabled to generate public viewer links.'}
+              : 'This comparison was produced without a stored JIT artifact, so there is no viewer link for the current result. Start a new Deep Analysis run with Node/Deno JIT capture enabled to generate public viewer links.'}
           </div>
           {onCaptureRequest && (
-            <Button type="button" variant="outline" size="xs" onClick={onCaptureRequest}>
+            <Button type="button" variant="outline" size="sm" className="mt-3 border-sky-500/40 bg-sky-500/10 text-sky-700 hover:bg-sky-500/15 dark:text-sky-300" onClick={onCaptureRequest}>
               <Cpu className="h-3 w-3" />
-              Re-run with JIT capture
+              Run Deep Analysis with JIT capture
             </Button>
           )}
         </div>
