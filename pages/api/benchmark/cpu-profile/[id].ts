@@ -36,6 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     testIndex: doc.testIndex,
     profileLabel: doc.profileLabel,
     meta: doc.meta,
-    cpuProfile: focusedCpuProfile,
+    cpuProfile: doc.cpuProfile,
+    focusedCpuProfile,
   })
 }

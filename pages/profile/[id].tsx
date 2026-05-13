@@ -25,12 +25,33 @@ type CpuProfileDoc = {
     sizeBytes?: number
     sampleCount?: number
     nodeCount?: number
+    captureScope?: string
+    source?: CpuProfileSource
   }
   cpuProfile?: {
     nodes?: CpuProfileNode[]
     samples?: number[]
     timeDeltas?: number[]
   }
+  focusedCpuProfile?: {
+    nodes?: CpuProfileNode[]
+    samples?: number[]
+    timeDeltas?: number[]
+  }
+}
+
+type CpuProfileSource = {
+  language?: string
+  sourceKind?: string
+  code?: string
+  setup?: string
+  teardown?: string
+  originalCode?: string | null
+  originalSetup?: string | null
+  originalTeardown?: string | null
+  compilerVersion?: string | null
+  sourcePrepVersion?: number | null
+  isAsync?: boolean
 }
 
 export default function CpuProfilePage() {
@@ -74,6 +95,7 @@ export default function CpuProfilePage() {
   }, [id])
 
   const hotFunctions = useMemo(() => buildHotFunctions(data?.cpuProfile), [data?.cpuProfile])
+  const sourceSections = useMemo(() => buildSourceSections(data?.meta?.source), [data?.meta?.source])
   const title = data
     ? `${data.label || data.runtime || 'Runtime'} CPU Profile`
     : 'CPU Profile'
@@ -160,7 +182,7 @@ export default function CpuProfilePage() {
                     <div>
                       <h2 className="text-xl font-semibold tracking-tight">Hot functions</h2>
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Self time by sampled benchmark-code leaf function. Harness-only samples are hidden here.
+                        Self time by sampled leaf function across the full Node test run.
                       </p>
                     </div>
                     {id && (
@@ -230,6 +252,31 @@ export default function CpuProfilePage() {
                 </CardContent>
               </Card>
 
+              {sourceSections.length > 0 && (
+                <Card className="overflow-hidden border-border/70 shadow-sm">
+                  <CardContent className="p-0">
+                    <div className="border-b border-border/70 p-5 sm:p-6">
+                      <h2 className="text-xl font-semibold tracking-tight">Captured source</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Source context stored with this CPU profile. Line numbers in the profile map to the generated benchmark function.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                        {data.meta?.captureScope && <BadgeText label="Scope" value={formatCaptureScope(data.meta.captureScope)} />}
+                        {data.meta?.source?.language && <BadgeText label="Language" value={data.meta.source.language} />}
+                        {data.meta?.source?.sourceKind && <BadgeText label="Source" value={data.meta.source.sourceKind} />}
+                        {data.meta?.source?.isAsync && <BadgeText label="Mode" value="async" />}
+                      </div>
+                    </div>
+
+                    <div className="divide-y divide-border/70">
+                      {sourceSections.map(section => (
+                        <SourceBlock key={section.label} label={section.label} code={section.code} />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <div className="rounded-2xl border border-border/70 bg-card/70 p-5 shadow-sm backdrop-blur-sm sm:flex sm:items-center sm:justify-between sm:gap-6">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-500/10">
@@ -238,7 +285,7 @@ export default function CpuProfilePage() {
                   <div>
                     <h2 className="font-semibold">Need the interactive call tree?</h2>
                     <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      CPUpro opens the focused benchmark-code profile with flame graphs, call frames, and total-time drilldowns. The raw `.cpuprofile` download is unchanged.
+                      CPUpro opens the full test profile with flame graphs, call frames, and total-time drilldowns. The raw `.cpuprofile` download is unchanged.
                     </p>
                   </div>
                 </div>
@@ -269,6 +316,41 @@ function DarkMetric({ icon: Icon, label, value }: { icon: LucideIcon, label: str
       <div className="truncate text-lg font-bold text-white">{value}</div>
     </div>
   )
+}
+
+function BadgeText({ label, value }: { label: string, value: string }) {
+  return (
+    <span className="rounded-full border border-border bg-muted/40 px-2.5 py-1">
+      <span className="font-medium text-foreground">{label}:</span> {value}
+    </span>
+  )
+}
+
+function SourceBlock({ label, code }: { label: string, code: string }) {
+  return (
+    <section className="p-5 sm:p-6">
+      <div className="mb-3 text-sm font-semibold text-foreground">{label}</div>
+      <pre className="max-h-96 overflow-auto rounded-xl border border-border bg-slate-950 p-4 text-xs leading-relaxed text-slate-100">
+        <code>{code}</code>
+      </pre>
+    </section>
+  )
+}
+
+function buildSourceSections(source?: CpuProfileSource) {
+  if (!source) return []
+
+  const sections = [
+    { label: 'Setup', code: source.setup || '' },
+    { label: 'Benchmark function', code: source.code || '' },
+    { label: 'Teardown', code: source.teardown || '' },
+  ].filter(section => section.code.trim().length > 0)
+
+  if (source.originalCode && source.originalCode !== source.code) {
+    sections.push({ label: 'Original benchmark source', code: source.originalCode })
+  }
+
+  return sections
 }
 
 function buildHotFunctions(profile: CpuProfileDoc['cpuProfile']) {
@@ -331,6 +413,10 @@ function formatBig(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
   return String(Math.round(n))
+}
+
+function formatCaptureScope(scope: string) {
+  return scope.split('-').filter(Boolean).join(' + ')
 }
 
 async function formatNonJsonError(res: Response) {

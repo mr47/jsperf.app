@@ -34,6 +34,7 @@ const CPU_PROFILE_MAX_BYTES = 8 * 1024 * 1024;
 
 let __cpuProfilerSession = null;
 let __cpuProfileError = null;
+let __benchmarkResult = null;
 
 function emitResult(obj) {
   process.stdout.write(JSON.stringify(obj) + '\\n');
@@ -65,7 +66,7 @@ async function startCpuProfile() {
   }
 }
 
-async function finalizeBenchmarkResult(result) {
+async function finalizeBenchmarkResult(result, benchmarkSource) {
   if (!ENABLE_CPU_PROFILE) return result;
 
   if (!__cpuProfilerSession) {
@@ -85,6 +86,8 @@ async function finalizeBenchmarkResult(result) {
       return { ...result, cpuProfileError: 'Profiler did not return a CPU profile' };
     }
 
+    profile._scripts = buildCpuProfileScripts(profile, benchmarkSource);
+
     const encoded = JSON.stringify(profile);
     const sizeBytes = Buffer.byteLength(encoded);
     if (sizeBytes > CPU_PROFILE_MAX_BYTES) {
@@ -96,6 +99,8 @@ async function finalizeBenchmarkResult(result) {
           sizeBytes,
           nodeCount: profile.nodes.length,
           sampleCount: Array.isArray(profile.samples) ? profile.samples.length : 0,
+          captureScope: 'setup-benchmark-teardown',
+          sourceURL: 'jsperf-user-code.js',
         },
       };
     }
@@ -110,6 +115,8 @@ async function finalizeBenchmarkResult(result) {
         sampleCount: Array.isArray(profile.samples) ? profile.samples.length : 0,
         startTime: profile.startTime || null,
         endTime: profile.endTime || null,
+        captureScope: 'setup-benchmark-teardown',
+        sourceURL: 'jsperf-user-code.js',
       },
     };
   } catch (err) {
@@ -120,6 +127,32 @@ async function finalizeBenchmarkResult(result) {
       cpuProfileError: err && err.message ? err.message : String(err),
     };
   }
+}
+
+function buildCpuProfileScripts(profile, benchmarkSource) {
+  const sourcesByScriptId = new Map();
+
+  for (const node of Array.isArray(profile && profile.nodes) ? profile.nodes : []) {
+    const callFrame = node && node.callFrame ? node.callFrame : {};
+    const scriptId = Number(callFrame.scriptId);
+    if (!Number.isFinite(scriptId) || scriptId === 0 || sourcesByScriptId.has(scriptId)) continue;
+
+    const url = String(callFrame.url || '');
+    if (url.includes('jsperf-user-code.js') && typeof benchmarkSource === 'string') {
+      sourcesByScriptId.set(scriptId, { id: scriptId, url: 'jsperf-user-code.js', source: benchmarkSource });
+    }
+  }
+
+  return Array.from(sourcesByScriptId.values());
+}
+
+async function captureBenchmarkResult(result) {
+  if (!ENABLE_CPU_PROFILE) {
+    emitResult(result);
+    return;
+  }
+
+  __benchmarkResult = result;
 }
 
 function gcBefore() {
@@ -143,16 +176,21 @@ function collectMemory() {
 ${errorTrapSource()}
 
 async function main() {
+  await startCpuProfile();
+
   ${setup ? setup : ''}
 
   ${evalBenchmarkFunctionSource(fnParts)}
 
   ${benchmarkLoopSource()}
 
-  await startCpuProfile();
   await runBenchmark();
 
   ${teardownSource(teardown)}
+
+  if (ENABLE_CPU_PROFILE && __benchmarkResult) {
+    emitResult(await finalizeBenchmarkResult(__benchmarkResult, __benchSource));
+  }
 }
 
 main().catch(err => {

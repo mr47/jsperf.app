@@ -37,7 +37,8 @@ export function evalBenchmarkFunctionSource(parts) {
   return `
 const __benchCode = ${JSON.stringify(parts.testBody)};
 const __benchPrefix = ${JSON.stringify(parts.prefix)};
-const __benchFn = eval('(' + __benchPrefix + 'function jsperfUserBenchmark() {\\n' + __benchCode + '\\n})\\n//# sourceURL=jsperf-user-code.js');
+const __benchSource = '(' + __benchPrefix + 'function jsperfUserBenchmark() {\\n' + __benchCode + '\\n})\\n//# sourceURL=jsperf-user-code.js';
+const __benchFn = eval(__benchSource);
 `
 }
 
@@ -107,6 +108,11 @@ async function runBenchmark() {
     memory: { before: memBefore, after: memAfter },
   };
 
+  if (typeof captureBenchmarkResult === 'function') {
+    await captureBenchmarkResult(result);
+    return;
+  }
+
   if (typeof finalizeBenchmarkResult === 'function') {
     result = await finalizeBenchmarkResult(result);
   }
@@ -126,7 +132,7 @@ export function teardownSource(teardown) {
 try {
   ${teardown}
 } catch (__teardownErr) {
-  // teardown errors are non-fatal; benchmark result is already emitted
+  // teardown errors are non-fatal
 }
 `
 }

@@ -1,7 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { readFile } from 'fs/promises'
+import { mkdtemp, readFile, rm } from 'fs/promises'
+import os from 'os'
 import path from 'path'
-import { loadCpuProfile } from '../../../../../lib/cpuProfiles'
+import { cpuProfileDownloadName, loadCpuProfile } from '../../../../../lib/cpuProfiles'
 
 export const config = {
   maxDuration: 30,
@@ -19,14 +20,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const doc = await loadCpuProfile(id)
   if (!doc?.cpuProfile) return res.status(404).json({ error: 'CPU profile not found' })
 
-  const html = await renderCpuProReport()
+  const filename = cpuProfileDownloadName(doc)
+  const html = await renderCpuProReport(doc.cpuProfile, filename)
 
   res.setHeader('Cache-Control', 'no-store')
   res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.setHeader('Content-Disposition', `inline; filename="${filename.replace(/\.cpuprofile$/i, '.html')}"`)
   return res.status(200).send(html)
 }
 
-async function renderCpuProReport() {
-  const templateFile = path.join(process.cwd(), 'node_modules', 'cpupro', 'build', 'report.html')
-  return readFile(templateFile, 'utf8')
+async function renderCpuProReport(cpuProfile: unknown, filename: string) {
+  const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'jsperf-cpupro-'))
+  const reportFile = path.join(tmpDir, 'report.html')
+
+  try {
+    loadCpuProReportFactory()(cpuProfile, filename).writeToFile(reportFile)
+    return await readFile(reportFile, 'utf8')
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true })
+  }
+}
+
+function loadCpuProReportFactory(): (data: unknown, filename?: string) => { writeToFile(filepath: string): string } {
+  const reportModulePath = path.join(process.cwd(), 'node_modules', 'cpupro', 'lib', 'report.js')
+  const runtimeRequire = eval('require') as NodeRequire
+  return runtimeRequire(reportModulePath)
 }

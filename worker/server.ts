@@ -444,7 +444,7 @@ function emptyAccumulator(runtimeTargets) {
 }
 
 async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
-  const { code, setup, teardown, runtimeCode, runtimeSetup, runtimeTeardown, language, languageOptions, timeMs, isAsync, runtimeTargets, profiles, profiling } = params
+  const { code, setup, teardown, runtimeCode, runtimeSetup, runtimeTeardown, language, languageOptions, compilerVersion, sourcePrepVersion, timeMs, isAsync, runtimeTargets, profiles, profiling } = params
   const accumulator = accum || emptyAccumulator(runtimeTargets)
 
   for (const target of runtimeTargets) {
@@ -515,6 +515,36 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
           },
         },
         stderrTail: outcome.result.state === 'errored' ? outcome.stderrTail : undefined,
+      }
+
+      if (profileResult.cpuProfileMeta && target.runtime === 'node') {
+        const sourceKind = nativeTypeScript ? 'input' : 'runtime'
+        const source = {
+          language,
+          sourceKind,
+          code: nativeTypeScript ? code : runtimeCode,
+          setup: nativeTypeScript ? setup : runtimeSetup,
+          teardown: nativeTypeScript ? teardown : runtimeTeardown,
+          originalCode: nativeTypeScript ? null : code,
+          originalSetup: nativeTypeScript ? null : setup,
+          originalTeardown: nativeTypeScript ? null : teardown,
+          compilerVersion,
+          sourcePrepVersion,
+          isAsync: Boolean(isAsync),
+        }
+        profileResult.cpuProfileMeta = {
+          ...profileResult.cpuProfileMeta,
+          source,
+        }
+        if (profileResult.cpuProfile && typeof profileResult.cpuProfile === 'object') {
+          profileResult.cpuProfile = {
+            ...profileResult.cpuProfile,
+            jsPerf: {
+              captureScope: profileResult.cpuProfileMeta.captureScope || null,
+              source,
+            },
+          }
+        }
       }
 
       if (profiling?.v8Jit === true && target.runtime === 'node') {

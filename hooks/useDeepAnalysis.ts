@@ -37,7 +37,7 @@ export function useDeepAnalysis({
   const [multiRuntimeError, setMultiRuntimeError] = useState<string | null>(null)
   const [runtimeTargets, setRuntimeTargets] = useState<any>(null)
   const [workerSideQuickJS, setWorkerSideQuickJS] = useState(true)
-  const [nodeCpuProfiling, setNodeCpuProfiling] = useState(isDonor)
+  const [nodeCpuProfiling, setNodeCpuProfiling] = useState(true)
   const [v8JitProfiling, setV8JitProfiling] = useState(isDonor)
   const [runtimeModalOpen, setRuntimeModalOpen] = useState(false)
   const [runtimeModalForce, setRuntimeModalForce] = useState(false)

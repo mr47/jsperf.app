@@ -91,6 +91,8 @@ describe('runtime script builders', () => {
     expect(src).toContain("require('node:inspector')")
       expect(src).toContain('function jsperfUserBenchmark()')
       expect(src).toContain('sourceURL=jsperf-user-code.js')
+    expect(src).toContain('const __benchSource =')
+    expect(src).toContain('profile._scripts = buildCpuProfileScripts(profile, benchmarkSource)')
     expect(src).toContain("'Profiler.start'")
     expect(src).toContain("'Profiler.stop'")
     expect(src).toContain('cpuProfileMeta')
