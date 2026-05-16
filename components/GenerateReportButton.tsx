@@ -24,6 +24,7 @@ import {
   Heart,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function GenerateReportButton({ slug, revision, className = '' }) {
   const [mounted, setMounted] = useState(false)
@@ -165,9 +166,35 @@ export default function GenerateReportButton({ slug, revision, className = '' })
 
             <div className="p-6">
               {status === 'loading' && (
-                <div className="flex flex-col items-center justify-center py-8 gap-3">
-                  <Loader2 className="h-6 w-6 animate-spin text-violet-600" />
-                  <p className="text-sm text-muted-foreground">Snapshotting benchmark and building slides…</p>
+                <div className="space-y-5" role="status" aria-live="polite">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-full bg-violet-100 p-2 text-violet-600 dark:bg-violet-900/40 dark:text-violet-300">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-semibold tracking-tight">Building your report</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Snapshotting benchmark data, ranking results, and preparing presentation slides.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border bg-muted/30 p-4">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <Skeleton className="h-3 w-24 bg-violet-500/30" />
+                      <Skeleton className="h-8 w-8 rounded-full" />
+                    </div>
+                    <div className="space-y-3">
+                      <Skeleton className="h-5 w-3/4" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-2/3" />
+                    </div>
+                    <div className="mt-5 grid grid-cols-3 gap-2">
+                      <Skeleton className="h-16 rounded-lg" />
+                      <Skeleton className="h-16 rounded-lg" />
+                      <Skeleton className="h-16 rounded-lg" />
+                    </div>
+                  </div>
                 </div>
               )}
 
