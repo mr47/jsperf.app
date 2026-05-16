@@ -1,8 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { readFile } from 'fs/promises'
+import path from 'path'
 import { cpuProfileDownloadName, loadCpuProfile } from '../../../../../lib/cpuProfiles'
 
-const CPU_PRO_REPORT_TEMPLATE_PATH = require.resolve('cpupro/build/report.html')
+const CPU_PRO_REPORT_TEMPLATE_PATH = path.join(process.cwd(), 'node_modules', 'cpupro', 'build', 'report.html')
 const CPU_PRO_DATA_CHUNK_SIZE = 1024 * 1024
 const SCRIPT_UNSAFE_CHARS = /[<\u2028\u2029]/g
 const RAW_DATA_OPEN = '\n<script type="discovery/data-chunk">'
