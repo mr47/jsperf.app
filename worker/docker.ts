@@ -11,15 +11,22 @@
  *   2. `docker run --rm` the appropriate image with strict resource limits
  *   3. Optionally wrap the runtime invocation with `perf stat` to capture
  *      hardware counters when the host kernel allows it
- *   4. Parse the single JSON line written to stdout + the perf-stat block
+ *   4. Parse the single JSON line written to stdout + the perf-stat CSV
  *      written to stderr
+ *
+ * Nothing inside the container can write to a host path: /work is
+ * read-only and the only writable filesystem is a size-capped tmpfs. All
+ * output comes back over stdout/stderr, both of which are bounded on the
+ * orchestrator side. Every container carries the `jsperf.worker=1` label so
+ * the reaper (reaper.ts) can find and remove anything we lose track of.
  */
 
 import { spawn } from 'node:child_process'
-import { mkdtemp, writeFile, rm, mkdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, rm, mkdir, chmod } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DEFAULT_RUNTIME_TARGETS, resolveRuntimeTarget } from './runtime-targets.js'
+import { CONTAINER_LABEL, markImageUsed } from './reaper.js'
 
 const ENTRYPOINT_BY_RUNTIME = {
   // --allow-hrtime was removed in Deno 2 (always-on), so we don't pass it.
@@ -39,9 +46,21 @@ const ENTRYPOINT_BY_RUNTIME = {
 }
 
 const JIT_CAPTURE_MAX_BYTES = 4 * 1024 * 1024
+// Bounded capture buffers. A snippet that floods stdout/stderr must not be
+// able to grow the orchestrator's heap; we only ever keep the tail (the
+// result JSON line is tracked incrementally as it streams past).
 const STDOUT_PARSE_TAIL_BYTES = 256 * 1024
+const STDERR_CAPTURE_TAIL_BYTES = 64 * 1024
 const STDERR_TAIL_BYTES = 500
 const FAILURE_STDOUT_TAIL_BYTES = 2000
+
+// Runtime containers run as an unprivileged uid unless the run needs perf
+// counters: Docker does not grant --cap-add capabilities to non-root users,
+// and no-new-privileges blocks file capabilities, so perf must run as root
+// (with every other capability dropped). Set RUNTIME_CONTAINER_USER to a
+// specific uid:gid to override the unprivileged default.
+const RUNTIME_CONTAINER_USER = process.env.RUNTIME_CONTAINER_USER || '65534:65534'
+const PERF_EVENTS = ['instructions', 'cycles', 'cache-misses', 'branch-misses', 'page-faults', 'context-switches']
 
 // Host-visible work directory. We MUST write benchmark scripts here (not
 // /tmp inside the orchestrator container) because we bind-mount this path
@@ -50,7 +69,7 @@ const FAILURE_STDOUT_TAIL_BYTES = 2000
 //
 // In dev (no compose mount) this falls back to /tmp, which works as long
 // as the orchestrator is running directly on the host.
-const WORK_DIR_BASE = process.env.WORK_DIR_BASE || '/tmp/jsperf-worker'
+export const WORK_DIR_BASE = process.env.WORK_DIR_BASE || '/tmp/jsperf-worker'
 const imageReadyPromises = new Map()
 
 let workDirReady = null
@@ -82,7 +101,7 @@ export async function prepareRuntimeImages(runtimeTargets) {
  * @param {boolean} [opts.collectPerf=false] - Wrap with `perf stat` if host allows
  * @param {number} [opts.timeoutMs=30000] - Hard wall-clock ceiling for THIS
  *   container. On expiry we send SIGKILL to the docker child process AND
- *   `docker kill <name>` the container itself, in case the docker CLI is
+ *   `docker rm -f <name>` the container itself, in case the docker CLI is
  *   itself stuck. The benchmark script also has its own (lower) TIME_LIMIT
  *   capped at MAX_TIME_MS in server.js — this timer is the safety net
  *   that catches infinite loops INSIDE __benchFn() (where the script's
@@ -108,73 +127,36 @@ export async function runInContainer({
   const captureJit = profiling?.v8Jit === true && shouldCaptureJitRuntime(runtimeName)
 
   await ensureImageReady(target)
+  if (target.pull) markImageUsed(image)
   await ensureWorkDirBase()
   const workDir = await mkdtemp(join(WORK_DIR_BASE, `bench-${safeName(runtimeId)}-`))
   const generatedScript = normalizeGeneratedScript(script)
   const scriptFile = `bench.${generatedScript.extension}`
   const scriptPath = join(workDir, scriptFile)
-  await writeFile(scriptPath, generatedScript.source, 'utf8')
+  await writeFile(scriptPath, generatedScript.source, { encoding: 'utf8', mode: 0o644 })
+  // mkdtemp creates 0700; the unprivileged container uid must be able to
+  // traverse the directory and read the script.
+  await chmod(workDir, 0o755).catch(() => {})
 
   const containerName = `bench-${safeName(runtimeId)}-${safeName(profile.label)}-${randomUUID().slice(0, 8)}`
 
   // Build the runtime invocation, optionally wrapped with `perf stat`.
-  // Perf events are written to a known path inside the container so we can
-  // mount it back out as part of the bind-mount.
+  // perf writes its CSV to stderr, which we already capture; nothing is
+  // written to the (read-only) bind mount.
   const runtimeArgs = ENTRYPOINT_BY_RUNTIME[runtimeName](`/work/${scriptFile}`, profiling)
   const innerCmd = usePerf
-    ? [
-        'perf', 'stat',
-        '-x', ',',
-        '-e', 'instructions,cycles,cache-misses,branch-misses,page-faults,context-switches',
-        '-o', '/work/perf.txt',
-        '--', ...runtimeArgs,
-      ]
+    ? ['perf', 'stat', '-x', ',', '-e', PERF_EVENTS.join(','), '--', ...runtimeArgs]
     : runtimeArgs
 
-  // Defense in depth. We isolate the runtime container at four layers so a
-  // pathological snippet (infinite loop, fork bomb, FD leak, OOM, network
-  // probe) can't escape its budget or affect the host. See the README's
-  // "Security model" section for the full rundown.
-  const dockerArgs = [
-    'run', '--rm',
-    '--name', containerName,
-    // Network: no namespace beyond loopback. No DNS, no outbound traffic,
-    // cannot reach the host or other containers.
-    '--network', 'none',
-    // CPU + memory: cgroup-enforced. memory-swap == memory disables swap
-    // entirely (otherwise a 512MB container could thrash on host swap).
-    '--cpus', String(profile.cpus),
-    '--memory', `${profile.memMb}m`,
-    '--memory-swap', `${profile.memMb}m`,
-    // PIDs + FDs: stops fork bombs and FD-leak DOS against the host.
-    '--pids-limit', '256',
-    '--ulimit', 'nofile=256:256',
-    // Filesystem: root is read-only; only /tmp and /work are writable, both
-    // size-bounded. /work is the per-run bind mount holding bench.js/bench.ts.
-    '--read-only',
-    '--tmpfs', '/tmp:size=64m,exec',
-    '-v', `${workDir}:/work:rw`,
-    // Privilege escalation: blocked. setuid/setgid binaries can't gain extra
-    // capabilities even if present in the runtime image.
-    '--security-opt', 'no-new-privileges',
-  ]
-
-  if (usePerf) {
-    dockerArgs.push('--cap-add', 'SYS_PTRACE', '--cap-add', 'PERFMON')
-  }
-
-  dockerArgs.push(image, ...innerCmd)
+  const dockerArgs = buildDockerRunArgs({ containerName, image, workDir, profile, usePerf, innerCmd })
 
   const start = Date.now()
   let exitCode = -1
-  let stdout = ''
   let stdoutTail = ''
   let jitStdout = ''
-  let stderr = ''
   let stderrTail = ''
   let jitStderr = ''
   let jitTruncated = false
-  let jitLogBytes = 0
   let timedOut = false
   const stdoutResultTracker = createStdoutResultTracker()
 
@@ -198,15 +180,16 @@ export async function runInContainer({
       image,
       profile: profile.label,
       flags: runtimeName === 'deno' ? denoV8Flags(profiling).split(',') : nodeJitFlags(),
-      v8LogPath: '/work/v8.log',
       maxBytes: JIT_CAPTURE_MAX_BYTES,
     })
   }
 
+  let aborted = false
   try {
     const child = spawn('docker', dockerArgs, { stdio: ['ignore', 'pipe', 'pipe'] })
 
     const onAbort = () => {
+      aborted = true
       console.warn('[docker] killing container', {
         container: containerName,
         runtime: runtimeId,
@@ -214,7 +197,9 @@ export async function runInContainer({
         timedOut,
       })
       try { child.kill('SIGKILL') } catch (_) { /* already gone */ }
-      spawn('docker', ['kill', containerName], { stdio: 'ignore' }).on('error', () => {})
+      // Killing the CLI does not stop the container; `rm -f` both kills and
+      // removes it, covering the case where --rm never gets to run.
+      forceRemoveContainer(containerName)
     }
     if (signal) {
       if (signal.aborted) onAbort()
@@ -229,24 +214,20 @@ export async function runInContainer({
     child.stdout.on('data', d => {
       const text = d.toString()
       stdoutResultTracker.push(text)
+      stdoutTail = appendTail(stdoutTail, text, STDOUT_PARSE_TAIL_BYTES)
       if (captureJit) {
-        stdoutTail = appendTail(stdoutTail, text, STDOUT_PARSE_TAIL_BYTES)
         const next = appendHead(jitStdout, text, JIT_CAPTURE_MAX_BYTES)
         jitStdout = next.value
         jitTruncated ||= next.truncated
-      } else {
-        stdout += text
       }
     })
     child.stderr.on('data', d => {
       const text = d.toString()
+      stderrTail = appendTail(stderrTail, text, STDERR_CAPTURE_TAIL_BYTES)
       if (captureJit) {
-        stderrTail = appendTail(stderrTail, text, STDERR_TAIL_BYTES)
         const next = appendHead(jitStderr, text, JIT_CAPTURE_MAX_BYTES)
         jitStderr = next.value
         jitTruncated ||= next.truncated
-      } else {
-        stderr += text
       }
     })
 
@@ -259,22 +240,11 @@ export async function runInContainer({
     if (signal) signal.removeEventListener?.('abort', onAbort)
 
     const durationMs = Date.now() - start
-    const parsedStdout = captureJit ? stdoutResultTracker.finish() : parseStdoutResult(stdout)
+    const parsedStdout = stdoutResultTracker.finish()
     const result = parsedStdout.result
-    const perfCounters = usePerf ? await readPerfFile(workDir).catch(() => null) : null
-    const runtimeStderrTail = captureJit ? stderrTail : stderr.slice(-STDERR_TAIL_BYTES)
-    const runtimeStdoutTail = captureJit
-      ? appendTail('', stdoutTail, FAILURE_STDOUT_TAIL_BYTES)
-      : appendTail('', stdout, FAILURE_STDOUT_TAIL_BYTES)
-    if (captureJit) {
-      const jitLog = await readJitLogFile(workDir).catch(() => '')
-      if (jitLog) {
-        jitLogBytes = Buffer.byteLength(jitLog)
-        const next = appendHead(jitStdout, `\n\n--- v8.log ---\n${jitLog}`, JIT_CAPTURE_MAX_BYTES)
-        jitStdout = next.value
-        jitTruncated ||= next.truncated
-      }
-    }
+    const perfCounters = usePerf ? parsePerfStderr(stderrTail) : null
+    const runtimeStderrTail = appendTail('', stderrTail, STDERR_TAIL_BYTES)
+    const runtimeStdoutTail = appendTail('', stdoutTail, FAILURE_STDOUT_TAIL_BYTES)
     const strippedJitStdout = captureJit ? stripJsonResultLines(jitStdout) : ''
     const jitArtifact = captureJit
       ? buildJitArtifact({
@@ -302,7 +272,6 @@ export async function runInContainer({
         strippedStdoutBytes: Buffer.byteLength(strippedJitStdout),
         rawStderrBytes: Buffer.byteLength(jitStderr),
         stderrTailBytes: Buffer.byteLength(stderrTail),
-        v8LogBytes: jitLogBytes,
         artifactBytes: Buffer.byteLength(jitArtifact?.output || ''),
         artifact: Boolean(jitArtifact),
         truncated: jitTruncated,
@@ -336,8 +305,8 @@ export async function runInContainer({
       console.warn('[docker] container failed', {
         ...logPayload,
         error: result.error || null,
+        timedOut,
         parsedResultLineIndex: parsedStdout.resultLineIndex,
-        stdoutBytes: captureJit ? null : Buffer.byteLength(stdout),
         stdoutTailBytes: Buffer.byteLength(runtimeStdoutTail),
         stdoutTail: runtimeStdoutTail || null,
         stderrTail: runtimeStderrTail || null,
@@ -354,8 +323,67 @@ export async function runInContainer({
       stderrTail: runtimeStderrTail,
     }
   } finally {
+    // --rm normally removes the container; after a kill or a CLI failure it
+    // may not have, so always follow up (cheap no-op when already gone).
+    if (aborted || exitCode !== 0) forceRemoveContainer(containerName)
     rm(workDir, { recursive: true, force: true }).catch(() => {})
   }
+}
+
+/**
+ * Assemble the `docker run` argument vector. Pure so it can be unit-tested.
+ *
+ * Defense in depth: the runtime container is isolated at several
+ * independent layers so a pathological snippet (infinite loop, fork bomb,
+ * FD leak, OOM, disk fill, network probe) can't escape its budget or touch
+ * the host. See the README's "Security model" section.
+ */
+export function buildDockerRunArgs({ containerName, image, workDir, profile, usePerf, innerCmd }) {
+  const args = [
+    'run', '--rm',
+    '--name', containerName,
+    // Label every container so the reaper can find orphans after a crash.
+    '--label', `${CONTAINER_LABEL}=1`,
+    // Network: no namespace beyond loopback. No DNS, no outbound traffic,
+    // cannot reach the host or other containers. No shared IPC either.
+    '--network', 'none',
+    '--ipc', 'none',
+    // CPU + memory: cgroup-enforced. memory-swap == memory disables swap
+    // entirely (otherwise a 512MB container could thrash on host swap).
+    '--cpus', String(profile.cpus),
+    '--memory', `${profile.memMb}m`,
+    '--memory-swap', `${profile.memMb}m`,
+    // PIDs + FDs: stops fork bombs and FD-leak DOS against the host.
+    '--pids-limit', '256',
+    '--ulimit', 'nofile=256:256',
+    // Filesystem: root is read-only, /work (the generated script) is a
+    // read-only bind mount, and the only writable location is a 64 MB
+    // tmpfs. Nothing in the container can write to a host path, so a
+    // snippet cannot fill the host disk.
+    '--read-only',
+    '--tmpfs', '/tmp:size=64m,exec',
+    '-v', `${workDir}:/work:ro`,
+    // Capabilities: start from zero. perf needs PERFMON + SYS_PTRACE (and
+    // root, see RUNTIME_CONTAINER_USER) to read hardware counters; nothing
+    // else gets anything back.
+    '--cap-drop', 'ALL',
+    ...(usePerf ? ['--cap-add', 'SYS_PTRACE', '--cap-add', 'PERFMON'] : []),
+    '--security-opt', 'no-new-privileges',
+    '--user', usePerf ? '0:0' : RUNTIME_CONTAINER_USER,
+    // Runtimes want a writable home/cache (Deno's emit cache, Bun's install
+    // dir); point them at the tmpfs so an arbitrary uid works.
+    '-e', 'HOME=/tmp',
+    '-e', 'XDG_CACHE_HOME=/tmp/.cache',
+    '-e', 'DENO_DIR=/tmp/.deno',
+    '-e', 'BUN_INSTALL=/tmp/.bun',
+    image,
+    ...innerCmd,
+  ]
+  return args
+}
+
+function forceRemoveContainer(containerName) {
+  spawn('docker', ['rm', '-f', containerName], { stdio: 'ignore' }).on('error', () => {})
 }
 
 function normalizeGeneratedScript(script) {
@@ -378,8 +406,10 @@ function nodeJitFlags() {
     '--print-opt-source',
     '--code-comments',
     '--print-code-verbose',
-    '--log-code',
-    '--logfile=/work/v8.log',
+    // No --log-code/--logfile: V8 names log files per isolate
+    // (isolate-<addr>-<pid>-v8.log) so the old /work/v8.log readback never
+    // matched, and /work is read-only now. The optimized-code blocks the
+    // JIT viewer parses all arrive on stdout.
   ]
 }
 
@@ -615,27 +645,32 @@ export const __testing = {
   nodeJitFlags,
   denoV8Flags,
   parseStdoutResult,
+  parsePerfStderr,
   createStdoutResultTracker,
   stripJsonResultLines,
   buildJitArtifact,
   hasOptimizedCodeBlock,
   jitCaptureMissingReason,
   shouldCaptureJitRuntime,
+  appendHead,
+  appendTail,
 }
 
 /**
- * Parse `perf stat -x ,` CSV output from the bind-mounted file.
+ * Parse `perf stat -x ,` CSV rows out of the captured stderr.
  *
- * Each row looks like:
+ * perf prints its summary to stderr after the child exits, so the rows sit
+ * at the tail of whatever the runtime itself wrote. Each row looks like:
  *   <count>,,<event>,<runtime>,<percentage>
  * with `<not counted>` or `<not supported>` when the kernel can't count it.
+ * Only the events we asked for are accepted, so a snippet printing
+ * CSV-shaped lines to stderr cannot inject arbitrary counters.
  */
-async function readPerfFile(workDir) {
-  const { readFile } = await import('node:fs/promises')
-  const text = await readFile(join(workDir, 'perf.txt'), 'utf8')
+function parsePerfStderr(stderr) {
+  if (!stderr) return null
   const counters = {}
 
-  for (const line of text.split('\n')) {
+  for (const line of stderr.split('\n')) {
     const trimmed = line.trim()
     if (!trimmed || trimmed.startsWith('#')) continue
     const cols = trimmed.split(',')
@@ -643,7 +678,7 @@ async function readPerfFile(workDir) {
 
     const rawCount = cols[0].trim()
     const eventName = cols[2].trim()
-    if (!eventName) continue
+    if (!PERF_EVENTS.includes(eventName)) continue
 
     if (rawCount === '<not counted>' || rawCount === '<not supported>' || rawCount === '') {
       counters[eventName] = null
@@ -654,18 +689,6 @@ async function readPerfFile(workDir) {
   }
 
   return Object.keys(counters).length > 0 ? counters : null
-}
-
-async function readJitLogFile(workDir) {
-  const { open } = await import('node:fs/promises')
-  const file = await open(join(workDir, 'v8.log'), 'r')
-  try {
-    const buffer = Buffer.alloc(JIT_CAPTURE_MAX_BYTES)
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
-    return buffer.subarray(0, bytesRead).toString()
-  } finally {
-    await file.close()
-  }
 }
 
 /**

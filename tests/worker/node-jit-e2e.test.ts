@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { spawn } from 'node:child_process'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -42,11 +42,14 @@ return acc;
     expect(exitCode).toBe(0)
     expect(parsed.result).toMatchObject({ state: 'completed' })
 
-    const v8Log = await readV8Log(workDir)
+    // /work is mounted read-only in production, so the JIT flags must not
+    // make V8 write a log file next to the script.
+    const leftoverFiles = (await readdir(workDir)).filter(file => file !== 'bench.js')
+    expect(leftoverFiles).toEqual([])
+
     const diagnosticOutput = [
       __testing.stripJsonResultLines(stdout),
       stderr,
-      v8Log ? `--- v8.log ---\n${v8Log}` : '',
     ].filter(Boolean).join('\n\n')
 
     const artifact = __testing.buildJitArtifact({
@@ -69,7 +72,6 @@ return acc;
       console.info(JSON.stringify({
         stdoutBytes: Buffer.byteLength(stdout),
         stderrBytes: Buffer.byteLength(stderr),
-        v8LogBytes: Buffer.byteLength(v8Log),
         artifactBytes: Buffer.byteLength(artifact?.output ?? ''),
         opsPerSec: parsed.result.opsPerSec,
       }, null, 2))
@@ -79,7 +81,6 @@ return acc;
 
 function runNodeWithJitFlags(scriptPath: string, cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const flags = __testing.nodeJitFlags()
-    .map((flag: string) => flag === '--logfile=/work/v8.log' ? '--logfile=v8.log' : flag)
 
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--expose-gc', ...flags, scriptPath], {
@@ -95,9 +96,3 @@ function runNodeWithJitFlags(scriptPath: string, cwd: string): Promise<{ stdout:
   })
 }
 
-async function readV8Log(cwd: string) {
-  const files = await readdir(cwd)
-  const logFile = files.find(file => file === 'v8.log' || /v8.*\.log$/i.test(file))
-  if (!logFile) return ''
-  return readFile(join(cwd, logFile), 'utf8')
-}

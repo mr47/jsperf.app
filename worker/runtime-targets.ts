@@ -62,6 +62,23 @@ export function resolveRuntimeTarget(input) {
   }
 }
 
+const PULL_IMAGE_REPOS = new Set(['node', 'denoland/deno', 'oven/bun'])
+
+/**
+ * True for images the worker pulls on demand for versioned targets (and may
+ * therefore prune again). The locally built default images are never
+ * considered managed.
+ */
+export function isManagedPullImage(ref) {
+  if (typeof ref !== 'string') return false
+  const idx = ref.lastIndexOf(':')
+  if (idx <= 0 || idx === ref.length - 1) return false
+  const repo = ref.slice(0, idx)
+  const tag = ref.slice(idx + 1)
+  if (!PULL_IMAGE_REPOS.has(repo) || tag.includes('<')) return false
+  return !Object.values(DEFAULT_LOCAL_IMAGES).includes(ref)
+}
+
 export function runtimeBaseName(runtimeId) {
   const value = typeof runtimeId === 'string' ? runtimeId : runtimeId?.runtime
   return value ? String(value).split('@')[0] : ''
