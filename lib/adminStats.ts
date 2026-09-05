@@ -9,6 +9,7 @@
  */
 import { redis } from './redis'
 import {
+  CORE_INDEXES,
   analysesCollection,
   errorsCollection,
   getDatabase,
@@ -16,6 +17,7 @@ import {
   multiRuntimeAnalysesCollection,
   pagesCollection,
   reportsCollection,
+  resolveCollectionName,
   runsCollection,
   usersCollection,
 } from './mongodb'
@@ -57,24 +59,17 @@ export type IndexCheck = {
   collection: string
   name: string
   keys: Record<string, 1 | -1>
+  options: Record<string, unknown>
   present: boolean
   reason: string
 }
 
 /**
- * Indexes the hot read paths rely on. Missing ones show up on the
- * dashboard and can be created from there.
+ * The core collection accessors create these lazily in the background; the
+ * dashboard reports anything still missing (e.g. a unique index blocked by
+ * legacy duplicates) and can retry creation on demand.
  */
-export const RECOMMENDED_INDEXES: Array<Omit<IndexCheck, 'present'>> = [
-  { collection: 'pages', name: 'slug_1_revision_1', keys: { slug: 1, revision: 1 }, reason: 'Benchmark page lookups and revision lists (every page render).' },
-  { collection: 'pages', name: 'githubID_1_published_-1', keys: { githubID: 1, published: -1 }, reason: '/u/[id] author pages, admin user detail, ban content hiding.' },
-  { collection: 'pages', name: 'visible_1_published_-1', keys: { visible: 1, published: -1 }, reason: '/latest feed, sitemaps, dashboard time-window counts.' },
-  { collection: 'runs', name: 'slug_1_revision_1', keys: { slug: 1, revision: 1 }, reason: '/api/stats aggregation per benchmark.' },
-  { collection: 'runs', name: 'createdAt_-1', keys: { createdAt: -1 }, reason: 'Dashboard run counts and top benchmarks by recent runs.' },
-  { collection: 'analyses', name: 'codeHash_1', keys: { codeHash: 1 }, reason: 'Deep-analysis cache lookups by code hash.' },
-  { collection: 'analyses', name: 'slug_1_revision_1_createdAt_-1', keys: { slug: 1, revision: 1, createdAt: -1 }, reason: 'Latest analysis snapshot for a benchmark (reports, analysis GET).' },
-  { collection: 'reports', name: 'id_1', keys: { id: 1 }, reason: '/r/[id] report lookups.' },
-]
+export const RECOMMENDED_INDEXES: Array<Omit<IndexCheck, 'present'>> = CORE_INDEXES as Array<Omit<IndexCheck, 'present'>>
 
 function sameKeys(a: Record<string, unknown>, b: Record<string, unknown>) {
   const ak = Object.keys(a)
@@ -88,15 +83,25 @@ export async function checkRecommendedIndexes(): Promise<IndexCheck[]> {
   const byCollection = new Map<string, Array<Record<string, unknown>>>()
   for (const spec of RECOMMENDED_INDEXES) {
     if (byCollection.has(spec.collection)) continue
-    const name = spec.collection === 'pages' ? (process.env.MONGODB_COLLECTION || 'pages') : spec.collection
+    const name = resolveCollectionName(spec.collection)
     const indexes = await safe(`indexes:${spec.collection}`, () => db.collection(name).indexes())
     byCollection.set(spec.collection, (indexes as Array<Record<string, unknown>> | null) || [])
   }
   return RECOMMENDED_INDEXES.map((spec) => {
     const existing = byCollection.get(spec.collection) || []
-    const present = existing.some((idx) => sameKeys((idx.key as Record<string, unknown>) || {}, spec.keys))
+    const match = existing.find((idx) => sameKeys((idx.key as Record<string, unknown>) || {}, spec.keys))
+    // A same-keys index that is not unique when the spec requires it does
+    // not satisfy the spec (it cannot stop duplicate revisions).
+    const present = !!match && (!spec.options?.unique || match.unique === true)
     return { ...spec, present }
   })
+}
+
+/** Name of an existing index with the same key pattern as `spec`, if any. */
+async function findConflictingIndexName(db: Awaited<ReturnType<typeof getDatabase>>, spec: Omit<IndexCheck, 'present'>) {
+  const indexes = await db.collection(resolveCollectionName(spec.collection)).indexes()
+  const match = (indexes as Array<Record<string, unknown>>).find((idx) => sameKeys((idx.key as Record<string, unknown>) || {}, spec.keys))
+  return match && typeof match.name === 'string' ? match.name : null
 }
 
 export async function createRecommendedIndexes(): Promise<Array<{ collection: string; name: string; created: boolean; error?: string }>> {
@@ -108,12 +113,24 @@ export async function createRecommendedIndexes(): Promise<Array<{ collection: st
       results.push({ collection: spec.collection, name: spec.name, created: false })
       continue
     }
-    const name = spec.collection === 'pages' ? (process.env.MONGODB_COLLECTION || 'pages') : spec.collection
+    const collection = db.collection(resolveCollectionName(spec.collection))
+    // MongoDB refuses a second index over the same keys with different
+    // options, so an existing non-unique index has to be dropped first.
+    // If the unique build then fails (legacy duplicates), put the plain
+    // index back so the read path does not regress.
+    const conflicting = await findConflictingIndexName(db, spec)
     try {
-      await db.collection(name).createIndex(spec.keys, { name: spec.name, background: true })
+      if (conflicting) await collection.dropIndex(conflicting)
+      await collection.createIndex(spec.keys, { name: spec.name, background: true, ...spec.options })
       results.push({ collection: spec.collection, name: spec.name, created: true })
     } catch (err) {
-      results.push({ collection: spec.collection, name: spec.name, created: false, error: (err as Error)?.message || String(err) })
+      const message = (err as Error)?.message || String(err)
+      if (conflicting) {
+        try {
+          await collection.createIndex(spec.keys, { name: conflicting, background: true })
+        } catch (_) { /* best effort */ }
+      }
+      results.push({ collection: spec.collection, name: spec.name, created: false, error: message })
     }
   }
   return results

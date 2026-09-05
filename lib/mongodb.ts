@@ -32,10 +32,64 @@ if (process.env.NODE_ENV === 'development') {
   clientPromise = client.connect()
 }
 
+/**
+ * Indexes the hot read/write paths rely on. This is the single source of
+ * truth: the collection accessors below kick off creation lazily (once per
+ * process, in the background, never blocking a request), and the admin
+ * dashboard uses the same list to report anything still missing.
+ *
+ * `collection: 'pages'` resolves to MONGODB_COLLECTION at runtime.
+ */
+export const CORE_INDEXES = [
+  { collection: 'pages', name: 'slug_1_revision_1', keys: { slug: 1, revision: 1 }, options: { unique: true }, reason: 'Benchmark page lookups and revision lists (every page render). Unique so concurrent saves cannot produce duplicate revisions.' },
+  { collection: 'pages', name: 'githubID_1_published_-1', keys: { githubID: 1, published: -1 }, options: {}, reason: '/u/[id] author pages, admin user detail, ban content hiding.' },
+  { collection: 'pages', name: 'visible_1_published_-1', keys: { visible: 1, published: -1 }, options: {}, reason: '/latest feed, sitemaps, dashboard time-window counts.' },
+  { collection: 'runs', name: 'slug_1_revision_1', keys: { slug: 1, revision: 1 }, options: {}, reason: '/api/stats aggregation per benchmark.' },
+  { collection: 'runs', name: 'createdAt_-1', keys: { createdAt: -1 }, options: {}, reason: 'Dashboard run counts and top benchmarks by recent runs.' },
+  { collection: 'analyses', name: 'codeHash_1', keys: { codeHash: 1 }, options: {}, reason: 'Deep-analysis cache lookups by code hash.' },
+  { collection: 'analyses', name: 'slug_1_revision_1_createdAt_-1', keys: { slug: 1, revision: 1, createdAt: -1 }, options: {}, reason: 'Latest analysis snapshot for a benchmark (reports, analysis GET).' },
+  { collection: 'reports', name: 'id_1', keys: { id: 1 }, options: {}, reason: '/r/[id] report lookups.' },
+]
+
+export function resolveCollectionName(logicalName) {
+  return logicalName === 'pages' ? (process.env.MONGODB_COLLECTION || 'pages') : logicalName
+}
+
+const CORE_INDEX_RETRY_MS = 10 * 60 * 1000
+const coreIndexState = {}
+
+/**
+ * Fire-and-forget index creation for one logical collection. Failures are
+ * logged and retried later rather than surfaced, so a bad index (e.g. a
+ * unique index over legacy duplicates) can never take the site down —
+ * the admin dashboard shows what is still missing.
+ */
+function ensureCoreIndexes(db, logicalName) {
+  const state = coreIndexState[logicalName]
+  if (state?.done || (state?.attemptedAt && Date.now() - state.attemptedAt < CORE_INDEX_RETRY_MS)) return
+  coreIndexState[logicalName] = { attemptedAt: Date.now(), done: false }
+
+  const collection = db.collection(resolveCollectionName(logicalName))
+  const specs = CORE_INDEXES.filter((spec) => spec.collection === logicalName)
+  void (async () => {
+    let allOk = true
+    for (const spec of specs) {
+      try {
+        await collection.createIndex(spec.keys, { name: spec.name, background: true, ...spec.options })
+      } catch (err) {
+        allOk = false
+        console.warn(`[mongodb] could not create index ${logicalName}.${spec.name}: ${err?.message || err}`)
+      }
+    }
+    if (allOk) coreIndexState[logicalName].done = true
+  })()
+}
+
 export const pagesCollection = async function() {
   const client = await clientPromise
 
   const db = client.db('jsperf')
+  ensureCoreIndexes(db, 'pages')
 
   return db.collection(process.env.MONGODB_COLLECTION)
 }
@@ -44,6 +98,7 @@ export const runsCollection = async function() {
   const client = await clientPromise
 
   const db = client.db('jsperf')
+  ensureCoreIndexes(db, 'runs')
 
   return db.collection('runs')
 }
@@ -52,6 +107,7 @@ export const analysesCollection = async function() {
   const client = await clientPromise
 
   const db = client.db('jsperf')
+  ensureCoreIndexes(db, 'analyses')
 
   return db.collection('analyses')
 }
@@ -244,6 +300,7 @@ export const reportsCollection = async function() {
   const client = await clientPromise
 
   const db = client.db('jsperf')
+  ensureCoreIndexes(db, 'reports')
 
   return db.collection('reports')
 }
