@@ -99,10 +99,10 @@ Optional integrations:
 | `GITHUB_ID` | GitHub OAuth app client ID. |
 | `GITHUB_SECRET` | GitHub OAuth app client secret. |
 | `DONATELLO_TOKEN` | Enables donor verification through the Donatello API. |
-| `REVALIDATE_SECRET` | Protects the `/api/revalidate` endpoint. |
+| `REVALIDATE_SECRET` | Protects the `/api/revalidate` endpoint. Only ISR paths (`/`, `/latest`, `/:slug[/:revision]`, `/u/:id`) can be revalidated. |
 | `NEXT_PUBLIC_GA_ID` | Google Analytics measurement ID. |
 | `BENCHMARK_WORKER_URL` | URL for the optional Deep Analysis worker. Enables Node/Deno/Bun analysis, remote complexity estimates, and donor worker-side QuickJS. |
-| `BENCHMARK_WORKER_SECRET` | Bearer token shared with the Deep Analysis worker. |
+| `BENCHMARK_WORKER_SECRET` | Bearer token shared with the Deep Analysis worker. The worker refuses to start without it. |
 | `VERCEL_TOKEN` | Optional Vercel token for local Vercel Sandbox access and cleanup. |
 | `VERCEL_OIDC_TOKEN` | Optional OIDC token for Vercel Sandbox access and cleanup. |
 | `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
