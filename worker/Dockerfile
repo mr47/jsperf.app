@@ -24,7 +24,7 @@ ENV CXXFLAGS="-std=c++20"
 RUN npm install --no-audit --no-fund
 
 COPY tsconfig.json ./
-COPY server.ts docker.ts runtime-targets.ts ./
+COPY server.ts docker.ts reaper.ts runtime-targets.ts ./
 COPY complexity ./complexity
 COPY runtimes ./runtimes
 RUN npm run build && npm prune --omit=dev --no-audit --no-fund

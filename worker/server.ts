@@ -37,7 +37,8 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
-import { runInContainer, checkImages, prepareRuntimeImages } from './docker.js'
+import { runInContainer, checkImages, prepareRuntimeImages, WORK_DIR_BASE } from './docker.js'
+import { startReaper, stopReaper, getReaperStatus, reapOrphanContainers } from './reaper.js'
 import { buildNodeScript } from './runtimes/node.js'
 import { buildDenoScript } from './runtimes/deno.js'
 import { buildBunScript } from './runtimes/bun.js'
@@ -91,6 +92,16 @@ const DEFAULT_PROFILES = [
 
 const MAX_TIME_MS = 5_000
 const PER_RUN_TIMEOUT_MS = 30_000
+
+// Cleanup sweep cadence for anything that escaped the normal lifecycle
+// (orphaned containers after a crash/redeploy, stale work dirs, versioned
+// runtime images nobody has used in a while). A labeled container older
+// than the per-run timeout plus a generous grace period cannot be legitimate.
+const REAPER_INTERVAL_MS = envInt('REAPER_INTERVAL_MS', 60_000)
+const ORPHAN_CONTAINER_MAX_AGE_MS = envInt('ORPHAN_CONTAINER_MAX_AGE_MS', PER_RUN_TIMEOUT_MS + 90_000)
+const STALE_WORK_DIR_MAX_AGE_MS = envInt('STALE_WORK_DIR_MAX_AGE_MS', 15 * 60_000)
+const IMAGE_RETENTION_HOURS = envInt('IMAGE_RETENTION_HOURS', 7 * 24)
+const SHUTDOWN_GRACE_MS = 5_000
 
 // In-memory job store. Single-process worker → a Map is sufficient; if we
 // ever scale horizontally we'd back this with Redis, but the current
@@ -157,6 +168,10 @@ function hasSyncCapacity() {
   return syncInFlight < MAX_CONCURRENT_SYNC_REQUESTS
 }
 
+// Abort controllers for in-flight streaming runs, so shutdown can stop
+// their containers (async jobs are reachable through the jobs map).
+const syncAbortControllers = new Set()
+
 const app = new Hono()
 
 app.get('/health', async (c) => {
@@ -175,6 +190,7 @@ app.get('/health', async (c) => {
       maxQueued: MAX_QUEUED_JOBS,
     },
     sync: { inFlight: syncInFlight, max: MAX_CONCURRENT_SYNC_REQUESTS },
+    reaper: getReaperStatus(),
   })
 })
 
@@ -207,6 +223,7 @@ app.post('/api/run', async (c) => {
 
       const abortCtrl = new AbortController()
       c.req.raw.signal?.addEventListener('abort', () => abortCtrl.abort(), { once: true })
+      syncAbortControllers.add(abortCtrl)
 
       let releaseSlot = null
       try {
@@ -224,6 +241,7 @@ app.post('/api/run', async (c) => {
       } finally {
         releaseSlot?.()
         syncInFlight--
+        syncAbortControllers.delete(abortCtrl)
         console.info('[worker] sync run finished', {
           runtimes: runtimeIds(params.runtimeTargets),
           profiles: profileLabels(params.profiles),
@@ -919,8 +937,40 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
     maxConcurrentJobs: MAX_CONCURRENT_JOBS,
     maxQueuedJobs: MAX_QUEUED_JOBS,
     maxConcurrentSyncRequests: MAX_CONCURRENT_SYNC_REQUESTS,
+    reaperIntervalMs: REAPER_INTERVAL_MS,
+    orphanContainerMaxAgeMs: ORPHAN_CONTAINER_MAX_AGE_MS,
+    imageRetentionHours: IMAGE_RETENTION_HOURS,
+  })
+  startReaper({
+    intervalMs: REAPER_INTERVAL_MS,
+    containerMaxAgeMs: ORPHAN_CONTAINER_MAX_AGE_MS,
+    workDirBase: WORK_DIR_BASE,
+    workDirMaxAgeMs: STALE_WORK_DIR_MAX_AGE_MS,
+    imageRetentionMs: IMAGE_RETENTION_HOURS * 60 * 60 * 1000,
   })
   if (!SHARED_SECRET) {
     console.warn('WARNING: WORKER_ALLOW_UNAUTHENTICATED=1 — endpoints are unauthenticated. Never run this way in production.')
   }
 })
+
+// On SIGTERM (compose stop / redeploy) abort every in-flight run so its
+// container is killed and removed, then sweep anything labeled that is
+// still around. Without this a redeploy would orphan running containers
+// until the next worker instance's reaper caught them.
+let shuttingDown = false
+async function shutdown(signalName) {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.warn('[worker] shutting down, stopping in-flight containers', { signal: signalName })
+  stopReaper()
+  for (const ctrl of syncAbortControllers) ctrl.abort()
+  for (const job of jobs.values()) {
+    if (job.state === 'pending' || job.state === 'running') job.abortCtrl.abort()
+  }
+  const sweep = reapOrphanContainers({ maxAgeMs: 0 }).catch(() => null)
+  const timeout = new Promise((resolve) => setTimeout(resolve, SHUTDOWN_GRACE_MS))
+  await Promise.race([sweep, timeout])
+  process.exit(0)
+}
+process.once('SIGTERM', () => { void shutdown('SIGTERM') })
+process.once('SIGINT', () => { void shutdown('SIGINT') })

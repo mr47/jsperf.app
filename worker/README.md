@@ -194,8 +194,13 @@ In **Dokploy → Environment**:
 | `MAX_CONCURRENT_JOBS` | no | Docker-backed jobs allowed to run at once. Defaults to `2`. |
 | `MAX_QUEUED_JOBS` | no | Jobs allowed to wait for a slot before new ones get `503`. Defaults to `12`. |
 | `MAX_CONCURRENT_SYNC_REQUESTS` | no | In-process requests (`/api/run`, QuickJS in `/api/analysis/jobs`) allowed at once. Defaults to `4`. |
-| `COLLECT_PERF` | no | `1` (default) to wrap runtime invocations with `perf stat`. Set to `0` if your kernel rejects it. |
+| `COLLECT_PERF` | no | `1` (default) to wrap runtime invocations with `perf stat`. Set to `0` if your kernel rejects it. Perf runs execute as root inside the container (with all other capabilities dropped) because Docker does not grant `--cap-add` capabilities to non-root users. |
+| `RUNTIME_CONTAINER_USER` | no | `uid:gid` the runtime containers run as when perf is not collected. Defaults to `65534:65534` (nobody). |
 | `JOB_DEADLINE_MS` | no | Hard ceiling for a single async job. Defaults to `30000` (30 s). Increase if you need wider profile sweeps. |
+| `REAPER_INTERVAL_MS` | no | How often the cleanup sweep runs. Defaults to `60000`. |
+| `ORPHAN_CONTAINER_MAX_AGE_MS` | no | Labeled runtime containers older than this are force-removed. Defaults to per-run timeout + 90 s (`120000`). |
+| `STALE_WORK_DIR_MAX_AGE_MS` | no | Per-run script directories older than this are deleted. Defaults to `900000` (15 min). |
+| `IMAGE_RETENTION_HOURS` | no | Versioned runtime images (`node:22-bookworm-slim`, …) unused for this long are removed. Defaults to `168` (7 days). The locally built `jsperf-bench-*` images are never pruned. |
 | `PORT` | no | Defaults to `8080`. |
 
 When the worker is at capacity it answers `503` with a `Retry-After` header; jsperf.net treats that as "multi-runtime unavailable" for that request rather than failing the whole analysis.
@@ -216,10 +221,17 @@ Re-deploy. The Deep Analysis pipeline will now enqueue async jobs on the worker 
 `GET /health` returns:
 
 ```json
-{ "status": "ok", "images": { "node": true, "deno": true, "bun": true }, "perf": true }
+{
+  "status": "ok",
+  "images": { "node": true, "deno": true, "bun": true },
+  "perf": true,
+  "jobs": { "running": 0, "pending": 0, "queued": 0, "active": 0, "total": 0, "maxConcurrent": 2, "maxQueued": 12 },
+  "sync": { "inFlight": 0, "max": 4 },
+  "reaper": { "sweeps": 12, "trackedImages": 1, "lastSweepAt": 1757084400000, "lastSweep": { "durationMs": 40, "containersScanned": 0, "containersRemoved": 0, "workDirsRemoved": 0, "imagesRemoved": 0, "error": null } }
+}
 ```
 
-If any image is `false`, run `./scripts/build-images.sh` again on the host.
+If any image is `false`, run `./scripts/build-images.sh` again on the host. A non-null `reaper.lastSweep.error` means the worker could not talk to the Docker daemon during cleanup.
 
 You can also run the full smoke test against a live deploy:
 
@@ -239,26 +251,31 @@ Callers (or curl) can override `profiles` in the request body to run a wider swe
 
 ## Security model
 
-Each runtime container is isolated at four independent layers, so a hostile or runaway snippet cannot exfiltrate data, exhaust the host, or run past its budget.
+Each runtime container is isolated at several independent layers, so a hostile or runaway snippet cannot exfiltrate data, exhaust the host, or run past its budget. The exact `docker run` argument vector is built by `buildDockerRunArgs()` in `docker.ts` and pinned by `tests/worker/docker.test.ts`.
 
-**Network isolation** — `--network none` gives the container only a loopback interface. No DNS, no outbound TCP/UDP, no access to the host or sibling containers. User code physically cannot make a network call.
+**Network isolation** — `--network none` gives the container only a loopback interface. No DNS, no outbound TCP/UDP, no access to the host or sibling containers. `--ipc none` removes shared memory too. User code physically cannot make a network call.
 
 **Wall-clock ceilings** (defense in depth — any one of these alone would stop a runaway):
 
 | Layer | Default | Behavior on expiry |
 | --- | --- | --- |
 | Script-level `TIME_LIMIT` | request `timeMs`, capped at 5 s | Loop exits cleanly, partial result emitted |
-| Per-container `timeoutMs` | **30 s** (`PER_RUN_TIMEOUT_MS` in `server.js`) | `docker kill <name>` + SIGKILL on the docker child |
+| Per-container `timeoutMs` | **30 s** (`PER_RUN_TIMEOUT_MS` in `server.ts`) | SIGKILL on the docker child + `docker rm -f <name>` (kills *and* removes, since killing the CLI alone does not stop the container) |
 | Per-job `JOB_DEADLINE_MS` | **30 s** (env-configurable) | `AbortController` aborts; propagates through all queued container runs |
 | Cgroup CPU + memory budget | per profile | OOM-kill on memory exhaustion; CPU throttled |
+| Reaper `ORPHAN_CONTAINER_MAX_AGE_MS` | **120 s** | Any `jsperf.worker=1` container older than this is force-removed, even if the orchestrator that started it is gone |
 
-The script-level limit alone is not sufficient: code like `while(true){}` *inside* the benchmark function never returns control to the loop, so the elapsed-time check never fires. The per-container 30 s ceiling is the safety net for that case.
+The script-level limit alone is not sufficient: code like `while(true){}` *inside* the benchmark function never returns control to the loop, so the elapsed-time check never fires. The per-container 30 s ceiling is the safety net for that case, and the reaper is the safety net for the safety net.
 
-**Resource caps** — `--pids-limit 256` (fork-bomb proof), `--ulimit nofile=256:256` (no FD-leak DOS against the host), `--read-only` rootfs, size-bounded `/tmp` and `/work` tmpfs/bind mounts only.
+**Resource caps** — `--pids-limit 256` (fork-bomb proof), `--ulimit nofile=256:256` (no FD-leak DOS against the host), `--memory-swap == --memory` (no host swap thrash).
 
-**Privilege containment** — `--security-opt no-new-privileges` blocks setuid/setgid escalation. Containers run as their image's default user (non-root in the official `node`/`deno`/`bun` images).
+**No writable host path** — the rootfs is `--read-only`, the generated script is bind-mounted **read-only** at `/work`, and the only writable filesystem is a 64 MB tmpfs at `/tmp`. Nothing running inside the container can write to the host disk, so a snippet cannot fill it. Perf counters come back over stderr (`perf stat` CSV) and JIT diagnostics over stdout; the orchestrator keeps only bounded tails/heads of both streams (256 KB / 64 KB, 4 MB for JIT captures), so flooding stdout cannot grow the worker's heap either.
 
-**Operational** — no persistent storage; per-run tmpdir is deleted on completion. The worker requires a bearer token via `BENCHMARK_WORKER_SECRET`; without it the worker logs a warning and serves unauthenticated, suitable only for private dev. The Docker socket is mounted into the orchestrator container — this is a privileged operation; deploy this image only inside a trusted environment.
+**Privilege containment** — `--cap-drop ALL` removes every capability; perf runs add back only `PERFMON` and `SYS_PTRACE`. `--security-opt no-new-privileges` blocks setuid/setgid and file-capability escalation. Containers run as an unprivileged uid (`RUNTIME_CONTAINER_USER`, default `65534:65534`) except when perf counters are collected: Docker does not apply `--cap-add` to non-root users and `no-new-privileges` blocks the file-capability workaround, so perf runs execute as root with everything except the two perf capabilities dropped. Note the runtime images themselves (`images/Dockerfile.*`) default to root; the `--user` flag is what enforces this, not the image.
+
+**Image allowlist** — versioned targets can only resolve to `node:*`, `denoland/deno:*` and `oven/bun:*` tags; the tag is validated against `[A-Za-z0-9._-]` so a request cannot name an arbitrary repository or digest.
+
+**Operational** — no persistent storage. `docker run --rm` removes each container on exit and the per-run script directory is deleted in a `finally`; after a kill or non-zero exit the worker additionally issues `docker rm -f`. A background reaper (`reaper.ts`, every `REAPER_INTERVAL_MS`) force-removes labeled containers older than `ORPHAN_CONTAINER_MAX_AGE_MS`, deletes `bench-*` work directories older than `STALE_WORK_DIR_MAX_AGE_MS`, and removes versioned runtime images unused for `IMAGE_RETENTION_HOURS`. On `SIGTERM`/`SIGINT` (compose stop, redeploy) the worker aborts every in-flight run and sweeps all labeled containers before exiting, so redeploys do not leave runtime containers behind. The worker requires a bearer token via `BENCHMARK_WORKER_SECRET` and refuses to start without one (see `WORKER_ALLOW_UNAUTHENTICATED` for local dev). The Docker socket is mounted into the orchestrator container — this is root-equivalent on the host; deploy this image only inside a trusted environment, and consider fronting the socket with a proxy that only permits the container/image endpoints the worker uses.
 
 ## Known limitations
 
