@@ -20,7 +20,7 @@ import {
   usersCollection,
 } from './mongodb'
 import { errorSummary } from './errorLog'
-import { listAudit } from './users'
+import { listAudit, type BanRecord, type DonorGrant } from './users'
 
 const CACHE_KEY = 'admin:stats:v1'
 const CACHE_TTL_SECONDS = 60
@@ -119,7 +119,65 @@ export async function createRecommendedIndexes(): Promise<Array<{ collection: st
   return results
 }
 
-export async function computeAdminStats() {
+export type TopBenchmark = { slug: string; revision: number; runs: number; lastRunAt: Date | string; title: string | null; githubID: string | null }
+
+export type RecentUser = {
+  githubId: string
+  login: string | null
+  name: string | null
+  email: string | null
+  image: string | null
+  lastSeenAt: Date | string
+  signInCount: number
+  role?: 'admin' | null
+  ban?: BanRecord | null
+  donorGrant?: DonorGrant | null
+}
+
+export type AuditRow = {
+  action: string
+  actorId: string
+  actorLogin: string | null
+  targetType: string
+  targetId: string
+  details: Record<string, unknown>
+  createdAt: Date | string
+}
+
+export type AdminStats = {
+  generatedAt: string
+  content: {
+    pagesTotal: number | null
+    pages24h: number | null
+    pages7d: number | null
+    pages30d: number | null
+    pagesHidden30d: number | null
+    runsTotal: number | null
+    runs24h: number | null
+    runs7d: number | null
+    analysesTotal: number | null
+    multiRuntimeTotal: number | null
+    reportsTotal: number | null
+  }
+  users: { total: number | null; active7d: number | null; banned: number | null; granted: number | null; admins: number | null; ipBans: number | null }
+  donors: { activeSessions: number | null; activeSessionsComplete: boolean; emailMatches: number | null }
+  errors: { openGroups: number | null; last24h: Array<{ scope: string; count: number; groups: number; lastSeenAt: Date | string }> }
+  topBenchmarks: TopBenchmark[]
+  recentUsers: RecentUser[]
+  recentAudit: AuditRow[]
+  indexes: IndexCheck[]
+  system: {
+    node: string
+    uptimeSeconds: number
+    rssMb: number
+    heapUsedMb: number
+    region: string | null
+    env: string | null
+    integrations: Record<string, boolean>
+  }
+}
+
+export async function computeAdminStats(): Promise<AdminStats> {
   const [pages, runs, analyses, multiRuntime, reports, users, ipBans, errors] = await Promise.all([
     pagesCollection(), runsCollection(), analysesCollection(), multiRuntimeAnalysesCollection(),
     reportsCollection(), usersCollection(), ipBansCollection(), errorsCollection(),
@@ -135,36 +193,36 @@ export async function computeAdminStats() {
     donorSessions, donorEmailHits,
     topBenchmarks, recentUsers, recentAudit, indexes,
   ] = await Promise.all([
-    safe('pages.total', () => pages.estimatedDocumentCount()),
-    safe('pages.24h', () => pages.countDocuments({ published: { $gte: since(1) } }, opts)),
-    safe('pages.7d', () => pages.countDocuments({ published: { $gte: since(7) } }, opts)),
-    safe('pages.30d', () => pages.countDocuments({ published: { $gte: since(30) } }, opts)),
-    safe('pages.hidden', () => pages.countDocuments({ visible: false, published: { $gte: since(30) } }, opts)),
-    safe('runs.total', () => runs.estimatedDocumentCount()),
-    safe('runs.24h', () => runs.countDocuments({ createdAt: { $gte: since(1) } }, opts)),
-    safe('runs.7d', () => runs.countDocuments({ createdAt: { $gte: since(7) } }, opts)),
-    safe('analyses.total', () => analyses.estimatedDocumentCount()),
-    safe('multiRuntime.total', () => multiRuntime.estimatedDocumentCount()),
-    safe('reports.total', () => reports.estimatedDocumentCount()),
-    safe('users.total', () => users.estimatedDocumentCount()),
-    safe('users.7d', () => users.countDocuments({ lastSeenAt: { $gte: since(7) }, source: 'signin' }, opts)),
-    safe('users.banned', () => users.countDocuments({ ban: { $ne: null } }, opts)),
-    safe('users.granted', () => users.countDocuments({ 'donorGrant.expiresAt': { $gt: new Date().toISOString() } }, opts)),
-    safe('users.admins', () => users.countDocuments({ role: 'admin' }, opts)),
-    safe('ipBans.total', () => ipBans.estimatedDocumentCount()),
-    safe('errors.open', () => errors.countDocuments({ resolvedAt: null }, opts)),
+    safe<number>('pages.total', () => pages.estimatedDocumentCount()),
+    safe<number>('pages.24h', () => pages.countDocuments({ published: { $gte: since(1) } }, opts)),
+    safe<number>('pages.7d', () => pages.countDocuments({ published: { $gte: since(7) } }, opts)),
+    safe<number>('pages.30d', () => pages.countDocuments({ published: { $gte: since(30) } }, opts)),
+    safe<number>('pages.hidden', () => pages.countDocuments({ visible: false, published: { $gte: since(30) } }, opts)),
+    safe<number>('runs.total', () => runs.estimatedDocumentCount()),
+    safe<number>('runs.24h', () => runs.countDocuments({ createdAt: { $gte: since(1) } }, opts)),
+    safe<number>('runs.7d', () => runs.countDocuments({ createdAt: { $gte: since(7) } }, opts)),
+    safe<number>('analyses.total', () => analyses.estimatedDocumentCount()),
+    safe<number>('multiRuntime.total', () => multiRuntime.estimatedDocumentCount()),
+    safe<number>('reports.total', () => reports.estimatedDocumentCount()),
+    safe<number>('users.total', () => users.estimatedDocumentCount()),
+    safe<number>('users.7d', () => users.countDocuments({ lastSeenAt: { $gte: since(7) }, source: 'signin' }, opts)),
+    safe<number>('users.banned', () => users.countDocuments({ ban: { $ne: null } }, opts)),
+    safe<number>('users.granted', () => users.countDocuments({ 'donorGrant.expiresAt': { $gt: new Date().toISOString() } }, opts)),
+    safe<number>('users.admins', () => users.countDocuments({ role: 'admin' }, opts)),
+    safe<number>('ipBans.total', () => ipBans.estimatedDocumentCount()),
+    safe<number>('errors.open', () => errors.countDocuments({ resolvedAt: null }, opts)),
     safe('errors.24h', () => errorSummary(DAY)),
     safe('redis.donorSessions', () => countRedisKeys('donor:session:*')),
     safe('redis.donorEmailHits', () => countRedisKeys('donor:email:*')),
-    safe('runs.top', async () => {
-      const rows = await runs.aggregate([
+    safe<TopBenchmark[]>('runs.top', async () => {
+      const rows: Array<{ _id: { slug: string; revision: number }; runs: number; lastRunAt: Date }> = await runs.aggregate([
         { $match: { createdAt: { $gte: since(7) } } },
         { $group: { _id: { slug: '$slug', revision: '$revision' }, runs: { $sum: 1 }, lastRunAt: { $max: '$createdAt' } } },
         { $sort: { runs: -1 } },
         { $limit: 10 },
       ], { maxTimeMS: QUERY_TIMEOUT_MS }).toArray()
       const slugs = rows.map((r) => r._id.slug)
-      const titles = slugs.length
+      const titles: Array<{ slug: string; revision: number; title?: string; githubID?: string }> = slugs.length
         ? await pages.find({ slug: { $in: slugs } }, { projection: { slug: 1, revision: 1, title: 1, githubID: 1 } }).toArray()
         : []
       return rows.map((r) => {
@@ -172,8 +230,8 @@ export async function computeAdminStats() {
         return { slug: r._id.slug, revision: r._id.revision, runs: r.runs, lastRunAt: r.lastRunAt, title: page?.title || null, githubID: page?.githubID || null }
       })
     }),
-    safe('users.recent', () => users.find({ source: 'signin' }, { projection: { _id: 0, githubId: 1, login: 1, name: 1, email: 1, image: 1, lastSeenAt: 1, signInCount: 1, ban: 1, donorGrant: 1, role: 1 } }).sort({ lastSeenAt: -1 }).limit(8).toArray()),
-    safe('audit.recent', () => listAudit({ limit: 10 })),
+    safe<RecentUser[]>('users.recent', () => users.find({ source: 'signin' }, { projection: { _id: 0, githubId: 1, login: 1, name: 1, email: 1, image: 1, lastSeenAt: 1, signInCount: 1, ban: 1, donorGrant: 1, role: 1 } }).sort({ lastSeenAt: -1 }).limit(8).toArray()),
+    safe<AuditRow[]>('audit.recent', () => listAudit({ limit: 10 }) as Promise<AuditRow[]>),
     safe('indexes', () => checkRecommendedIndexes()),
   ])
 
@@ -214,8 +272,6 @@ export async function computeAdminStats() {
     },
   }
 }
-
-export type AdminStats = Awaited<ReturnType<typeof computeAdminStats>>
 
 export async function getAdminStats({ fresh = false }: { fresh?: boolean } = {}): Promise<AdminStats> {
   if (!fresh) {
