@@ -23,13 +23,20 @@
  *     progress while the job is running.
  *
  * Authentication is a simple shared bearer token (BENCHMARK_WORKER_SECRET).
- * The worker only ever runs in a private network behind Dokploy's reverse
- * proxy, so this is appropriate for our threat model.
+ * The worker runs arbitrary user code in Docker, so it refuses to start
+ * without a secret unless WORKER_ALLOW_UNAUTHENTICATED=1 is set explicitly
+ * (local development only).
+ *
+ * Capacity: Docker-backed jobs run through a semaphore (MAX_CONCURRENT_JOBS)
+ * with a bounded queue (MAX_QUEUED_JOBS); in-process sync work (/api/run,
+ * QuickJS in /api/analysis/jobs, /api/complexity) is capped by
+ * MAX_CONCURRENT_SYNC_REQUESTS. Requests past capacity get 503 + Retry-After
+ * instead of piling onto the host.
  */
 
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { runInContainer, checkImages, prepareRuntimeImages } from './docker.js'
 import { buildNodeScript } from './runtimes/node.js'
 import { buildDenoScript } from './runtimes/deno.js'
@@ -40,7 +47,23 @@ import { estimateComplexity } from './complexity/estimator.js'
 
 const PORT = Number(process.env.PORT) || 8080
 const SHARED_SECRET = process.env.BENCHMARK_WORKER_SECRET || ''
+const ALLOW_UNAUTHENTICATED = process.env.WORKER_ALLOW_UNAUTHENTICATED === '1'
 const COLLECT_PERF = process.env.COLLECT_PERF !== '0'
+
+// Capacity limits. Each Docker-backed job pins a CPU for the duration of the
+// run, so concurrency is deliberately low; the queue absorbs short bursts and
+// anything beyond it is refused with 503 so the app can fall back gracefully.
+const MAX_CONCURRENT_JOBS = Math.max(1, envInt('MAX_CONCURRENT_JOBS', 2))
+const MAX_QUEUED_JOBS = Math.max(0, envInt('MAX_QUEUED_JOBS', 12))
+const MAX_CONCURRENT_SYNC_REQUESTS = Math.max(1, envInt('MAX_CONCURRENT_SYNC_REQUESTS', 4))
+const BUSY_RETRY_AFTER_SECONDS = 15
+
+function envInt(name, fallback) {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return fallback
+  const n = Number.parseInt(raw, 10)
+  return Number.isFinite(n) ? n : fallback
+}
 
 // How long a job lives in memory after it completes — long enough for the
 // browser to poll it once or twice but not so long that we leak memory.
@@ -74,6 +97,66 @@ const PER_RUN_TIMEOUT_MS = 30_000
 // deployment is one container behind Dokploy.
 const jobs = new Map()
 
+/**
+ * Minimal counting semaphore. `acquire` resolves when a slot is free or
+ * rejects when `signal` aborts while waiting (job cancelled/expired).
+ */
+class Semaphore {
+  constructor(limit) {
+    this.limit = limit
+    this.active = 0
+    this.waiters = []
+  }
+
+  acquire(signal) {
+    if (this.active < this.limit) {
+      this.active++
+      return Promise.resolve(() => this.release())
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = () => {
+        signal?.removeEventListener('abort', onAbort)
+        this.active++
+        resolve(() => this.release())
+      }
+      const onAbort = () => {
+        const idx = this.waiters.indexOf(waiter)
+        if (idx !== -1) this.waiters.splice(idx, 1)
+        reject(new Error('cancelled while queued'))
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      this.waiters.push(waiter)
+    })
+  }
+
+  release() {
+    this.active = Math.max(0, this.active - 1)
+    const next = this.waiters.shift()
+    if (next) next()
+  }
+
+  get queued() {
+    return this.waiters.length
+  }
+}
+
+const jobSlots = new Semaphore(MAX_CONCURRENT_JOBS)
+let syncInFlight = 0
+
+function busyResponse(c, reason) {
+  c.header('Retry-After', String(BUSY_RETRY_AFTER_SECONDS))
+  return c.json({ error: reason, retryAfterMs: BUSY_RETRY_AFTER_SECONDS * 1000 }, 503)
+}
+
+function hasJobCapacity() {
+  const active = countByState('pending') + countByState('running')
+  return active < MAX_QUEUED_JOBS + MAX_CONCURRENT_JOBS
+}
+
+function hasSyncCapacity() {
+  return syncInFlight < MAX_CONCURRENT_SYNC_REQUESTS
+}
+
 const app = new Hono()
 
 app.get('/health', async (c) => {
@@ -82,7 +165,16 @@ app.get('/health', async (c) => {
     status: 'ok',
     images,
     perf: COLLECT_PERF,
-    jobs: { active: countByState('running') + countByState('pending'), total: jobs.size },
+    jobs: {
+      running: countByState('running'),
+      pending: countByState('pending'),
+      queued: jobSlots.queued,
+      active: countByState('running') + countByState('pending'),
+      total: jobs.size,
+      maxConcurrent: MAX_CONCURRENT_JOBS,
+      maxQueued: MAX_QUEUED_JOBS,
+    },
+    sync: { inFlight: syncInFlight, max: MAX_CONCURRENT_SYNC_REQUESTS },
   })
 })
 
@@ -96,6 +188,7 @@ app.post('/api/run', async (c) => {
 
   const params = parseRunParams(body)
   if (params.error) return c.json({ error: params.error }, 400)
+  if (!hasSyncCapacity()) return busyResponse(c, 'worker busy')
 
   console.info('[worker] starting sync run', {
     runtimes: runtimeIds(params.runtimeTargets),
@@ -104,6 +197,7 @@ app.post('/api/run', async (c) => {
     profiling: params.profiling || null,
   })
 
+  syncInFlight++
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder()
@@ -114,7 +208,9 @@ app.post('/api/run', async (c) => {
       const abortCtrl = new AbortController()
       c.req.raw.signal?.addEventListener('abort', () => abortCtrl.abort(), { once: true })
 
+      let releaseSlot = null
       try {
+        releaseSlot = await jobSlots.acquire(abortCtrl.signal)
         await runBenchmarkBatch(params, {
           signal: abortCtrl.signal,
           onProgress: (event) => send(event),
@@ -126,6 +222,8 @@ app.post('/api/run', async (c) => {
         })
         send({ type: 'error', error: err.message || String(err) })
       } finally {
+        releaseSlot?.()
+        syncInFlight--
         console.info('[worker] sync run finished', {
           runtimes: runtimeIds(params.runtimeTargets),
           profiles: profileLabels(params.profiles),
@@ -155,6 +253,7 @@ app.post('/api/jobs', async (c) => {
 
   const params = parseRunParams(body)
   if (params.error) return c.json({ error: params.error }, 400)
+  if (!hasJobCapacity()) return busyResponse(c, 'worker job queue is full')
 
   const job = enqueueBenchmarkJob(params)
 
@@ -180,6 +279,7 @@ app.post('/api/analysis/jobs', async (c) => {
 
   const complexity = parseComplexityParams(body?.complexity, quickjs.tests)
   if (complexity.error) return c.json({ error: complexity.error }, 400)
+  if (!hasSyncCapacity()) return busyResponse(c, 'worker busy')
 
   const runtimeJobs = []
   const runtimeErrors = []
@@ -190,6 +290,10 @@ app.post('/api/analysis/jobs', async (c) => {
       runtimeErrors.push(params.error)
       continue
     }
+    if (!hasJobCapacity()) {
+      runtimeErrors.push('worker job queue is full')
+      continue
+    }
     const job = enqueueBenchmarkJob(params)
     runtimeJobs.push({
       testIndex: Number.isInteger(entry?.testIndex) ? entry.testIndex : runtimeJobs.length,
@@ -198,15 +302,22 @@ app.post('/api/analysis/jobs', async (c) => {
     })
   }
 
-  const [quickjsProfiles, complexities] = await Promise.all([
-    runQuickJSAnalysis(quickjs.tests, {
-      setup: quickjs.setup,
-      teardown: quickjs.teardown,
-      timeMs: quickjs.timeMs,
-      signal: c.req.raw.signal,
-    }),
-    estimateComplexityBatch(complexity),
-  ])
+  syncInFlight++
+  let quickjsProfiles
+  let complexities
+  try {
+    ;[quickjsProfiles, complexities] = await Promise.all([
+      runQuickJSAnalysis(quickjs.tests, {
+        setup: quickjs.setup,
+        teardown: quickjs.teardown,
+        timeMs: quickjs.timeMs,
+        signal: c.req.raw.signal,
+      }),
+      estimateComplexityBatch(complexity),
+    ])
+  } finally {
+    syncInFlight--
+  }
 
   const deadlineMs = runtimeJobs.reduce((max, job) => Math.max(max, job.deadlineMs || 0), 0)
   const multiRuntime = runtimeJobs.length > 0
@@ -289,9 +400,16 @@ app.delete('/api/jobs/:id', async (c) => {
 })
 
 function authorized(c) {
-  if (!SHARED_SECRET) return true
+  if (!SHARED_SECRET) return ALLOW_UNAUTHENTICATED
   const auth = c.req.header('authorization') || ''
-  return auth === `Bearer ${SHARED_SECRET}`
+  return secureEquals(auth, `Bearer ${SHARED_SECRET}`)
+}
+
+function secureEquals(a, b) {
+  const bufA = Buffer.from(String(a))
+  const bufB = Buffer.from(String(b))
+  if (bufA.length !== bufB.length) return false
+  return timingSafeEqual(bufA, bufB)
 }
 
 function parseRunParams(body) {
@@ -420,6 +538,16 @@ function enqueueBenchmarkJob(params) {
     executionDeadlineMs,
     pollDeadlineMs,
   })
+
+  // A job that never gets a slot before the client stops polling is dead
+  // weight; drop it so the queue keeps moving.
+  setTimeout(() => {
+    if (job.state === 'pending' && !job.completedAt) {
+      console.warn('[worker] job expired before it could start', { jobId, pollDeadlineMs })
+      job.abortCtrl.abort()
+      finalizeJob(job, { state: 'errored', error: 'timed out waiting for a free worker slot' })
+    }
+  }, pollDeadlineMs).unref?.()
 
   // Fire-and-forget. We deliberately don't await — the response is sent
   // immediately so the caller doesn't burn its own request budget waiting
@@ -589,10 +717,30 @@ async function runBenchmarkBatch(params, { signal, onProgress, accum } = {}) {
 }
 
 async function executeJob(job, params) {
+  let releaseSlot = null
+  try {
+    releaseSlot = await jobSlots.acquire(job.abortCtrl.signal)
+  } catch (_) {
+    // Cancelled or expired while waiting for a slot; finalizeJob already ran.
+    return
+  }
+  if (job.completedAt || job.abortCtrl.signal.aborted) {
+    releaseSlot()
+    return
+  }
+  try {
+    await executeJobWithSlot(job, params)
+  } finally {
+    releaseSlot()
+  }
+}
+
+async function executeJobWithSlot(job, params) {
   const prepareStart = Date.now()
   console.info('[worker] preparing job images', {
     jobId: job.jobId,
     runtimes: runtimeIds(params.runtimeTargets),
+    queuedMs: Date.now() - job.createdAt,
   })
 
   try {
@@ -758,9 +906,21 @@ function sanitizeProfiles(input) {
   return cleaned.length > 0 ? cleaned : null
 }
 
+if (!SHARED_SECRET && !ALLOW_UNAUTHENTICATED) {
+  console.error(
+    'FATAL: BENCHMARK_WORKER_SECRET is not set. The worker executes untrusted code and will not start ' +
+    'unauthenticated. Set BENCHMARK_WORKER_SECRET, or WORKER_ALLOW_UNAUTHENTICATED=1 for local development only.',
+  )
+  process.exit(1)
+}
+
 serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`jsperf-worker listening on :${info.port}`)
+  console.log(`jsperf-worker listening on :${info.port}`, {
+    maxConcurrentJobs: MAX_CONCURRENT_JOBS,
+    maxQueuedJobs: MAX_QUEUED_JOBS,
+    maxConcurrentSyncRequests: MAX_CONCURRENT_SYNC_REQUESTS,
+  })
   if (!SHARED_SECRET) {
-    console.warn('WARNING: BENCHMARK_WORKER_SECRET not set — endpoints are unauthenticated')
+    console.warn('WARNING: WORKER_ALLOW_UNAUTHENTICATED=1 — endpoints are unauthenticated. Never run this way in production.')
   }
 })

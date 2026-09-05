@@ -189,10 +189,16 @@ In **Dokploy → Environment**:
 
 | Variable | Required | Description |
 | --- | --- | --- |
-| `BENCHMARK_WORKER_SECRET` | yes | Shared bearer token. Use `openssl rand -hex 32`. |
+| `BENCHMARK_WORKER_SECRET` | yes | Shared bearer token. Use `openssl rand -hex 32`. The worker refuses to start without it. |
+| `WORKER_ALLOW_UNAUTHENTICATED` | no | Set to `1` to run without a secret. Local development only — the worker executes untrusted code. |
+| `MAX_CONCURRENT_JOBS` | no | Docker-backed jobs allowed to run at once. Defaults to `2`. |
+| `MAX_QUEUED_JOBS` | no | Jobs allowed to wait for a slot before new ones get `503`. Defaults to `12`. |
+| `MAX_CONCURRENT_SYNC_REQUESTS` | no | In-process requests (`/api/run`, QuickJS in `/api/analysis/jobs`) allowed at once. Defaults to `4`. |
 | `COLLECT_PERF` | no | `1` (default) to wrap runtime invocations with `perf stat`. Set to `0` if your kernel rejects it. |
 | `JOB_DEADLINE_MS` | no | Hard ceiling for a single async job. Defaults to `30000` (30 s). Increase if you need wider profile sweeps. |
 | `PORT` | no | Defaults to `8080`. |
+
+When the worker is at capacity it answers `503` with a `Retry-After` header; jsperf.net treats that as "multi-runtime unavailable" for that request rather than failing the whole analysis.
 
 ### 4. Wire up jsperf.net on Vercel
 
