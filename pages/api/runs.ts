@@ -2,6 +2,8 @@
 import { runsCollection } from '../../lib/mongodb'
 import { redis } from '../../lib/redis'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
+import { rejectIfBanned } from '../../lib/bans'
+import { logServerError } from '../../lib/errorLog'
 
 // One POST per completed benchmark run (all test results in a single payload),
 // so this doesn't need to be high. Free: 10/min by IP, donor: 60/min by identity.
@@ -20,6 +22,8 @@ export default async function handler(req, res) {
     if (!rl.success) {
       return res.status(429).json({ error: 'Too many requests', tier: rl.tier })
     }
+
+    if (await rejectIfBanned(req, res)) return
 
     const runs = await runsCollection()
     const payload = req.body
@@ -54,7 +58,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ success: true })
   } catch (error) {
-    console.error(error)
+    void logServerError('runs.create', error, { req })
     res.status(500).json({ error: 'Internal Server Error' })
   }
 }

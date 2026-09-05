@@ -6,6 +6,7 @@ import { estimateComplexitiesOnWorker } from '../engines/complexity'
 import { loadStoredMultiRuntimeResults } from '../multiRuntimeResults'
 import { findBrowserApiUsage, isAsyncTest } from './detection'
 import { buildBenchmarkDoctor } from './doctor'
+import { logServerError } from '../errorLog'
 import {
   inferBenchmarkLanguage,
   prepareBenchmarkSources,
@@ -300,7 +301,7 @@ export function handleApiError(error, res, tier = 'free') {
   if (isAbortError(error)) {
     return res.status(504).json({ error: formatAnalysisTimeoutMessage(tier) })
   }
-  console.error('Analysis error:', error)
+  void logServerError('analysis', error, { req: res?.req, tier })
   return res.status(500).json({ error: 'Internal Server Error' })
 }
 

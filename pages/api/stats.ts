@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { runsCollection } from '../../lib/mongodb'
 import { redis } from '../../lib/redis'
+import { logServerError } from '../../lib/errorLog'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -80,7 +81,7 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300')
     res.status(200).json(statsByTest)
   } catch (error) {
-    console.error('Failed to get stats', error)
+    void logServerError('stats.get', error, { req })
     res.status(500).json({ error: 'Internal Server Error' })
   }
 }

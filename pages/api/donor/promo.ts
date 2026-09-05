@@ -12,6 +12,7 @@ import { redis } from '../../../lib/redis'
 import { createDonorSession, setDonorCookie } from '../../../lib/donorAuth'
 import { getClientIp } from '../../../lib/rateLimit'
 import { claimPromoCode } from '../../../lib/promoCodes'
+import { logServerError } from '../../../lib/errorLog'
 
 const promoRatelimit = new Ratelimit({
   redis,
@@ -143,7 +144,7 @@ export default async function handler(req, res) {
       alreadyRedeemed: !!claim.alreadyRedeemed,
     })
   } catch (error) {
-    console.error('Donor promo error:', error)
+    void logServerError('donor.promo', error, { req })
     return res.status(500).json({
       success: false,
       error: 'Promo redemption failed. Please try again later.',

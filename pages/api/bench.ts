@@ -1,24 +1,17 @@
 // @ts-nocheck
 import { pagesCollection } from '../../lib/mongodb'
-import { getToken } from 'next-auth/jwt'
 import { shortcode } from "../../utils/Url"
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benchmark/source'
+import { readSessionUser } from '../../lib/session'
+import { rejectIfBanned } from '../../lib/bans'
+import { logServerError } from '../../lib/errorLog'
 
 // Free: 10/min by IP. Donor: 60/min by donor identity (see lib/rateLimit.js).
 // Page create/update is a write to MongoDB — keep it modest to honor server resources.
 const RATE_LIMIT = { free: 10, donor: 60, window: '1 m' }
 
-const getSessionUser = async (req) => {
-  if (!process.env.NEXTAUTH_SECRET) return null
-
-  try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
-    return token?.user || null
-  } catch (_) {
-    return null
-  }
-}
+const getSessionUser = readSessionUser
 
 const getErrorMessage = (error) => (
   error instanceof Error ? error.message : String(error)
@@ -97,6 +90,8 @@ const addPage = async (req, res) => {
     //   throw new Error('User is not authenticated.')
     // }
 
+    if (await rejectIfBanned(req, res, { sessionUserId: sessionUser?.id || null })) return
+
     const pages = await pagesCollection()
 
     const payload = JSON.parse(req.body)
@@ -155,6 +150,7 @@ const addPage = async (req, res) => {
         }
       })
   } catch (error) {
+    void logServerError('bench.create', error, { req })
     return res.json({
       message: getErrorMessage(error),
       success: false,
@@ -184,6 +180,8 @@ const updatePage = async (req, res) => {
     }
 
     const sessionUser = await getSessionUser(req)
+
+    if (await rejectIfBanned(req, res, { sessionUserId: sessionUser?.id || null })) return
 
     const pages = await pagesCollection()
 
@@ -280,6 +278,11 @@ const updatePage = async (req, res) => {
     })
 
   } catch (error) {
+    // Authorisation / validation failures are expected; only persist real faults.
+    const message = getErrorMessage(error)
+    if (!/authority|does not exist|Protect imported/i.test(message)) {
+      void logServerError('bench.update', error, { req })
+    }
     return res.json({
       message: getErrorMessage(error),
       success: false,

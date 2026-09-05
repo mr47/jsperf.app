@@ -14,6 +14,7 @@
  */
 import crypto from 'crypto'
 import { redis } from './redis'
+import { findDonorGrant } from './users'
 
 export const DONOR_COOKIE_NAME = 'jsperf_donor'
 export const DONOR_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days
@@ -167,17 +168,24 @@ export async function invalidateDonorEmailCache(email) {
 /**
  * Resolve the donor for an incoming API request:
  *   1. Explicit donor cookie (verified via /api/donor/verify), OR
- *   2. NextAuth session email matched against Donatello.
+ *   2. Admin-granted boost for the signed-in GitHub id / email
+ *      (see lib/users.ts — Redis-only lookup), OR
+ *   3. NextAuth session email matched against Donatello.
  *
  * `emailLookupFn` is injected to avoid a static import cycle between
  * `lib/donorAuth.js` and `lib/donatello.js`. Callers (rate limiter,
  * `/api/donor/me`) pass `findDonorByEmail` from `lib/donatello.js`.
  */
-export async function getDonorFromRequest(req, { emailLookupFn, sessionEmail } = {}) {
+export async function getDonorFromRequest(req, { emailLookupFn, sessionEmail, sessionUserId } = {}) {
   const token = readDonorTokenFromReq(req)
   if (token) {
     const session = await getDonorSession(token)
     if (session) return session
+  }
+
+  if (sessionUserId || sessionEmail) {
+    const grant = await findDonorGrant({ githubId: sessionUserId, email: sessionEmail })
+    if (grant) return grant
   }
 
   if (sessionEmail) {

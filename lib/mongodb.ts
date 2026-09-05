@@ -248,6 +248,92 @@ export const reportsCollection = async function() {
   return db.collection('reports')
 }
 
+/**
+ * Admin-panel collections. Indexes are created lazily on first access
+ * (idempotent; MongoDB builds them in the background).
+ *
+ *   users       one document per GitHub identity that has signed in (or
+ *               was backfilled from `pages.githubID`). Holds ban, admin
+ *               role and admin-granted donor boost.
+ *   ipBans      IP-level bans for anonymous abusers (create is unauthenticated).
+ *   errors      server/client error log, grouped by fingerprint + hour bucket,
+ *               auto-expired after 30 days.
+ *   adminAudit  append-only log of admin actions.
+ */
+const adminCollectionsReady = {}
+
+async function ensureIndexedCollection(db, name, indexes) {
+  if (!adminCollectionsReady[name]) {
+    adminCollectionsReady[name] = (async () => {
+      try {
+        await db.createCollection(name)
+      } catch (err) {
+        if (err?.code !== 48 && err?.codeName !== 'NamespaceExists') throw err
+      }
+      const collection = db.collection(name)
+      for (const [keys, options] of indexes) {
+        await collection.createIndex(keys, options)
+      }
+    })().catch((err) => {
+      adminCollectionsReady[name] = null
+      throw err
+    })
+  }
+  return adminCollectionsReady[name]
+}
+
+export const usersCollection = async function() {
+  const client = await clientPromise
+  const db = client.db('jsperf')
+  await ensureIndexedCollection(db, 'users', [
+    [{ githubId: 1 }, { unique: true, name: 'uniq_users_githubId' }],
+    [{ login: 1 }, { name: 'users_login' }],
+    [{ email: 1 }, { name: 'users_email', sparse: true }],
+    [{ lastSeenAt: -1 }, { name: 'users_lastSeenAt_desc' }],
+    [{ 'ban.at': -1 }, { name: 'users_ban_at', sparse: true }],
+    [{ 'donorGrant.expiresAt': 1 }, { name: 'users_donorGrant_expiresAt', sparse: true }],
+  ])
+  return db.collection('users')
+}
+
+export const ipBansCollection = async function() {
+  const client = await clientPromise
+  const db = client.db('jsperf')
+  await ensureIndexedCollection(db, 'ipBans', [
+    [{ ip: 1 }, { unique: true, name: 'uniq_ipBans_ip' }],
+    [{ at: -1 }, { name: 'ipBans_at_desc' }],
+  ])
+  return db.collection('ipBans')
+}
+
+export const errorsCollection = async function() {
+  const client = await clientPromise
+  const db = client.db('jsperf')
+  await ensureIndexedCollection(db, 'errors', [
+    [{ fingerprint: 1, bucket: 1 }, { unique: true, name: 'uniq_errors_fingerprint_bucket' }],
+    [{ lastSeenAt: -1 }, { name: 'errors_lastSeenAt_desc' }],
+    [{ scope: 1, lastSeenAt: -1 }, { name: 'errors_scope_lastSeenAt' }],
+    [{ lastSeenAt: 1 }, { name: 'errors_ttl', expireAfterSeconds: 60 * 60 * 24 * 30 }],
+  ])
+  return db.collection('errors')
+}
+
+export const adminAuditCollection = async function() {
+  const client = await clientPromise
+  const db = client.db('jsperf')
+  await ensureIndexedCollection(db, 'adminAudit', [
+    [{ createdAt: -1 }, { name: 'adminAudit_createdAt_desc' }],
+    [{ targetType: 1, targetId: 1, createdAt: -1 }, { name: 'adminAudit_target' }],
+  ])
+  return db.collection('adminAudit')
+}
+
+/** Raw database handle for admin maintenance (index inspection etc.). */
+export const getDatabase = async function() {
+  const client = await clientPromise
+  return client.db('jsperf')
+}
+
 // Export a module-scoped MongoClient promise. By doing this in a
 // separate module, the client can be shared across functions.
 export default clientPromise

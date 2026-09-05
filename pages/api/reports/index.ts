@@ -10,30 +10,22 @@
  * in-but-not-donor) callers get a 402 with a short explanation that
  * the UI surfaces by re-opening the donor modal.
  */
-import { getToken } from 'next-auth/jwt'
 import { getDonorFromRequest } from '../../../lib/donorAuth'
 import { findDonorByEmail } from '../../../lib/donatello'
 import { createReport, listReportsForDonor } from '../../../lib/reports'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../lib/rateLimit'
+import { readSessionUser } from '../../../lib/session'
+import { rejectIfBanned } from '../../../lib/bans'
+import { logServerError } from '../../../lib/errorLog'
 
 const RATE_LIMIT = { free: 0, donor: 30, window: '1 h' }
 
-async function readSessionEmail(req) {
-  if (!process.env.NEXTAUTH_SECRET) return null
+async function resolveDonor(req, sessionUser) {
   try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
-    return token?.user?.email || token?.email || null
-  } catch (_) {
-    return null
-  }
-}
-
-async function resolveDonor(req) {
-  try {
-    const sessionEmail = await readSessionEmail(req)
     return await getDonorFromRequest(req, {
       emailLookupFn: findDonorByEmail,
-      sessionEmail,
+      sessionEmail: sessionUser?.email || null,
+      sessionUserId: sessionUser?.id || null,
     })
   } catch (err) {
     console.warn('reports: donor resolve failed', err?.message || err)
@@ -42,14 +34,16 @@ async function resolveDonor(req) {
 }
 
 export default async function handler(req, res) {
+  const sessionUser = await readSessionUser(req)
+
   if (req.method === 'GET') {
-    const donor = await resolveDonor(req)
+    const donor = await resolveDonor(req, sessionUser)
     if (!donor) return res.status(200).json({ reports: [] })
     try {
       const reports = await listReportsForDonor(donor.name, { limit: 30 })
       return res.status(200).json({ reports })
     } catch (err) {
-      console.error('reports: list failed', err)
+      void logServerError('reports.list', err, { req })
       return res.status(500).json({ error: 'Failed to list reports' })
     }
   }
@@ -59,7 +53,9 @@ export default async function handler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`)
   }
 
-  const donor = await resolveDonor(req)
+  if (await rejectIfBanned(req, res, { sessionUserId: sessionUser?.id || null })) return
+
+  const donor = await resolveDonor(req, sessionUser)
   if (!donor) {
     return res.status(402).json({
       error: 'Donor required',
@@ -102,7 +98,7 @@ export default async function handler(req, res) {
   } catch (err) {
     if (err.code === 'NOT_FOUND') return res.status(404).json({ error: err.message })
     if (err.code === 'RATE_LIMITED') return res.status(429).json({ error: err.message })
-    console.error('reports: create failed', err)
+    void logServerError('reports.create', err, { req, userId: sessionUser?.id || null, slug, revision })
     return res.status(500).json({ error: 'Failed to create report' })
   }
 }

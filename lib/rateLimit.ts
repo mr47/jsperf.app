@@ -16,10 +16,10 @@
  * for switching networks.
  */
 import { Ratelimit } from '@upstash/ratelimit'
-import { getToken } from 'next-auth/jwt'
 import { redis } from './redis'
 import { getDonorFromRequest } from './donorAuth'
 import { findDonorByEmail } from './donatello'
+import { readSessionUser } from './session'
 
 const limiterCache = new Map()
 
@@ -55,27 +55,12 @@ export function getClientIp(req) {
 }
 
 /**
- * Pull the NextAuth-signed-in user's email from the JWT cookie, if
- * any. Used to auto-match GitHub sign-ins against the Donatello
- * donor list without requiring users to run the manual claim flow.
- *
- * Returns null on any failure — sign-in is best-effort for the rate
- * limiter; missing JWT just means free tier.
- */
-async function readSessionEmail(req) {
-  if (!process.env.NEXTAUTH_SECRET) return null
-  try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
-    return token?.user?.email || token?.email || null
-  } catch (_) {
-    return null
-  }
-}
-
-/**
  * Check the rate limit for `req` against the named limiter. Returns
  * the upstash result (`success`, `limit`, `remaining`, `reset`) plus
  * `tier` and the resolved `donor` (when applicable).
+ *
+ * The signed-in GitHub identity (if any) is used to auto-match against
+ * Donatello donors and admin grants without a manual claim flow.
  *
  * Intentionally never throws — donor lookup failures degrade to the
  * free tier so a Redis or upstream-API blip can't take the API
@@ -86,10 +71,11 @@ export async function applyTieredRateLimit(req, name, limits) {
 
   let donor = null
   try {
-    const sessionEmail = await readSessionEmail(req)
+    const sessionUser = await readSessionUser(req)
     donor = await getDonorFromRequest(req, {
       emailLookupFn: findDonorByEmail,
-      sessionEmail,
+      sessionEmail: sessionUser?.email || null,
+      sessionUserId: sessionUser?.id || null,
     })
   } catch (_) {
     donor = null
