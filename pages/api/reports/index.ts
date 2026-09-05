@@ -65,14 +65,11 @@ export default async function handler(req, res) {
 
   // Rate limit only after we know it's a donor — non-donors are
   // already blocked above so we don't burn IP buckets on them.
-  let rl
-  try {
-    rl = await applyTieredRateLimit(req, 'reports', RATE_LIMIT)
-    setRateLimitHeaders(res, rl)
-  } catch (err) {
-    console.warn('reports: rate limit failed (allowing through):', err?.message || err)
-  }
-  if (rl && !rl.success) {
+  // applyTieredRateLimit never throws: a Redis outage degrades to an
+  // in-memory window rather than letting reports through unlimited.
+  const rl = await applyTieredRateLimit(req, 'reports', RATE_LIMIT)
+  setRateLimitHeaders(res, rl)
+  if (!rl.success) {
     return res.status(429).json({
       error: 'Rate limit exceeded',
       message: `You can generate up to ${rl.configuredLimit ?? RATE_LIMIT.donor} reports per hour.`,

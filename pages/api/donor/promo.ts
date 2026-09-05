@@ -13,6 +13,7 @@ import { createDonorSession, setDonorCookie } from '../../../lib/donorAuth'
 import { getClientIp } from '../../../lib/rateLimit'
 import { claimPromoCode } from '../../../lib/promoCodes'
 import { logServerError } from '../../../lib/errorLog'
+import { redactForLog } from '../../../lib/logRedact'
 
 const promoRatelimit = new Ratelimit({
   redis,
@@ -95,7 +96,7 @@ export default async function handler(req, res) {
 
     const user = await readSessionUser(req)
     console.info('[donor-promo] claim attempt', {
-      code: String(code).trim().toUpperCase(),
+      code: redactForLog(String(code).trim().toUpperCase()),
       hasSessionUser: !!user,
       email: maskEmail(user?.email),
       emailListCount: Array.isArray(user?.emails) ? user.emails.length : 0,
@@ -132,7 +133,7 @@ export default async function handler(req, res) {
 
     console.info('[donor-promo] claim accepted', {
       email: maskEmail(session.email),
-      promoCode: session.promoCode,
+      promoCode: redactForLog(session.promoCode),
       ttl,
       alreadyRedeemed: !!claim.alreadyRedeemed,
     })

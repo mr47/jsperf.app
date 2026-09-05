@@ -10,6 +10,7 @@
  * limit tier (see lib/rateLimit.js).
  */
 import { findDonorMatch } from '../../../lib/donatello'
+import { redactForLog } from '../../../lib/logRedact'
 import { createDonorSession, setDonorCookie } from '../../../lib/donorAuth'
 import { Ratelimit } from '@upstash/ratelimit'
 import { redis } from '../../../lib/redis'
@@ -68,8 +69,8 @@ export default async function handler(req, res) {
     const trimmedCode = code ? String(code).trim() : undefined
 
     console.info(
-      `[donor-verify] looking up name=${JSON.stringify(trimmedName)}` +
-      (trimmedCode ? ` code=${JSON.stringify(trimmedCode)}` : '')
+      `[donor-verify] looking up name=${redactForLog(trimmedName)}` +
+      (trimmedCode ? ` code=${redactForLog(trimmedCode)}` : '')
     )
 
     const match = await findDonorMatch({ name: trimmedName, code: trimmedCode })
