@@ -5,6 +5,7 @@ import {
   handleApiError,
   loadAnalysisSession,
   sessionAbortSignal,
+  storeSessionResult,
 } from '../../../../lib/benchmark/deepAnalysis'
 
 export const config = {
@@ -31,6 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       onProgress: undefined,
     })
 
+    await storeSessionResult(session, 'v8', profiles)
     return res.status(200).json({ profiles })
   } catch (error) {
     return handleApiError(error, res, session?.tier)

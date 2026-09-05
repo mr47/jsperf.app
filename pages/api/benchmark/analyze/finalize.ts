@@ -5,6 +5,7 @@ import {
   attachAnalysisMeta,
   handleApiError,
   loadAnalysisSession,
+  loadEngineProfilesForFinalize,
   mergeMultiRuntimeMeta,
   persistAnalysis,
 } from '../../../../lib/benchmark/deepAnalysis'
@@ -24,22 +25,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     session = await loadAnalysisSession(req.body?.sessionId)
     assertSessionActive(session)
 
-    const quickjsProfiles = req.body?.quickjsProfiles
-    const v8Profiles = req.body?.v8Profiles
-    if (!Array.isArray(quickjsProfiles) || !Array.isArray(v8Profiles)) {
-      return res.status(400).json({ error: 'quickjsProfiles and v8Profiles are required' })
-    }
+    // Profiles come from the server-side session store written by the
+    // /quickjs, /v8 and /worker routes — never from the request body.
+    // The finalized analysis is cached per code hash for all users, so
+    // client-supplied numbers would let one user poison it for everyone.
+    const { quickjsProfiles, v8Profiles, complexities, multiRuntime } = await loadEngineProfilesForFinalize(session)
 
     const analysis = buildAnalysisFromProfiles(session.prepared.runtime.tests, {
       quickjsProfiles,
       v8Profiles,
-      complexities: Array.isArray(req.body?.complexities) ? req.body.complexities : undefined,
+      complexities,
     })
     const analysisWithMeta = attachAnalysisMeta(analysis, session)
     await persistAnalysis(session, analysisWithMeta)
 
     const final = {
-      ...mergeMultiRuntimeMeta(analysisWithMeta, req.body?.multiRuntime || null),
+      ...mergeMultiRuntimeMeta(analysisWithMeta, multiRuntime),
       codeHash: session.codeHash,
       multiRuntimeCacheKey: session.multiRuntimeCacheKey,
     }

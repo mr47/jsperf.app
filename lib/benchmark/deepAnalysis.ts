@@ -108,6 +108,50 @@ export async function loadAnalysisSession(sessionId) {
   return typeof raw === 'string' ? JSON.parse(raw) : raw
 }
 
+/**
+ * Engine outputs are kept server-side, keyed by session, so the finalize
+ * step never has to trust profiles echoed back by the browser. The
+ * analysis cache is shared by everyone with the same code hash, so a
+ * client-supplied result would let one user poison it for all others.
+ */
+export type SessionResultKind = 'quickjs' | 'v8' | 'worker'
+
+export async function storeSessionResult(session, kind: SessionResultKind, value: unknown) {
+  if (!session?.id) return
+  const ttl = Math.max(60, Math.min(ANALYSIS_SESSION_TTL_SECONDS, Math.ceil(((session.deadlineAt || 0) - Date.now()) / 1000) + 300))
+  await redis.setex(analysisSessionResultKey(session.id, kind), ttl, JSON.stringify(value))
+}
+
+export async function loadSessionResult(session, kind: SessionResultKind) {
+  if (!session?.id) return null
+  const raw = await redis.get(analysisSessionResultKey(session.id, kind))
+  if (raw == null) return null
+  return typeof raw === 'string' ? JSON.parse(raw) : raw
+}
+
+export async function loadEngineProfilesForFinalize(session) {
+  const [quickjsProfiles, v8Profiles, worker] = await Promise.all([
+    loadSessionResult(session, 'quickjs'),
+    loadSessionResult(session, 'v8'),
+    loadSessionResult(session, 'worker'),
+  ])
+  const missing = [
+    !Array.isArray(quickjsProfiles) && 'quickjs',
+    !Array.isArray(v8Profiles) && 'v8',
+  ].filter(Boolean)
+  if (missing.length) {
+    const err = new Error(`Analysis engines have not completed yet: ${missing.join(', ')}`) as StatusError
+    err.status = 409
+    throw err
+  }
+  return {
+    quickjsProfiles,
+    v8Profiles,
+    complexities: Array.isArray(worker?.complexities) ? worker.complexities : undefined,
+    multiRuntime: worker?.multiRuntime ?? null,
+  }
+}
+
 export function sessionAbortSignal(session) {
   const remainingMs = Math.max(1, Math.min(DEEP_ANALYSIS_ABORT_MS, (session?.deadlineAt || 0) - Date.now() - 1_000))
   return AbortSignal.timeout(remainingMs)
@@ -433,4 +477,8 @@ function normalizeRuntimeRequest(input) {
 
 function analysisSessionKey(sessionId) {
   return `analysis_session:${sessionId}`
+}
+
+function analysisSessionResultKey(sessionId, kind: SessionResultKind) {
+  return `analysis_session_result:${sessionId}:${kind}`
 }
