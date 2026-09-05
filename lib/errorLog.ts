@@ -15,6 +15,7 @@
  */
 import crypto from 'crypto'
 import type { IncomingMessage } from 'http'
+import { ObjectId } from 'mongodb'
 import { errorsCollection } from './mongodb'
 
 export type ErrorLevel = 'error' | 'warn'
@@ -215,10 +216,9 @@ export async function errorSummary(sinceMs = 24 * 60 * 60 * 1000) {
 }
 
 export async function resolveErrors(ids: string[], resolved: boolean) {
-  const { ObjectId } = await import('mongodb')
   const objectIds = ids
     .map((id) => { try { return new ObjectId(id) } catch (_) { return null } })
-    .filter((v): v is InstanceType<typeof ObjectId> => v !== null)
+    .filter((v): v is ObjectId => v !== null)
   if (!objectIds.length) return 0
   const errors = await errorsCollection()
   const result = await errors.updateMany({ _id: { $in: objectIds } }, { $set: { resolvedAt: resolved ? new Date() : null } })
@@ -232,10 +232,9 @@ export async function deleteErrors({ ids, resolvedOnly }: { ids?: string[]; reso
     return result.deletedCount || 0
   }
   if (!ids?.length) return 0
-  const { ObjectId } = await import('mongodb')
   const objectIds = ids
     .map((id) => { try { return new ObjectId(id) } catch (_) { return null } })
-    .filter((v): v is InstanceType<typeof ObjectId> => v !== null)
+    .filter((v): v is ObjectId => v !== null)
   const result = await errors.deleteMany({ _id: { $in: objectIds } })
   return result.deletedCount || 0
 }

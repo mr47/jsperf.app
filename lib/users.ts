@@ -18,6 +18,7 @@
  *   donor:grant:gh:<githubId>    JSON donor session (EX until expiry)
  *   donor:grant:email:<email>    JSON donor session (EX until expiry)
  */
+import { ObjectId } from 'mongodb'
 import { redis } from './redis'
 import { adminAuditCollection, ipBansCollection, pagesCollection, usersCollection } from './mongodb'
 
@@ -299,7 +300,12 @@ export type BanInput = {
   hideContent?: boolean
 }
 
-export async function banUser(githubId: string, input: BanInput, actor: AdminActor): Promise<BanRecord> {
+export function benchmarkPath(slug: string, revision: number | string | undefined): string {
+  const rev = Number(revision) || 1
+  return rev > 1 ? `/${slug}/${rev}` : `/${slug}`
+}
+
+export async function banUser(githubId: string, input: BanInput, actor: AdminActor): Promise<{ ban: BanRecord; affectedPaths: string[] }> {
   const id = normalizeGithubId(githubId)
   if (!id) throw new Error('Invalid GitHub id')
   const reason = String(input.reason || '').trim().slice(0, 500) || 'No reason given'
@@ -309,16 +315,20 @@ export async function banUser(githubId: string, input: BanInput, actor: AdminAct
   const users = await usersCollection()
   const existing = (await users.findOne({ githubId: id }, { projection: { ban: 1 } })) as Pick<UserDoc, 'ban'> | null
   const hiddenPageIds: string[] = existing?.ban?.hiddenPageIds ? [...existing.ban.hiddenPageIds] : []
+  const affectedPaths: string[] = []
 
   if (input.hideContent) {
     const pages = await pagesCollection()
     const docs = await pages
-      .find({ githubID: id, visible: true }, { projection: { _id: 1 } })
+      .find({ githubID: id, visible: true }, { projection: { _id: 1, slug: 1, revision: 1 } })
       .limit(MAX_HIDDEN_PAGES_PER_BAN)
       .toArray()
     if (docs.length) {
       await pages.updateMany({ _id: { $in: docs.map((d) => d._id) } }, { $set: { visible: false } })
-      for (const d of docs) hiddenPageIds.push(String(d._id))
+      for (const d of docs) {
+        hiddenPageIds.push(String(d._id))
+        if (typeof d.slug === 'string') affectedPaths.push(benchmarkPath(d.slug, d.revision))
+      }
     }
   }
 
@@ -336,31 +346,35 @@ export async function banUser(githubId: string, input: BanInput, actor: AdminAct
   )
   await redisSetJson(BAN_GH_KEY(id), { reason, at: ban.at, by: ban.by, until }, secondsUntil(until))
   await writeAudit({ action: 'user.ban', actor, targetType: 'user', targetId: id, details: { reason, until, hiddenPages: hiddenPageIds.length } })
-  return ban
+  return { ban, affectedPaths }
 }
 
-export async function unbanUser(githubId: string, actor: AdminActor): Promise<{ restoredPages: number }> {
+export async function unbanUser(githubId: string, actor: AdminActor): Promise<{ restoredPages: number; affectedPaths: string[] }> {
   const id = normalizeGithubId(githubId)
   if (!id) throw new Error('Invalid GitHub id')
   const users = await usersCollection()
   const existing = (await users.findOne({ githubId: id }, { projection: { ban: 1 } })) as Pick<UserDoc, 'ban'> | null
   let restoredPages = 0
+  const affectedPaths: string[] = []
   const hidden = existing?.ban?.hiddenPageIds || []
   if (hidden.length) {
-    const { ObjectId } = await import('mongodb')
     const ids = hidden
       .map((h) => { try { return new ObjectId(h) } catch (_) { return null } })
-      .filter((v): v is InstanceType<typeof ObjectId> => v !== null)
+      .filter((v): v is ObjectId => v !== null)
     if (ids.length) {
       const pages = await pagesCollection()
       const result = await pages.updateMany({ _id: { $in: ids } }, { $set: { visible: true } })
       restoredPages = result.modifiedCount || 0
+      const docs = await pages.find({ _id: { $in: ids } }, { projection: { slug: 1, revision: 1 } }).toArray()
+      for (const d of docs) {
+        if (typeof d.slug === 'string') affectedPaths.push(benchmarkPath(d.slug, d.revision))
+      }
     }
   }
   await users.updateOne({ githubId: id }, { $set: { ban: null } })
   await redis.del(BAN_GH_KEY(id))
   await writeAudit({ action: 'user.unban', actor, targetType: 'user', targetId: id, details: { restoredPages } })
-  return { restoredPages }
+  return { restoredPages, affectedPaths }
 }
 
 export async function banIp(ip: string, reason: string, days: number | null | undefined, actor: AdminActor) {
