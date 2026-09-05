@@ -78,7 +78,7 @@ export function fingerprintError(scope: string, message: string, stack: string |
   const normalizedMessage = message
     .replace(/"[^"]*"/g, '"…"')
     .replace(/'[^']*'/g, "'…'")
-    .replace(/\b[0-9a-f]{8,}\b/gi, '<hex>')
+    .replace(/\b(?:0x)?[0-9a-f]{8,}\b/gi, '<hex>')
     .replace(/\d+/g, '<n>')
     .slice(0, 200)
   const firstFrame = (stack || '')
