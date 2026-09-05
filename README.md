@@ -107,6 +107,23 @@ Optional integrations:
 | `VERCEL_OIDC_TOKEN` | Optional OIDC token for Vercel Sandbox access and cleanup. |
 | `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
 | `VERCEL_PROJECT_ID` | Vercel project scope for Sandbox operations. |
+| `ADMIN_GITHUB_IDS` | Comma-separated GitHub numeric user IDs that get admin access. Bootstraps the first admin; further admins can be promoted from the panel. |
+| `ADMIN_GITHUB_LOGINS` | Comma-separated GitHub logins that get admin access (alternative to `ADMIN_GITHUB_IDS`). |
+| `ERROR_LOG_DISABLED` | Set to `1` to skip persisting errors to MongoDB (they are still written to the console). |
+
+## Admin panel
+
+Signed-in admins get an **Admin** link in the header that opens `/admin`. Admin access comes from either the `ADMIN_GITHUB_IDS` / `ADMIN_GITHUB_LOGINS` allowlist or the `role: "admin"` field on a `users` document (set from the user detail page). Admin routes require a GitHub session with `NEXTAUTH_SECRET` configured.
+
+| Area | What it does |
+| --- | --- |
+| `/admin` | Dashboard: benchmark/run/user/error counts, active bans, donor grants, top benchmarks, recent sign-ins, recent admin actions, Redis/Mongo health and missing recommended indexes. |
+| `/admin/users` | Directory of everyone who has signed in (plus a one-click backfill from existing benchmark authors), with filters for banned, admin and premium users. |
+| `/admin/users/:id` | Ban/unban (optionally hiding the user's benchmarks and setting an expiry), grant/revoke premium without a donation, promote/demote admins, and see the user's benchmarks and audit trail. |
+| `/admin/ip-bans` | Ban anonymous abusers by IP. Enforced on benchmark create/update, run submission, deep analysis and report creation. |
+| `/admin/errors` | Server and client errors grouped by fingerprint and hour, with stack traces, sample context, and resolve/delete actions. Rows expire after 30 days. |
+
+Bans and premium grants are stored in MongoDB and mirrored to Redis for hot-path checks; a banned user is refused at sign-in and every write endpoint returns `403` with `{ "error": "banned" }`. Every admin action is written to the `adminAudit` collection.
 
 ## Scripts
 
