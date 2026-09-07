@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react'
 import GitHubIcon from './GitHubIcon'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Moon, Sun } from "lucide-react"
+import { Moon, ShieldCheck, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/components/ui/button"
 import DonorBoost from './DonorBoost'
@@ -30,6 +30,7 @@ export default function Header(props) {
   const sessionUser = session?.user as any
   const { login } = sessionUser?.profile || {}
   const sessionLoading = status === 'loading'
+  const isAdmin = sessionUser?.isAdmin === true
 
   return (
     <header className="border-b border-border mb-6">
@@ -89,7 +90,7 @@ export default function Header(props) {
               <div className="size-9" aria-hidden="true" />
             )}
             
-            <div className="flex min-w-24 max-w-40 justify-end">
+            <div className="flex min-w-24 max-w-56 justify-end">
               {!mounted || sessionLoading ? (
                 <div className="h-9 w-full" aria-hidden="true" />
               ) : !session ? (
@@ -98,9 +99,17 @@ export default function Header(props) {
                   <GitHubIcon fill="currentColor" width={16} height={16} />
                 </Button>
               ) : (
-                <Link href={`/u/${sessionUser?.id}`} className="font-medium text-sm hover:text-primary transition-colors truncate text-right">
-                  { login }
-                </Link>
+                <div className="flex items-center gap-3 truncate">
+                  {isAdmin && (
+                    <Link href="/admin" className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" title="Admin panel">
+                      <ShieldCheck className="h-4 w-4" />
+                      <span className="hidden sm:inline">Admin</span>
+                    </Link>
+                  )}
+                  <Link href={`/u/${sessionUser?.id}`} className="font-medium text-sm hover:text-primary transition-colors truncate text-right">
+                    { login }
+                  </Link>
+                </div>
               )}
             </div>
           </div>

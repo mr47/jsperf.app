@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getJobMock = vi.hoisted(() => vi.fn())
 const multiRuntimeFindMock = vi.hoisted(() => vi.fn())
-const multiRuntimeUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
-const cpuProfileUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
-const jitArtifactUpdateOneMock = vi.hoisted(() => vi.fn(async () => ({ acknowledged: true })))
+const multiRuntimeUpdateOneMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({ acknowledged: true })))
+const cpuProfileUpdateOneMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({ acknowledged: true })))
+const jitArtifactUpdateOneMock = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({ acknowledged: true })))
 
 vi.mock('../../lib/engines/multiruntime', () => ({
   getMultiRuntimeJob: (...args: unknown[]) => getJobMock(...args),
@@ -32,7 +32,7 @@ vi.mock('../../lib/redis', () => ({
 }))
 
 import { prepareDeepAnalysisRequest } from '../../lib/benchmark/deepAnalysis'
-import { getShapedMultiRuntimeJob } from '../../lib/multiRuntimeJobResult'
+import { getShapedMultiRuntimeJob, type ShapedJobPayload } from '../../lib/multiRuntimeJobResult'
 import { parseOptimizedBlocks } from '../../utils/jitSourceMap'
 
 const SYNTHETIC_COMMERCE_BENCHMARK = {
@@ -172,7 +172,8 @@ describe('synthetic benchmark system coverage', () => {
       const payload = expectDonePayload(shaped.payload)
       payloads.push(payload)
 
-      const nodeProfile = payload.runtimes['node@24.1.0'].profiles[0]
+      const nodeRuntime = payload.runtimes['node@24.1.0'] as { profiles: Array<Record<string, unknown>> }
+      const nodeProfile = nodeRuntime.profiles[0]
       expect(payload.runtimeComparison).toMatchObject({
         available: true,
         fastestRuntime: CASES[testIndex].fastestRuntime,
@@ -252,7 +253,8 @@ describe('synthetic benchmark system coverage', () => {
     expect(optimizedBlocks[1].mappedRanges.reduce((sum, range) => sum + range.instructionCount, 0)).toBeGreaterThan(0)
 
     expect(multiRuntimeUpdateOneMock).toHaveBeenCalledTimes(2)
-    expect(multiRuntimeUpdateOneMock.mock.calls[0][1].$set.runtimes['node@24.1.0'].profiles[0]).toEqual(
+    const firstUpdate = multiRuntimeUpdateOneMock.mock.calls[0][1] as { $set: { runtimes: Record<string, { profiles: unknown[] }> } }
+    expect(firstUpdate.$set.runtimes['node@24.1.0'].profiles[0]).toEqual(
       expect.objectContaining({
         cpuProfileRef: expect.any(Object),
         jitArtifactRef: expect.any(Object),
@@ -269,9 +271,13 @@ function expectPreparedRequest(body: Record<string, unknown>) {
   return result
 }
 
-function expectDonePayload(payload: Awaited<ReturnType<typeof getShapedMultiRuntimeJob>>['payload']) {
+type DonePayload = Extract<ShapedJobPayload, { state: 'done' }>
+
+function expectDonePayload(payload: ShapedJobPayload): DonePayload {
   expect(payload).toMatchObject({ state: 'done' })
-  if (payload.state !== 'done') throw new Error(`Expected done payload, received ${payload.state}`)
+  if (!('state' in payload) || payload.state !== 'done') {
+    throw new Error(`Expected done payload, received ${'state' in payload ? payload.state : payload.error}`)
+  }
   return payload
 }
 

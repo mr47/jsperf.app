@@ -7,24 +7,24 @@ import { useRouter } from 'next/router'
 import { SessionProvider } from "next-auth/react"
 import { Analytics } from '@vercel/analytics/react';
 import { ThemeProvider } from "next-themes"
+import { installClientErrorReporter } from '../lib/clientErrorReporter'
 
 function App({ Component, pageProps: { session, ...pageProps } }) {
   const router = useRouter()
+  const isSandbox = router.pathname === '/sandbox/[id]'
+
+  // Hooks must run unconditionally, so the sandbox early-return comes after them.
+  useEffect(() => {
+    if (isSandbox) return
+    installClientErrorReporter()
+  }, [isSandbox])
 
   // Exclude sandbox from any additional scripts / providers
-  if (router.pathname === '/sandbox/[id]') {
+  if (isSandbox) {
     return (
       <Component {...pageProps} />
     )
   }
-
-  useEffect(() => {
-    const handleRouteChange = (url) => {}
-    router.events.on('routeChangeComplete', handleRouteChange)
-    return () => {
-      router.events.off('routeChangeComplete', handleRouteChange)
-    }
-  }, [router.events])
 
   return (
     <>

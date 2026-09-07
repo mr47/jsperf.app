@@ -10,10 +10,12 @@
  * limit tier (see lib/rateLimit.js).
  */
 import { findDonorMatch } from '../../../lib/donatello'
+import { redactForLog } from '../../../lib/logRedact'
 import { createDonorSession, setDonorCookie } from '../../../lib/donorAuth'
 import { Ratelimit } from '@upstash/ratelimit'
 import { redis } from '../../../lib/redis'
 import { getClientIp } from '../../../lib/rateLimit'
+import { logServerError } from '../../../lib/errorLog'
 
 // Donatello rate-limits the API at ~15 req/min per token; we cap the
 // public verify endpoint well below that so a single buggy/malicious
@@ -67,8 +69,8 @@ export default async function handler(req, res) {
     const trimmedCode = code ? String(code).trim() : undefined
 
     console.info(
-      `[donor-verify] looking up name=${JSON.stringify(trimmedName)}` +
-      (trimmedCode ? ` code=${JSON.stringify(trimmedCode)}` : '')
+      `[donor-verify] looking up name=${redactForLog(trimmedName)}` +
+      (trimmedCode ? ` code=${redactForLog(trimmedCode)}` : '')
     )
 
     const match = await findDonorMatch({ name: trimmedName, code: trimmedCode })
@@ -91,7 +93,7 @@ export default async function handler(req, res) {
       ttl,
     })
   } catch (error) {
-    console.error('Donor verify error:', error)
+    void logServerError('donor.verify', error, { req })
     return res.status(500).json({
       success: false,
       error: 'Donor verification failed. Please try again later.',

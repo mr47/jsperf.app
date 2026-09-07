@@ -15,6 +15,8 @@
  * session in Redis instead of re-querying on every request.
  */
 
+import { redactForLog } from './logRedact'
+
 const API_BASE = 'https://donatello.to/api/v1'
 const DEFAULT_LOOKUP_PAGE_SIZE = 100
 
@@ -173,9 +175,9 @@ export async function findDonorMatch({ name, code } = {}) {
   }
 
   console.info(
-    `[donatello] no match for ${JSON.stringify(name)}` +
-    (code ? ` with code ${JSON.stringify(code)}` : '') +
-    ` — inspected ${inspectedNames.length} record(s): ${JSON.stringify(inspectedNames)}`
+    `[donatello] no match for name=${redactForLog(name)}` +
+    (code ? ` code=${redactForLog(code)}` : '') +
+    ` — inspected ${inspectedNames.length} record(s)`
   )
 
   return null

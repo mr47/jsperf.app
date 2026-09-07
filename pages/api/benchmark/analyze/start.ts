@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../../../lib/rateLimit'
+import { rejectIfBanned } from '../../../../lib/bans'
 import {
   RATE_LIMIT,
   WORKER_EXECUTION_MODE_QUICKJS_COMPOSITE,
@@ -33,6 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         tier: rl.tier,
       })
     }
+
+    if (await rejectIfBanned(req, res)) return
 
     const requestBody = applyDonorProfilingDefault(req.body, tier)
     const prepared = prepareDeepAnalysisRequest(requestBody)

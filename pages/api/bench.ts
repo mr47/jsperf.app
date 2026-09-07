@@ -1,24 +1,17 @@
 // @ts-nocheck
 import { pagesCollection } from '../../lib/mongodb'
-import { getToken } from 'next-auth/jwt'
 import { shortcode } from "../../utils/Url"
 import { applyTieredRateLimit, setRateLimitHeaders } from '../../lib/rateLimit'
 import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../../lib/benchmark/source'
+import { readSessionUser } from '../../lib/session'
+import { rejectIfBanned } from '../../lib/bans'
+import { logServerError } from '../../lib/errorLog'
 
 // Free: 10/min by IP. Donor: 60/min by donor identity (see lib/rateLimit.js).
 // Page create/update is a write to MongoDB — keep it modest to honor server resources.
 const RATE_LIMIT = { free: 10, donor: 60, window: '1 m' }
 
-const getSessionUser = async (req) => {
-  if (!process.env.NEXTAUTH_SECRET) return null
-
-  try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
-    return token?.user || null
-  } catch (_) {
-    return null
-  }
-}
+const getSessionUser = readSessionUser
 
 const getErrorMessage = (error) => (
   error instanceof Error ? error.message : String(error)
@@ -32,29 +25,43 @@ const getErrorMessage = (error) => (
 const generateSlugId = async (length = 6, attempts = 10) => {
   const pages = await pagesCollection()
 
-  return new Promise((resolve, reject) => {
-    const testSlug = (async (attempt = 0) => {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    // Widen the slug on each collision so retries get exponentially more room.
+    const slug = shortcode(length + attempt)
+    const existing = await pages.findOne({ slug }, { projection: { _id: 1 } })
+    if (!existing) return slug
+  }
 
-      if (attempt >= attempts) {
-        reject(new Error('Too many attempts'))
-        return
-      }
+  throw new Error('Too many attempts')
+}
 
-      const slug = shortcode(length + attempt)
-      
-      const result = await pages.findOne({
-        slug
-      }, (err, result) => {
-        if (err) {
-          reject(err)
-        } else if (result) {
-          testSlug(attempt++)
-        } else {
-          resolve(slug)
-        }
-      })
-    })()
-  })
+const isDuplicateKeyError = (error) => error?.code === 11000 || /E11000/.test(String(error?.message || ''))
+
+const MAX_INSERT_ATTEMPTS = 5
+
+/**
+ * Insert a page, assigning the next revision for its slug. Concurrent saves
+ * against the same slug race on `max(revision) + 1`; the unique
+ * (slug, revision) index turns the loser into a duplicate-key error, which
+ * we resolve by recomputing the revision (or picking a fresh slug when the
+ * slug itself was just generated) and trying again.
+ */
+const insertPageWithNextRevision = async (pages, payload, { slugWasGenerated }) => {
+  for (let attempt = 0; attempt < MAX_INSERT_ATTEMPTS; attempt++) {
+    const latest = await pages.findOne(
+      { slug: String(payload.slug) },
+      { sort: { revision: -1 }, projection: { revision: 1 } },
+    )
+    payload.revision = latest ? latest.revision + 1 : 1
+
+    try {
+      return await pages.insertOne(payload)
+    } catch (error) {
+      if (!isDuplicateKeyError(error) || attempt === MAX_INSERT_ATTEMPTS - 1) throw error
+      if (slugWasGenerated) payload.slug = await generateSlugId()
+    }
+  }
+  throw new Error('Could not allocate a revision number')
 }
 
 const revalidatePath = async (baseUrl, path) => {
@@ -97,6 +104,8 @@ const addPage = async (req, res) => {
     //   throw new Error('User is not authenticated.')
     // }
 
+    if (await rejectIfBanned(req, res, { sessionUserId: sessionUser?.id || null })) return
+
     const pages = await pagesCollection()
 
     const payload = JSON.parse(req.body)
@@ -110,27 +119,10 @@ const addPage = async (req, res) => {
 
     // Could be a revision of an existing page.
     // In which case use the same slug.
-    let slug = payload.slug
-    if (!slug) {
-      slug = await generateSlugId()
-      payload.slug = slug
+    const slugWasGenerated = !payload.slug
+    if (slugWasGenerated) {
+      payload.slug = await generateSlugId()
     }
-
-    // Get the most recent revision for this slug
-    await pages.findOne(
-      { slug: String(slug) },
-      {
-        sort: {
-          revision: -1
-        },
-        projection: {
-          revision: 1
-        }
-      }).then(doc => {
-        // If the slug exists then the revision number is an increment of the
-        // last revision, otherwise 1.
-        payload.revision = doc ? doc.revision + 1 : 1
-      })
 
     payload.published = new Date()
 
@@ -140,21 +132,18 @@ const addPage = async (req, res) => {
     }
 
     // Will throw an error if schema validation fails
-    await pages.insertOne(payload)
-      .then(({acknowledged, insertedId}) => {
-        // Mongo 4.x no longer returns the inserted document
-        // it will return {acknowledged, insertedId}
-        if (acknowledged && insertedId) {
-          res.json({
-            message: 'Post added successfully',
-            success: true,
-            data: { slug: payload.slug, revision: payload.revision },
-          })
-        } else {
-          throw new Error('Mongo couldn\'t insertOne')
-        }
-      })
+    const { acknowledged, insertedId } = await insertPageWithNextRevision(pages, payload, { slugWasGenerated })
+    if (!acknowledged || !insertedId) {
+      throw new Error('Mongo couldn\'t insertOne')
+    }
+
+    res.json({
+      message: 'Post added successfully',
+      success: true,
+      data: { slug: payload.slug, revision: payload.revision },
+    })
   } catch (error) {
+    void logServerError('bench.create', error, { req })
     return res.json({
       message: getErrorMessage(error),
       success: false,
@@ -184,6 +173,8 @@ const updatePage = async (req, res) => {
     }
 
     const sessionUser = await getSessionUser(req)
+
+    if (await rejectIfBanned(req, res, { sessionUserId: sessionUser?.id || null })) return
 
     const pages = await pagesCollection()
 
@@ -280,6 +271,11 @@ const updatePage = async (req, res) => {
     })
 
   } catch (error) {
+    // Authorisation / validation failures are expected; only persist real faults.
+    const message = getErrorMessage(error)
+    if (!/authority|does not exist|Protect imported/i.test(message)) {
+      void logServerError('bench.update', error, { req })
+    }
     return res.json({
       message: getErrorMessage(error),
       success: false,

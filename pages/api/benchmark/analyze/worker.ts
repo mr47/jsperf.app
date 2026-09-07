@@ -6,6 +6,7 @@ import {
   loadAnalysisSession,
   maybeEnqueueMultiRuntime,
   sessionAbortSignal,
+  storeSessionResult,
 } from '../../../../lib/benchmark/deepAnalysis'
 
 export const config = {
@@ -29,6 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       estimateComplexitiesForSession(session, signal),
     ])
 
+    await storeSessionResult(session, 'worker', { multiRuntime, complexities })
     return res.status(200).json({ multiRuntime, complexities })
   } catch (error) {
     return handleApiError(error, res, session?.tier)

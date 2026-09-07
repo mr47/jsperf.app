@@ -408,7 +408,9 @@ export function useDeepAnalysis({
         return data.profiles
       }
 
-      const [quickjsProfiles, v8Profiles, worker] = await Promise.all([
+      // Engine outputs are stored server-side per session; finalize only
+      // needs the session id.
+      await Promise.all([
         runEngine('quickjs', '/api/benchmark/analyze/quickjs'),
         runEngine('v8', '/api/benchmark/analyze/v8'),
         workerPromise,
@@ -418,10 +420,6 @@ export function useDeepAnalysis({
       setAnalysisStepStatus('prediction', 'running')
       const final = await postJson('/api/benchmark/analyze/finalize', {
         sessionId: start.sessionId,
-        quickjsProfiles,
-        v8Profiles,
-        complexities: worker.complexities,
-        multiRuntime: worker.multiRuntime,
       })
       publishAnalysisProgress({ engine: 'prediction', testIndex: 0, status: 'done' })
       setAnalysisStepStatus('prediction', 'done')

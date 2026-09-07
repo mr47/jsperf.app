@@ -8,24 +8,15 @@
  * `views` is bumped on GET in a fire-and-forget way so we can show
  * "viewed N times" on the donor's report list later.
  */
-import { getToken } from 'next-auth/jwt'
 import { getDonorFromRequest } from '../../../lib/donorAuth'
 import { findDonorByEmail } from '../../../lib/donatello'
+import { readSessionUser } from '../../../lib/session'
+import { logServerError } from '../../../lib/errorLog'
 import {
   getReportById,
   bumpReportViews,
   deleteReport,
 } from '../../../lib/reports'
-
-async function readSessionEmail(req) {
-  if (!process.env.NEXTAUTH_SECRET) return null
-  try {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET })
-    return token?.user?.email || token?.email || null
-  } catch (_) {
-    return null
-  }
-}
 
 export default async function handler(req, res) {
   const { id } = req.query
@@ -41,24 +32,25 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=600')
       return res.status(200).json(safe)
     } catch (err) {
-      console.error('reports: get failed', err)
+      void logServerError('reports.get', err, { req })
       return res.status(500).json({ error: 'Failed to load report' })
     }
   }
 
   if (req.method === 'DELETE') {
     try {
-      const sessionEmail = await readSessionEmail(req)
+      const sessionUser = await readSessionUser(req)
       const donor = await getDonorFromRequest(req, {
         emailLookupFn: findDonorByEmail,
-        sessionEmail,
+        sessionEmail: sessionUser?.email || null,
+        sessionUserId: sessionUser?.id || null,
       })
       if (!donor) return res.status(401).json({ error: 'Donor required' })
       const ok = await deleteReport({ id, donorName: donor.name })
       if (!ok) return res.status(404).json({ error: 'Report not found' })
       return res.status(200).json({ success: true })
     } catch (err) {
-      console.error('reports: delete failed', err)
+      void logServerError('reports.delete', err, { req })
       return res.status(500).json({ error: 'Failed to delete report' })
     }
   }

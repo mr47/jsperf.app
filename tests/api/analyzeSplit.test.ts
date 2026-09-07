@@ -175,13 +175,7 @@ describe('split deep analysis API routes', () => {
     expect(workerRes._json.multiRuntime.deadlineAt).toEqual(expect.any(Number))
 
     const finalizeRes = createMockRes()
-    await finalizeHandler(createMockReq({
-      sessionId: startRes._json.sessionId,
-      quickjsProfiles: quickjsRes._json.profiles,
-      v8Profiles: v8Res._json.profiles,
-      complexities: workerRes._json.complexities,
-      multiRuntime: workerRes._json.multiRuntime,
-    }), finalizeRes)
+    await finalizeHandler(createMockReq({ sessionId: startRes._json.sessionId }), finalizeRes)
 
     expect(finalizeRes._status).toBe(200)
     expect(finalizeRes._json.results[0].quickjs.opsPerSec).toBe(1000)
@@ -189,6 +183,44 @@ describe('split deep analysis API routes', () => {
     expect(finalizeRes._json.results[0].complexity.time.notation).toBe('O(1)')
     expect(finalizeRes._json.multiRuntime.jobs).toEqual([{ testIndex: 0, jobId: 'job-1' }])
     expect(insertOneMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores client-supplied profiles and uses the server-side engine results', async () => {
+    const startRes = createMockRes()
+    await startHandler(createMockReq({ tests: [{ code: 'x + 1', title: 'test' }] }), startRes)
+    const sessionBody = { sessionId: startRes._json.sessionId }
+
+    // Finalizing before the engines ran must fail even if the client sends numbers.
+    const tooEarly = createMockRes()
+    await finalizeHandler(createMockReq({
+      ...sessionBody,
+      quickjsProfiles: [[{ opsPerSec: 1 }]],
+      v8Profiles: [[{ opsPerSec: 999_999_999 }]],
+    }), tooEarly)
+    expect(tooEarly._status).toBe(409)
+    expect(insertOneMock).not.toHaveBeenCalled()
+
+    await Promise.all([
+      quickjsHandler(createMockReq(sessionBody), createMockRes()),
+      v8Handler(createMockReq(sessionBody), createMockRes()),
+      workerHandler(createMockReq(sessionBody), createMockRes()),
+    ])
+
+    const finalizeRes = createMockRes()
+    await finalizeHandler(createMockReq({
+      ...sessionBody,
+      quickjsProfiles: [[{ opsPerSec: 1 }]],
+      v8Profiles: [[{ opsPerSec: 999_999_999 }]],
+      complexities: [{ time: { notation: 'O(n!)' } }],
+    }), finalizeRes)
+
+    expect(finalizeRes._status).toBe(200)
+    expect(finalizeRes._json.results[0].quickjs.opsPerSec).toBe(1000)
+    expect(finalizeRes._json.results[0].v8.opsPerSec).toBe(50000)
+    expect(finalizeRes._json.results[0].complexity.time.notation).toBe('O(1)')
+
+    const cached = JSON.parse(redisStore.get(`analysis_v8:${finalizeRes._json.codeHash}`))
+    expect(cached.results[0].v8.opsPerSec).toBe(50000)
   })
 
   it('preserves worker poll deadlines longer than the base 60 second route limit', async () => {

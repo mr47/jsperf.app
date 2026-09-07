@@ -1,6 +1,12 @@
 // @ts-nocheck
 import NextAuth from "next-auth"
 import GitHubProvider from "next-auth/providers/github"
+import { recordSignIn } from '../../../lib/users'
+import { isAdminUser } from '../../../lib/admin'
+import { logServerError } from '../../../lib/errorLog'
+
+// How often a live JWT re-checks the admin flag against env/DB.
+const ADMIN_FLAG_REFRESH_MS = 15 * 60 * 1000
 
 function maskEmail(email) {
   if (!email || typeof email !== 'string') return null
@@ -134,6 +140,26 @@ export default NextAuth({
         emailDomains: emailDomains(user?.emails),
       })
       user.profile = profile
+
+      // Keep the admin user directory current and refuse banned accounts.
+      // Directory failures must never block sign-in.
+      try {
+        const record = await recordSignIn({
+          id: user.id,
+          login: profile?.login || null,
+          name: user.name || profile?.name || null,
+          email: user.email || null,
+          emails: Array.isArray(user.emails) ? user.emails : [],
+          image: user.image || profile?.avatar_url || null,
+        })
+        const ban = record?.ban
+        if (ban && (!ban.until || Date.parse(ban.until) > Date.now())) {
+          console.info('[auth-github] refused banned user', { id: user.id, until: ban.until || null })
+          return ban.until ? `/banned?until=${encodeURIComponent(ban.until)}` : '/banned'
+        }
+      } catch (err) {
+        void logServerError('auth.recordSignIn', err, { userId: user?.id || null, level: 'warn' })
+      }
       return true
     },
     jwt: async ({ token, user }) => {
@@ -144,11 +170,16 @@ export default NextAuth({
           emailDomains: emailDomains(user?.emails),
         })
         token.user = user
+        token.isAdmin = await isAdminUser({ id: user.id, login: user.profile?.login || null })
+        token.adminCheckedAt = Date.now()
+      } else if (token?.user?.id && (!token.adminCheckedAt || Date.now() - token.adminCheckedAt > ADMIN_FLAG_REFRESH_MS)) {
+        token.isAdmin = await isAdminUser({ id: token.user.id, login: token.user.profile?.login || null })
+        token.adminCheckedAt = Date.now()
       }
       return token
     },
     session: async ({ session, token }) => {
-      if (token?.user) session.user = token.user
+      if (token?.user) session.user = { ...token.user, isAdmin: token.isAdmin === true }
       return session
     }
   },
