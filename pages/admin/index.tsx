@@ -1,11 +1,11 @@
 import type { GetServerSideProps } from 'next'
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, AlertTriangle, BarChart3, Database, FileText, Microscope, RefreshCw, ShieldBan, Sparkles, Users, Wrench } from 'lucide-react'
+import { AlertTriangle, BarChart3, ChevronDown, FileText, RefreshCw, Users, Wrench } from 'lucide-react'
 
 import AdminShell from '../../components/admin/AdminShell'
 import {
-  adminFetch, Avatar, Badge, EmptyState, ErrorNotice, formatNumber, Section, Spinner, StatCard, Table, Td, Th, timeAgo,
+  adminFetch, Avatar, Badge, EmptyState, formatNumber, KeyValueList, LoadingState, Notices, Section, Spinner, StatCard, StatusChip, Table, Td, Th, timeAgo, Tr,
 } from '../../components/admin/primitives'
 import { requireAdminSsr } from '../../lib/admin'
 import type { AdminStats } from '../../lib/adminStats'
@@ -19,6 +19,7 @@ export default function AdminDashboard({ adminLogin }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [creatingIndexes, setCreatingIndexes] = useState(false)
   const [indexMessage, setIndexMessage] = useState<string | null>(null)
+  const [systemOpen, setSystemOpen] = useState(false)
 
   const load = useCallback(async (fresh = false) => {
     setLoading(true)
@@ -55,74 +56,87 @@ export default function AdminDashboard({ adminLogin }: Props) {
   const missingIndexes = stats?.indexes.filter((i) => !i.present) ?? []
   const errors24h = stats?.errors.last24h ?? []
   const errorCount24h = errors24h.reduce((sum, e) => sum + e.count, 0)
+  const integrations = stats ? Object.entries(stats.system.integrations) : []
+  const missingIntegrations = integrations.filter(([, ok]) => !ok).length
+  const initialLoading = loading && !stats
 
   return (
     <AdminShell
       title="Dashboard"
-      description={`Signed in as ${adminLogin || 'admin'}. Metrics are cached for one minute.`}
+      description={`Signed in as ${adminLogin || 'admin'}. Metrics are cached for one minute${stats ? `; generated ${timeAgo(stats.generatedAt)}` : ''}.`}
       actions={
         <Button variant="outline" size="sm" onClick={() => load(true)} disabled={loading}>
           {loading ? <Spinner /> : <RefreshCw className="h-4 w-4" />} Refresh
         </Button>
       }
     >
-      {error && <div className="mb-4"><ErrorNotice message={error} onRetry={() => load()} /></div>}
+      <Notices error={error} onRetry={() => load()} />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Benchmarks" value={formatNumber(c?.pagesTotal)} detail={`${formatNumber(c?.pages24h)} today · ${formatNumber(c?.pages7d)} this week`} icon={FileText} loading={loading && !stats} />
-        <StatCard label="Browser runs" value={formatNumber(c?.runsTotal)} detail={`${formatNumber(c?.runs24h)} today · ${formatNumber(c?.runs7d)} this week`} icon={BarChart3} loading={loading && !stats} />
-        <StatCard label="Deep analyses" value={formatNumber(c?.analysesTotal)} detail={`${formatNumber(c?.multiRuntimeTotal)} multi-runtime · ${formatNumber(c?.reportsTotal)} reports`} icon={Microscope} loading={loading && !stats} />
-        <StatCard label="Open errors" value={formatNumber(stats?.errors.openGroups)} detail={`${formatNumber(errorCount24h)} occurrences in 24h`} icon={AlertTriangle} tone={errorCount24h > 0 ? 'warn' : 'good'} loading={loading && !stats} />
-        <StatCard label="Users" value={formatNumber(u?.total)} detail={`${formatNumber(u?.active7d)} signed in this week · ${formatNumber(u?.admins)} admins`} icon={Users} loading={loading && !stats} />
-        <StatCard label="Banned" value={formatNumber(u?.banned)} detail={`${formatNumber(u?.ipBans)} IP bans`} icon={ShieldBan} tone={(u?.banned ?? 0) > 0 ? 'danger' : 'default'} loading={loading && !stats} />
-        <StatCard label="Boosted" value={formatNumber(stats?.donors.activeSessions)} detail={`${formatNumber(u?.granted)} admin grants · ${formatNumber(stats?.donors.emailMatches)} email matches${stats && !stats.donors.activeSessionsComplete ? ' (partial scan)' : ''}`} icon={Sparkles} loading={loading && !stats} />
-        <StatCard label="Indexes" value={stats ? `${stats.indexes.length - missingIndexes.length}/${stats.indexes.length}` : '—'} detail={missingIndexes.length ? `${missingIndexes.length} recommended index${missingIndexes.length === 1 ? '' : 'es'} missing` : 'All recommended indexes present'} icon={Database} tone={missingIndexes.length ? 'warn' : 'good'} loading={loading && !stats} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Benchmarks" value={formatNumber(c?.pagesTotal)} detail={`${formatNumber(c?.pages24h)} today · ${formatNumber(c?.pages7d)} this week`} icon={FileText} loading={initialLoading} />
+        <StatCard label="Browser runs" value={formatNumber(c?.runsTotal)} detail={`${formatNumber(c?.runs24h)} today · ${formatNumber(c?.runs7d)} this week`} icon={BarChart3} loading={initialLoading} />
+        <StatCard label="Users" value={formatNumber(u?.total)} detail={`${formatNumber(u?.active7d)} active this week · ${formatNumber(stats?.donors.activeSessions)} boosted`} icon={Users} loading={initialLoading} />
+        <StatCard label="Errors · 24h" value={formatNumber(errorCount24h)} detail={`${formatNumber(stats?.errors.openGroups)} open groups`} icon={AlertTriangle} tone={errorCount24h > 0 ? 'warn' : 'good'} loading={initialLoading} />
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <Section title="Errors in the last 24h" description="Open error groups by scope" actions={<Button asChild size="sm" variant="ghost"><Link href="/admin/errors">View all</Link></Button>}>
-          {stats && errors24h.length === 0 ? <EmptyState>No errors recorded in the last 24 hours.</EmptyState> : (
-            <Table>
+      {stats && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <StatusChip label="Deep analyses" value={formatNumber(c?.analysesTotal)} tone="info" />
+          <StatusChip label="Reports" value={formatNumber(c?.reportsTotal)} tone="info" />
+          <StatusChip label="Banned users" value={formatNumber(u?.banned)} tone={(u?.banned ?? 0) > 0 ? 'danger' : 'neutral'} href="/admin/users?filter=banned" />
+          <StatusChip label="IP bans" value={formatNumber(u?.ipBans)} tone={(u?.ipBans ?? 0) > 0 ? 'warn' : 'neutral'} href="/admin/ip-bans" />
+          <StatusChip label="Indexes" value={`${stats.indexes.length - missingIndexes.length}/${stats.indexes.length}`} tone={missingIndexes.length ? 'warn' : 'good'} />
+          <StatusChip label="Integrations" value={missingIntegrations ? `${missingIntegrations} missing` : 'all configured'} tone={missingIntegrations ? 'warn' : 'good'} />
+        </div>
+      )}
+
+      <div className="mt-6 grid items-start gap-6 xl:grid-cols-2">
+        <Section title="Errors in the last 24 hours" description="Open groups by scope" flush actions={<Button asChild size="sm" variant="ghost"><Link href="/admin/errors">View all</Link></Button>}>
+          {initialLoading ? <LoadingState /> : errors24h.length === 0 ? <EmptyState>No errors recorded in the last 24 hours.</EmptyState> : (
+            <Table minWidth={480}>
               <thead><tr><Th>Scope</Th><Th className="text-right">Occurrences</Th><Th className="text-right">Groups</Th><Th>Last seen</Th></tr></thead>
               <tbody>
                 {errors24h.map((e) => (
-                  <tr key={e.scope} className="border-t border-border/60">
+                  <Tr key={e.scope}>
                     <Td><Link href={`/admin/errors?scope=${encodeURIComponent(e.scope)}`} className="font-mono text-xs">{e.scope}</Link></Td>
                     <Td className="text-right tabular-nums">{formatNumber(e.count)}</Td>
                     <Td className="text-right tabular-nums">{formatNumber(e.groups)}</Td>
                     <Td className="text-muted-foreground">{timeAgo(e.lastSeenAt)}</Td>
-                  </tr>
+                  </Tr>
                 ))}
               </tbody>
             </Table>
           )}
         </Section>
 
-        <Section title="Most-run benchmarks" description="By browser runs submitted in the last 7 days">
-          {stats && stats.topBenchmarks.length === 0 ? <EmptyState>No runs in the last 7 days.</EmptyState> : (
-            <Table>
+        <Section title="Most-run benchmarks" description="Browser runs submitted in the last 7 days" flush>
+          {initialLoading ? <LoadingState /> : (stats?.topBenchmarks.length ?? 0) === 0 ? <EmptyState>No runs in the last 7 days.</EmptyState> : (
+            <Table minWidth={480}>
               <thead><tr><Th>Benchmark</Th><Th className="text-right">Runs</Th><Th>Last run</Th></tr></thead>
               <tbody>
                 {stats?.topBenchmarks.map((b) => (
-                  <tr key={`${b.slug}-${b.revision}`} className="border-t border-border/60">
+                  <Tr key={`${b.slug}-${b.revision}`}>
                     <Td>
-                      <Link href={b.revision > 1 ? `/${b.slug}/${b.revision}` : `/${b.slug}`} className="line-clamp-1">{b.title || b.slug}</Link>
-                      <div className="text-xs text-muted-foreground">{b.slug} · v{b.revision}{b.githubID && <> · <Link href={`/admin/users/${b.githubID}`}>author</Link></>}</div>
+                      <Link href={b.revision > 1 ? `/${b.slug}/${b.revision}` : `/${b.slug}`} className="line-clamp-1 font-medium">{b.title || b.slug}</Link>
+                      <div className="mt-0.5 text-xs text-muted-foreground">
+                        <span className="font-mono">{b.slug}</span> · v{b.revision}
+                        {b.githubID && <> · <Link href={`/admin/users/${b.githubID}`}>author</Link></>}
+                      </div>
                     </Td>
                     <Td className="text-right tabular-nums">{formatNumber(b.runs)}</Td>
                     <Td className="text-muted-foreground">{timeAgo(b.lastRunAt)}</Td>
-                  </tr>
+                  </Tr>
                 ))}
               </tbody>
             </Table>
           )}
         </Section>
 
-        <Section title="Recent sign-ins" actions={<Button asChild size="sm" variant="ghost"><Link href="/admin/users">All users</Link></Button>}>
-          {stats && stats.recentUsers.length === 0 ? <EmptyState>Nobody has signed in since the directory was introduced.</EmptyState> : (
-            <ul className="divide-y divide-border/60">
+        <Section title="Recent sign-ins" flush actions={<Button asChild size="sm" variant="ghost"><Link href="/admin/users">All users</Link></Button>}>
+          {initialLoading ? <LoadingState /> : (stats?.recentUsers.length ?? 0) === 0 ? <EmptyState>Nobody has signed in since the directory was introduced.</EmptyState> : (
+            <ul className="divide-y">
               {stats?.recentUsers.map((user) => (
-                <li key={user.githubId} className="flex items-center gap-3 py-2">
+                <li key={user.githubId} className="flex items-center gap-3 px-5 py-3">
                   <Avatar src={user.image} alt={user.login || user.githubId} />
                   <div className="min-w-0 flex-1">
                     <Link href={`/admin/users/${user.githubId}`} className="font-medium">{user.login || user.name || user.githubId}</Link>
@@ -133,23 +147,27 @@ export default function AdminDashboard({ adminLogin }: Props) {
                     {user.ban && <Badge tone="danger">banned</Badge>}
                     {user.donorGrant && Date.parse(user.donorGrant.expiresAt) > Date.now() && <Badge tone="good">boosted</Badge>}
                   </div>
-                  <span className="text-xs text-muted-foreground">{timeAgo(user.lastSeenAt)}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(user.lastSeenAt)}</span>
                 </li>
               ))}
             </ul>
           )}
         </Section>
 
-        <Section title="Recent admin actions">
-          {stats && stats.recentAudit.length === 0 ? <EmptyState>No admin actions yet.</EmptyState> : (
-            <ul className="divide-y divide-border/60 text-sm">
+        <Section title="Recent admin actions" flush>
+          {initialLoading ? <LoadingState /> : (stats?.recentAudit.length ?? 0) === 0 ? <EmptyState>No admin actions yet.</EmptyState> : (
+            <ul className="divide-y text-sm">
               {stats?.recentAudit.map((entry, i) => (
-                <li key={`${entry.createdAt}-${i}`} className="flex items-start justify-between gap-3 py-2">
-                  <div>
-                    <span className="font-mono text-xs">{entry.action}</span>
-                    <span className="text-muted-foreground"> · {entry.targetType} </span>
-                    {entry.targetType === 'user' ? <Link href={`/admin/users/${entry.targetId}`} className="font-mono text-xs">{entry.targetId}</Link> : <span className="font-mono text-xs">{String(entry.targetId).slice(0, 40)}</span>}
-                    <div className="text-xs text-muted-foreground">by {entry.actorLogin || entry.actorId}</div>
+                <li key={`${entry.createdAt}-${i}`} className="flex items-start justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-x-2">
+                      <span className="font-medium">{entry.action}</span>
+                      <span className="text-muted-foreground">{entry.targetType}</span>
+                      {entry.targetType === 'user'
+                        ? <Link href={`/admin/users/${entry.targetId}`} className="font-mono text-xs">{entry.targetId}</Link>
+                        : <span className="font-mono text-xs text-muted-foreground">{String(entry.targetId).slice(0, 40)}</span>}
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">by {entry.actorLogin || entry.actorId}</div>
                   </div>
                   <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(entry.createdAt)}</span>
                 </li>
@@ -159,51 +177,70 @@ export default function AdminDashboard({ adminLogin }: Props) {
         </Section>
       </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <div className="mt-6">
         <Section
-          title="Database indexes"
-          description="Indexes the hot read paths depend on. Missing ones cause collection scans."
-          actions={missingIndexes.length > 0 && (
-            <Button size="sm" onClick={createIndexes} disabled={creatingIndexes}>
-              {creatingIndexes ? <Spinner /> : <Wrench className="h-4 w-4" />} Create missing
-            </Button>
-          )}
+          title="System"
+          description="Database indexes and the serverless instance that answered this request"
+          flush
+          actions={
+            <>
+              {missingIndexes.length > 0 && (
+                <Button size="sm" onClick={createIndexes} disabled={creatingIndexes}>
+                  {creatingIndexes ? <Spinner /> : <Wrench className="h-4 w-4" />} Create {missingIndexes.length} missing index{missingIndexes.length === 1 ? '' : 'es'}
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => setSystemOpen((open) => !open)} aria-expanded={systemOpen}>
+                {systemOpen ? 'Hide' : 'Show'} details <ChevronDown className={`h-4 w-4 transition-transform ${systemOpen ? 'rotate-180' : ''}`} />
+              </Button>
+            </>
+          }
         >
-          {indexMessage && <p className="mb-3 text-sm text-muted-foreground">{indexMessage}</p>}
-          {stats ? (
-            <Table>
-              <thead><tr><Th>Collection</Th><Th>Keys</Th><Th>Why</Th><Th>Status</Th></tr></thead>
-              <tbody>
-                {stats.indexes.map((idx) => (
-                  <tr key={`${idx.collection}.${idx.name}`} className="border-t border-border/60">
-                    <Td className="font-mono text-xs">{idx.collection}</Td>
-                    <Td className="font-mono text-xs">{Object.entries(idx.keys).map(([k, v]) => `${k}:${v}`).join(', ')}</Td>
-                    <Td className="text-xs text-muted-foreground">{idx.reason}</Td>
-                    <Td>{idx.present ? <Badge tone="good">present</Badge> : <Badge tone="warn">missing</Badge>}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : <EmptyState>Loading…</EmptyState>}
-        </Section>
-
-        <Section title="System" description="Serverless instance that answered this request">
-          {stats ? (
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-              <dt className="text-muted-foreground">Node</dt><dd className="font-mono text-xs">{stats.system.node}</dd>
-              <dt className="text-muted-foreground">Environment</dt><dd>{stats.system.env || '—'}{stats.system.region ? ` · ${stats.system.region}` : ''}</dd>
-              <dt className="text-muted-foreground">Uptime</dt><dd>{formatNumber(stats.system.uptimeSeconds)}s</dd>
-              <dt className="text-muted-foreground">Memory</dt><dd>{stats.system.rssMb} MB RSS · {stats.system.heapUsedMb} MB heap</dd>
-              <dt className="col-span-2 mt-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">Integrations</dt>
-              {Object.entries(stats.system.integrations).map(([key, ok]) => (
-                <div key={key} className="col-span-2 flex items-center justify-between">
-                  <span className="font-mono text-xs">{key}</span>
-                  {ok ? <Badge tone="good">configured</Badge> : <Badge tone="warn">missing</Badge>}
-                </div>
-              ))}
-              <dt className="col-span-2 mt-2 text-xs text-muted-foreground"><Activity className="mr-1 inline h-3 w-3" />Generated {timeAgo(stats.generatedAt)}</dt>
-            </dl>
-          ) : <EmptyState>Loading…</EmptyState>}
+          {indexMessage && <p className="border-b px-5 py-3 text-sm text-muted-foreground">{indexMessage}</p>}
+          {!systemOpen ? (
+            <div className="flex flex-wrap gap-x-6 gap-y-2 px-5 py-4 text-sm text-muted-foreground">
+              {stats ? (
+                <>
+                  <span>Node <span className="font-mono text-foreground">{stats.system.node}</span></span>
+                  <span>{stats.system.env || '—'}{stats.system.region ? ` · ${stats.system.region}` : ''}</span>
+                  <span>{stats.system.rssMb} MB RSS</span>
+                  <span>{missingIndexes.length ? `${missingIndexes.length} index${missingIndexes.length === 1 ? '' : 'es'} missing` : 'All recommended indexes present'}</span>
+                </>
+              ) : 'Loading…'}
+            </div>
+          ) : stats ? (
+            <div className="grid gap-0 lg:grid-cols-[1.3fr_0.7fr] lg:divide-x">
+              <Table minWidth={520}>
+                <thead><tr><Th>Collection</Th><Th>Keys</Th><Th>Purpose</Th><Th>Status</Th></tr></thead>
+                <tbody>
+                  {stats.indexes.map((idx) => (
+                    <Tr key={`${idx.collection}.${idx.name}`}>
+                      <Td className="font-mono text-xs">{idx.collection}</Td>
+                      <Td className="font-mono text-xs">{Object.entries(idx.keys).map(([k, v]) => `${k}:${v}`).join(', ')}</Td>
+                      <Td className="text-xs text-muted-foreground">{idx.reason}</Td>
+                      <Td>{idx.present ? <Badge tone="good">present</Badge> : <Badge tone="warn">missing</Badge>}</Td>
+                    </Tr>
+                  ))}
+                </tbody>
+              </Table>
+              <div className="border-t p-5 lg:border-t-0">
+                <KeyValueList items={[
+                  { label: 'Node', value: <span className="font-mono text-xs">{stats.system.node}</span> },
+                  { label: 'Environment', value: `${stats.system.env || '—'}${stats.system.region ? ` · ${stats.system.region}` : ''}` },
+                  { label: 'Uptime', value: `${formatNumber(stats.system.uptimeSeconds)}s` },
+                  { label: 'Memory', value: `${stats.system.rssMb} MB RSS · ${stats.system.heapUsedMb} MB heap` },
+                ]} />
+                <h3 className="mb-2 mt-5 text-xs font-medium text-muted-foreground">Integrations</h3>
+                <ul className="space-y-1.5">
+                  {integrations.map(([key, ok]) => (
+                    <li key={key} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="font-mono text-xs">{key}</span>
+                      {ok ? <Badge tone="good">configured</Badge> : <Badge tone="warn">missing</Badge>}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : <LoadingState />}
         </Section>
       </div>
     </AdminShell>

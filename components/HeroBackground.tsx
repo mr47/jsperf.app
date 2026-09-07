@@ -238,10 +238,24 @@ export default function HeroBackground() {
   const [reducedMotion, setReducedMotion] = useState(false)
   const [visible, setVisible] = useState(true)
   const [tabVisible, setTabVisible] = useState(true)
+  const [webglAvailable, setWebglAvailable] = useState(true)
   const containerRef = useRef(null)
 
   useEffect(() => {
     setMounted(true)
+
+    // R3F's <Canvas> throws when it cannot create a WebGL context (GPU
+    // blocklists, hardware acceleration disabled, headless browsers). Probe
+    // first and fall back to the static gradient instead of crashing the page.
+    try {
+      const probe = document.createElement('canvas')
+      const gl = probe.getContext('webgl2') || probe.getContext('webgl')
+      setWebglAvailable(!!gl)
+      const lose = gl?.getExtension('WEBGL_lose_context')
+      lose?.loseContext()
+    } catch (_) {
+      setWebglAvailable(false)
+    }
 
     const mq = window.matchMedia('(max-width: 768px)')
     setIsMobile(mq.matches)
@@ -294,7 +308,7 @@ export default function HeroBackground() {
         backfaceVisibility: 'hidden',
       }}
     >
-      {isMobile || reducedMotion ? (
+      {isMobile || reducedMotion || !webglAvailable ? (
         <div className="relative w-full h-full opacity-60">
           <div className={`absolute top-[20%] left-[10%] w-64 h-64 rounded-full blur-[100px] ${resolvedTheme === 'dark' ? 'bg-[#00ffff]/40' : 'bg-[#0ea5e9]/40'}`} />
           <div className={`absolute bottom-[20%] right-[10%] w-64 h-64 rounded-full blur-[100px] ${resolvedTheme === 'dark' ? 'bg-[#ff00ff]/40' : 'bg-[#d946ef]/40'}`} />

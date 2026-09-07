@@ -224,6 +224,26 @@ describe('runAnalysis', () => {
     expect(result.hasErrors).toBe(true)
   })
 
+  it('keeps QuickJS results but blocks caching when the V8 sandbox is unavailable', async () => {
+    const { runInV8Sandbox } = await import('../../lib/engines/v8sandbox')
+    const reason = 'Vercel Sandbox credentials are not configured. Run `npx vercel link`.'
+    runInV8Sandbox.mockResolvedValueOnce({
+      state: 'unavailable', error: reason, opsPerSec: 0, latency: null, heapUsed: 0,
+    })
+
+    const result = await runAnalysis([
+      { code: 'x + 1', title: 'test' },
+    ])
+
+    expect(result.results[0].quickjs.opsPerSec).toBeGreaterThan(0)
+    expect(result.results[0].v8.opsPerSec).toBe(0)
+    expect(result.results[0].v8.profiles[0]).toMatchObject({ state: 'unavailable', error: reason })
+    expect(result.results[0].prediction).toBeDefined()
+    // hasErrors gates the shared Redis cache; an unavailable engine must not
+    // freeze QuickJS-only numbers for everyone with the same code hash.
+    expect(result.hasErrors).toBe(true)
+  })
+
   it('respects abort signal', async () => {
     const controller = new AbortController()
     controller.abort()

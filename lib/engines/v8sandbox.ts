@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * V8 benchmark engine using Vercel Sandbox (Firecracker microVM).
  *
@@ -8,11 +7,24 @@
  *
  * Each benchmark gets its own sandbox with network access disabled.
  * Supports snapshot-based fast boot for repeated analyses.
+ *
+ * Credentials are resolved up front (see ./sandboxCredentials) and passed to
+ * the SDK explicitly. When none are available the run is reported as
+ * `state: 'unavailable'` with the reason, so Deep Analysis degrades to
+ * QuickJS-only results instead of failing or hanging on the SDK's
+ * interactive login flow.
  */
 
-import { getVercelOidcToken } from '@vercel/oidc'
 import { Sandbox } from '@vercel/sandbox'
 import { benchmarkStatsSource } from '../benchmark/stats'
+import {
+  resolveSandboxCredentials,
+  type SandboxCredentialResult,
+  type SandboxCredentials,
+} from './sandboxCredentials'
+
+export { resolveSandboxCredentials } from './sandboxCredentials'
+export type { SandboxCredentialResult, SandboxCredentials } from './sandboxCredentials'
 
 const DEFAULT_TIME_MS = 2000
 const SANDBOX_TIMEOUT_MS = 60_000
@@ -23,68 +35,111 @@ const STOP_TIMEOUT_MS = 5_000
 const DELETE_TIMEOUT_MS = 10_000
 const VERCEL_API_BASE_URL = 'https://api.vercel.com'
 
-function decodeJwtPayload(token) {
-  const [, payload] = token.split('.')
-  if (!payload) return {}
+export type V8BenchmarkState = 'completed' | 'errored' | 'unavailable'
 
-  try {
-    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
-  } catch (_) {
-    return {}
-  }
+export interface V8BenchmarkLatency {
+  mean: number
+  p50: number
+  p99: number
+  min: number
+  max: number
+  samplesCount: number
 }
 
-async function getVercelDeleteCredentials() {
-  if (process.env.VERCEL_TOKEN) {
-    const payload = decodeJwtPayload(process.env.VERCEL_TOKEN)
-    return {
-      token: process.env.VERCEL_TOKEN,
-      teamId: process.env.VERCEL_TEAM_ID || payload.owner_id,
-      projectId: process.env.VERCEL_PROJECT_ID || payload.project_id,
-    }
-  }
+export interface V8BenchmarkResult {
+  state: V8BenchmarkState
+  opsPerSec: number
+  latency: V8BenchmarkLatency | null
+  heapUsed: number
+  error?: string
+  methodology?: unknown
+  iterations?: number
+  totalMs?: number
+  heapTotal?: number
+  externalMemory?: number
+  heapDelta?: number
+  [key: string]: unknown
+}
 
-  let token = process.env.VERCEL_OIDC_TOKEN
-  if (!token) {
-    try {
-      token = await getVercelOidcToken({
-        team: process.env.VERCEL_TEAM_ID,
-        project: process.env.VERCEL_PROJECT_ID,
-        expirationBufferMs: DELETE_TIMEOUT_MS,
-      })
-    } catch (_) {
-      return null
-    }
-  }
+export interface RunInV8SandboxOptions {
+  /** Setup code run once before benchmarking. */
+  setup?: string
+  /** Teardown code run once after benchmarking. */
+  teardown?: string
+  /** Total benchmark time in ms. */
+  timeMs?: number
+  /** Restore from a pre-configured sandbox snapshot. */
+  snapshotId?: string
+  /** Number of vCPUs (1-4). */
+  vcpus?: number
+  /** Whether to await the benchmark function. */
+  isAsync?: boolean
+  /**
+   * Cancel the run; the in-flight sandbox will still be removed via the
+   * finally block.
+   */
+  signal?: AbortSignal
+}
 
-  const payload = decodeJwtPayload(token)
+/**
+ * Structural view of the SDK sandbox that this module relies on. The SDK
+ * class has many more members; typing against the subset keeps the unit
+ * tests' hand-rolled mocks honest without pinning us to one SDK major.
+ */
+interface SandboxHandle {
+  name?: string
+  sandboxId?: string
+  id?: string
+  writeFiles(files: Array<{ path: string; content: string | Buffer }>): Promise<unknown>
+  runCommand(
+    cmd: string,
+    args?: string[],
+    opts?: { signal?: AbortSignal },
+  ): Promise<{ exitCode: number; stdout(): Promise<string>; stderr(): Promise<string> }>
+  stop(opts?: { blocking?: boolean; signal?: AbortSignal }): Promise<unknown>
+  delete?(opts?: { signal?: AbortSignal }): Promise<unknown>
+  snapshot?(): Promise<{ snapshotId: string }>
+}
+
+type SandboxCreateParams = Parameters<typeof Sandbox.create>[0]
+
+const loggedUnavailableReasons = new Set<string>()
+
+/**
+ * Resolve credentials and log the failure reason once per process so a
+ * misconfigured local environment is visible in the dev server output without
+ * repeating the message for every test in an analysis.
+ */
+async function preflightCredentials(): Promise<SandboxCredentialResult> {
+  const result = await resolveSandboxCredentials()
+  if (result.ok === false && !loggedUnavailableReasons.has(result.reason)) {
+    loggedUnavailableReasons.add(result.reason)
+    console.warn(`[v8sandbox] V8 sandbox unavailable (${result.code}): ${result.reason}`)
+  }
+  return result
+}
+
+function unavailableResult(reason: string): V8BenchmarkResult {
   return {
-    token,
-    teamId: process.env.VERCEL_TEAM_ID || payload.owner_id,
-    projectId: process.env.VERCEL_PROJECT_ID || payload.project_id,
+    state: 'unavailable',
+    error: reason,
+    opsPerSec: 0,
+    latency: null,
+    heapUsed: 0,
   }
 }
 
-function getSandboxDeleteName(sandbox) {
-  const name = sandbox?.name || sandbox?.sandboxId || sandbox?.id
+function getSandboxDeleteName(sandbox: SandboxHandle): string | null {
+  const name = sandbox.name || sandbox.sandboxId || sandbox.id
   return typeof name === 'string' && /^[a-zA-Z0-9_-]+$/.test(name) ? name : null
 }
 
-async function deleteSandboxFromVercel(name) {
+async function deleteSandboxFromVercel(name: string, credentials: SandboxCredentials): Promise<boolean> {
   if (typeof fetch !== 'function') return false
 
-  const credentials = await getVercelDeleteCredentials()
-  if (!credentials?.token) return false
-  if (!credentials.projectId) {
-    // PATs do not carry project context. Without a project id the v2 delete
-    // endpoint cannot reliably identify the named sandbox, so avoid a failing
-    // network call on every benchmark and fall back to stop().
-    return false
-  }
-
   const url = new URL(`/v2/sandboxes/${encodeURIComponent(name)}`, VERCEL_API_BASE_URL)
-  if (credentials.projectId) url.searchParams.set('projectId', credentials.projectId)
-  if (credentials.teamId) url.searchParams.set('teamId', credentials.teamId)
+  url.searchParams.set('projectId', credentials.projectId)
+  url.searchParams.set('teamId', credentials.teamId)
 
   const response = await fetch(url, {
     method: 'DELETE',
@@ -101,6 +156,11 @@ async function deleteSandboxFromVercel(name) {
   throw new Error(`delete failed with ${response.status}${body ? `: ${body}` : ''}`)
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
 /**
  * Best-effort sandbox teardown with bounded wait + visibility.
  *
@@ -111,7 +171,7 @@ async function deleteSandboxFromVercel(name) {
  *     extend the parent function's lifetime;
  *   - log (warn) on failure so leaks become observable in production logs.
  */
-async function stopSandbox(sandbox) {
+async function stopSandbox(sandbox: SandboxHandle | undefined): Promise<void> {
   if (!sandbox) return
   try {
     await sandbox.stop({
@@ -119,11 +179,11 @@ async function stopSandbox(sandbox) {
       signal: AbortSignal.timeout(STOP_TIMEOUT_MS),
     })
   } catch (e) {
-    console.warn('[v8sandbox] failed to stop sandbox:', e?.message || e)
+    console.warn('[v8sandbox] failed to stop sandbox:', errorMessage(e))
   }
 }
 
-async function removeSandbox(sandbox) {
+async function removeSandbox(sandbox: SandboxHandle | undefined, credentials: SandboxCredentials): Promise<void> {
   if (!sandbox) return
 
   try {
@@ -138,9 +198,9 @@ async function removeSandbox(sandbox) {
     }
 
     const name = getSandboxDeleteName(sandbox)
-    if (name && await deleteSandboxFromVercel(name)) return
+    if (name && await deleteSandboxFromVercel(name, credentials)) return
   } catch (e) {
-    console.warn('[v8sandbox] failed to delete sandbox:', e?.message || e)
+    console.warn('[v8sandbox] failed to delete sandbox:', errorMessage(e))
   }
 
   await stopSandbox(sandbox)
@@ -150,7 +210,10 @@ async function removeSandbox(sandbox) {
  * Build the Node.js benchmark script that runs inside the sandbox.
  * Outputs a single JSON line to stdout with results.
  */
-function buildBenchmarkScript(code, { setup, teardown, timeMs, isAsync }) {
+function buildBenchmarkScript(
+  code: string,
+  { setup, teardown, timeMs, isAsync }: { setup?: string; teardown?: string; timeMs: number; isAsync: boolean },
+): string {
   const isLegacyAsync = code.includes('deferred.resolve')
   const isModernAsync = code.includes('await ') || code.includes('return new Promise')
   const shouldAwait = Boolean(isAsync || isLegacyAsync || isModernAsync)
@@ -249,19 +312,13 @@ main().catch(err => {
 /**
  * Run a benchmark in a Vercel Sandbox (Firecracker microVM with V8).
  *
- * @param {string} code - The benchmark code to execute (function body)
- * @param {object} opts
- * @param {string} [opts.setup] - Setup code run once before benchmarking
- * @param {string} [opts.teardown] - Teardown code run once after benchmarking
- * @param {number} [opts.timeMs=2000] - Total benchmark time in ms
- * @param {string} [opts.snapshotId] - Restore from a pre-configured sandbox snapshot
- * @param {number} [opts.vcpus=1] - Number of vCPUs (1-4)
- * @param {boolean} [opts.isAsync=false] - Whether to await the benchmark function
- * @param {AbortSignal} [opts.signal] - Cancel the run; the in-flight sandbox
- *   will still be removed via the finally block.
- * @returns {Promise<{ opsPerSec: number, heapUsed: number, latency: object, state: string }>}
+ * Resolves credentials first. Without usable credentials the function
+ * resolves to `{ state: 'unavailable', error }` immediately, without any
+ * network call, so callers can keep the rest of the analysis going.
+ *
+ * @param code - The benchmark code to execute (function body)
  */
-export async function runInV8Sandbox(code, {
+export async function runInV8Sandbox(code: string, {
   setup,
   teardown,
   timeMs = DEFAULT_TIME_MS,
@@ -269,23 +326,25 @@ export async function runInV8Sandbox(code, {
   vcpus = 1,
   isAsync = false,
   signal,
-} = {}) {
-  let sandbox
+}: RunInV8SandboxOptions = {}): Promise<V8BenchmarkResult> {
+  const auth = await preflightCredentials()
+  if (auth.ok === false) return unavailableResult(auth.reason)
+  const { credentials } = auth
+
+  let sandbox: SandboxHandle | undefined
   let parentAborted = false
   try {
-    const createParams = {
+    const createParams: SandboxCreateParams = {
+      ...credentials,
       timeout: SANDBOX_TIMEOUT_MS,
       networkPolicy: 'deny-all',
       resources: { vcpus },
+      ...(snapshotId
+        ? { source: { type: 'snapshot', snapshotId } }
+        : { runtime: 'node24' }),
     }
 
-    if (snapshotId) {
-      createParams.source = { type: 'snapshot', snapshotId }
-    } else {
-      createParams.runtime = 'node24'
-    }
-
-    sandbox = await Sandbox.create(createParams)
+    sandbox = await Sandbox.create(createParams) as unknown as SandboxHandle
 
     const script = buildBenchmarkScript(code, { setup, teardown, timeMs, isAsync })
 
@@ -339,7 +398,7 @@ export async function runInV8Sandbox(code, {
 
     return {
       state: 'errored',
-      error: e.message || String(e),
+      error: errorMessage(e),
       opsPerSec: 0,
       latency: null,
       heapUsed: 0,
@@ -348,27 +407,29 @@ export async function runInV8Sandbox(code, {
     if (parentAborted) {
       // The API route is already racing its function deadline. Let the response
       // finish; sandbox TTL is the backup if this best-effort cleanup is cut off.
-      void removeSandbox(sandbox).catch((e) => {
-        console.warn('[v8sandbox] deferred cleanup failed:', e?.message || e)
+      void removeSandbox(sandbox, credentials).catch((e) => {
+        console.warn('[v8sandbox] deferred cleanup failed:', errorMessage(e))
       })
     } else {
-      await removeSandbox(sandbox)
+      await removeSandbox(sandbox, credentials)
     }
   }
 }
 
-function abortReason(signal) {
+function abortReason(signal: AbortSignal | undefined): Error | DOMException {
   if (signal?.reason instanceof Error) return signal.reason
   return new DOMException('Aborted', 'AbortError')
 }
 
-function parseStdoutResult(stdoutText) {
+function parseStdoutResult(stdoutText: string): V8BenchmarkResult {
   const lines = String(stdoutText || '').trim().split('\n').filter(Boolean)
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
-      const parsed = JSON.parse(lines[i])
-      if (parsed && typeof parsed === 'object' && parsed.state) return parsed
-    } catch (_) {
+      const parsed: unknown = JSON.parse(lines[i])
+      if (parsed && typeof parsed === 'object' && 'state' in parsed && (parsed as { state?: unknown }).state) {
+        return parsed as V8BenchmarkResult
+      }
+    } catch {
       // Keep scanning; user benchmark code may have logged arbitrary text.
     }
   }
@@ -379,17 +440,27 @@ function parseStdoutResult(stdoutText) {
  * Create a sandbox snapshot with benchmark harness pre-installed.
  * Call once, store the snapshot ID, and use it for all future analyses.
  *
- * @returns {Promise<string>} snapshot ID
+ * Throws with the credential failure reason when Vercel Sandbox is not
+ * configured; there is no meaningful fallback for snapshot creation.
+ *
+ * @returns snapshot ID
  */
-export async function createBenchmarkSnapshot() {
-  let sandbox
+export async function createBenchmarkSnapshot(): Promise<string> {
+  const auth = await preflightCredentials()
+  if (auth.ok === false) throw new Error(auth.reason)
+
+  let sandbox: SandboxHandle | undefined
   try {
     sandbox = await Sandbox.create({
+      ...auth.credentials,
       runtime: 'node24',
       timeout: 120_000,
       networkPolicy: 'deny-all',
-    })
+    }) as unknown as SandboxHandle
     await sandbox.runCommand('node', ['--version'])
+    if (typeof sandbox.snapshot !== 'function') {
+      throw new Error('Sandbox snapshots are not supported by this SDK version')
+    }
     const snapshot = await sandbox.snapshot()
     return snapshot.snapshotId
   } finally {

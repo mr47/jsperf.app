@@ -1,5 +1,14 @@
 // @ts-nocheck
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+// Never let the unit tests reach the real OIDC refresh flow (Vercel CLI auth
+// + network). Individual tests override the implementation as needed.
+const getVercelOidcToken = vi.fn(async () => {
+  throw new Error('Could not get credentials from OIDC context.')
+})
+vi.mock('@vercel/oidc', () => ({
+  getVercelOidcToken: (...args) => getVercelOidcToken(...args),
+}))
 
 // Mock @vercel/sandbox for unit tests -- real sandbox requires Vercel credentials
 const mockStdoutData = JSON.stringify({
@@ -56,6 +65,33 @@ vi.mock('@vercel/sandbox', () => ({
 }))
 
 import { runInV8Sandbox } from '../../lib/engines/v8sandbox'
+
+const ACCESS_TOKEN_ENV = {
+  VERCEL_TOKEN: 'vercel_pat_test',
+  VERCEL_TEAM_ID: 'team_test',
+  VERCEL_PROJECT_ID: 'prj_test',
+}
+
+function clearVercelEnv() {
+  delete process.env.VERCEL_TOKEN
+  delete process.env.VERCEL_OIDC_TOKEN
+  delete process.env.VERCEL_TEAM_ID
+  delete process.env.VERCEL_PROJECT_ID
+}
+
+// Most tests exercise the sandbox run itself, so give them working
+// access-token credentials by default. Credential-specific tests clear the
+// environment and set exactly what they need.
+let savedEnv
+beforeEach(() => {
+  savedEnv = snapshotVercelEnv()
+  clearVercelEnv()
+  Object.assign(process.env, ACCESS_TOKEN_ENV)
+  getVercelOidcToken.mockClear()
+})
+afterEach(() => {
+  restoreVercelEnv(savedEnv)
+})
 
 describe('runInV8Sandbox', () => {
   it('executes code in sandbox and returns valid results', async () => {
@@ -165,6 +201,85 @@ describe('runInV8Sandbox', () => {
         networkPolicy: 'deny-all',
       })
     )
+  })
+
+  it('passes resolved credentials to the SDK so it never starts an interactive login', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    Sandbox.create.mockClear()
+
+    await runInV8Sandbox('1 + 1')
+
+    expect(Sandbox.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        token: 'vercel_pat_test',
+        teamId: 'team_test',
+        projectId: 'prj_test',
+      })
+    )
+  })
+
+  describe('without usable credentials', () => {
+    it('returns state "unavailable" with the setup hint and never creates a sandbox', async () => {
+      const { Sandbox } = await import('@vercel/sandbox')
+      Sandbox.create.mockClear()
+      clearVercelEnv()
+
+      const result = await runInV8Sandbox('1 + 1')
+
+      expect(result).toMatchObject({ state: 'unavailable', opsPerSec: 0, latency: null, heapUsed: 0 })
+      expect(result.error).toContain('npx vercel env pull .env.local')
+      expect(Sandbox.create).not.toHaveBeenCalled()
+    })
+
+    it('reports an expired OIDC token instead of hanging on the SDK login flow', async () => {
+      const { Sandbox } = await import('@vercel/sandbox')
+      Sandbox.create.mockClear()
+      clearVercelEnv()
+      process.env.VERCEL_OIDC_TOKEN = makeOidcToken({
+        owner_id: 'team_test',
+        project_id: 'prj_test',
+        exp: Math.floor(Date.now() / 1000) - 3600,
+      })
+
+      const result = await runInV8Sandbox('1 + 1')
+
+      expect(result.state).toBe('unavailable')
+      expect(result.error).toContain('VERCEL_OIDC_TOKEN has expired')
+      expect(getVercelOidcToken).toHaveBeenCalledTimes(1)
+      expect(Sandbox.create).not.toHaveBeenCalled()
+    })
+
+    it('reports a personal access token that lacks team/project scope', async () => {
+      const { Sandbox } = await import('@vercel/sandbox')
+      Sandbox.create.mockClear()
+      clearVercelEnv()
+      process.env.VERCEL_TOKEN = 'vercel_pat_without_project_context'
+
+      const result = await runInV8Sandbox('1 + 1')
+
+      expect(result.state).toBe('unavailable')
+      expect(result.error).toContain('VERCEL_TEAM_ID and VERCEL_PROJECT_ID')
+      expect(Sandbox.create).not.toHaveBeenCalled()
+    })
+
+    it('runs once a refreshed OIDC token is available', async () => {
+      const { Sandbox } = await import('@vercel/sandbox')
+      Sandbox.create.mockClear()
+      clearVercelEnv()
+      const fresh = makeOidcToken({
+        owner_id: 'team_fresh',
+        project_id: 'prj_fresh',
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })
+      getVercelOidcToken.mockResolvedValueOnce(fresh)
+
+      const result = await runInV8Sandbox('1 + 1')
+
+      expect(result.state).toBe('completed')
+      expect(Sandbox.create).toHaveBeenCalledWith(
+        expect.objectContaining({ token: fresh, teamId: 'team_fresh', projectId: 'prj_fresh' })
+      )
+    })
   })
 
   it('stops the sandbox on the success path', async () => {
@@ -299,21 +414,20 @@ describe('runInV8Sandbox', () => {
     }
   })
 
-  it('does not attempt REST deletion with an unscoped personal token', async () => {
-    const env = snapshotVercelEnv()
+  it('deletes through the REST API with access-token credentials', async () => {
     const { Sandbox } = await import('@vercel/sandbox')
     const stop = vi.fn(async () => ({}))
-    const fetchMock = vi.fn()
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: vi.fn(async () => ''),
+    }))
 
     try {
-      process.env.VERCEL_TOKEN = 'vercel_pat_without_project_context'
-      delete process.env.VERCEL_OIDC_TOKEN
-      delete process.env.VERCEL_TEAM_ID
-      delete process.env.VERCEL_PROJECT_ID
       vi.stubGlobal('fetch', fetchMock)
 
       Sandbox.create.mockResolvedValueOnce({
-        sandboxId: 'sbx_unscoped_123',
+        sandboxId: 'sbx_pat_123',
         writeFiles: vi.fn(async () => {}),
         runCommand: vi.fn(async () => ({
           exitCode: 0,
@@ -325,15 +439,13 @@ describe('runInV8Sandbox', () => {
 
       await runInV8Sandbox('1 + 1')
 
-      expect(fetchMock).not.toHaveBeenCalled()
-      expect(stop).toHaveBeenCalledTimes(1)
-      expect(stop).toHaveBeenCalledWith(expect.objectContaining({
-        blocking: true,
-        signal: expect.any(AbortSignal),
-      }))
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      const [url, options] = fetchMock.mock.calls[0]
+      expect(String(url)).toBe('https://api.vercel.com/v2/sandboxes/sbx_pat_123?projectId=prj_test&teamId=team_test')
+      expect(options.headers).toEqual({ authorization: 'Bearer vercel_pat_test' })
+      expect(stop).not.toHaveBeenCalled()
     } finally {
       vi.unstubAllGlobals()
-      restoreVercelEnv(env)
     }
   })
 })
@@ -371,6 +483,16 @@ describe('createBenchmarkSnapshot', () => {
     const { createBenchmarkSnapshot } = await import('../../lib/engines/v8sandbox')
     await expect(createBenchmarkSnapshot()).rejects.toThrow('snapshot failed')
     expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects with the credential reason when Vercel Sandbox is not configured', async () => {
+    const { Sandbox } = await import('@vercel/sandbox')
+    Sandbox.create.mockClear()
+    clearVercelEnv()
+
+    const { createBenchmarkSnapshot } = await import('../../lib/engines/v8sandbox')
+    await expect(createBenchmarkSnapshot()).rejects.toThrow(/npx vercel link/)
+    expect(Sandbox.create).not.toHaveBeenCalled()
   })
 })
 

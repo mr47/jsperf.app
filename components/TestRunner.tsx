@@ -11,7 +11,7 @@ import RuntimeAnalysisModal from './RuntimeAnalysisModal'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatNumber } from '../utils/ArrayUtils'
+import { formatLatency, formatNumber } from '../utils/ArrayUtils'
 import { generateAIPrompt as generateBenchmarkAIPrompt } from '../utils/aiPrompt'
 import { useDeepAnalysis } from '../hooks/useDeepAnalysis'
 import { ChevronDown, Microscope, Loader2 } from 'lucide-react'
@@ -27,6 +27,8 @@ const ChatGPTLogo = ({ className }) => (
 
 export default function Tests(props) {
   const {id, slug, revision, setup, teardown, language = 'javascript', languageOptions = null} = props
+  const compact = !!props.compact
+  const compactTitle = props.compactTitle || 'Compact Runner'
 
   const [statusMessage, setStatusMessage] = useState('')
   const [benchStatus, setBenchStatus] = useState('notready')
@@ -371,6 +373,82 @@ export default function Tests(props) {
     includeAnalysis,
   })
 
+  if (compact) {
+    return (
+      <>
+        <Card className="my-4 border-border/70 shadow-sm">
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold tracking-tight">{compactTitle}</h2>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {statusMessage || 'Initializing...'}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {['ready', 'complete'].includes(benchStatus) && (
+                  <div className="relative inline-flex h-8 items-center">
+                    <Button
+                      id="run"
+                      type="button"
+                      disabled={benchStatus === 'notready'}
+                      size="sm"
+                      className="h-full rounded-r-none border-r border-r-primary-foreground/20 font-semibold shadow-sm focus:z-10"
+                      onClick={() => run({maxTime: testDuration})}>
+                      Run ({testDuration < 1 ? testDuration : Math.round(testDuration)}s)
+                    </Button>
+                    <Button
+                      type="button"
+                      disabled={benchStatus === 'notready'}
+                      size="sm"
+                      className="h-full rounded-l-none px-2 shadow-sm focus:z-10"
+                      onClick={() => setShowRunDropdown(!showRunDropdown)}>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                    {showRunDropdown && (
+                      <RunDurationMenu
+                        testDuration={testDuration}
+                        setTestDuration={setTestDuration}
+                        setShowRunDropdown={setShowRunDropdown}
+                      />
+                    )}
+                  </div>
+                )}
+                {benchStatus === 'running' && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    className="font-semibold shadow-sm"
+                    onClick={() => run()}>
+                    Stop
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <iframe
+          key={iframeKey}
+          src={sandboxUrl}
+          ref={windowRef}
+          sandbox={SANDBOX_IFRAME_FLAGS}
+          title="Benchmark sandbox"
+          className="hidden"
+          style={{height: "1px", width: "1px"}}></iframe>
+
+        <CompactResults tests={tests} benchStatus={benchStatus} />
+        {showUnboundedNote && (
+          <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+            Every case hit the timer floor, so results are tied at ∞ ops/sec. Add heavier work for finite numbers.
+          </p>
+        )}
+      </>
+    )
+  }
+
   return (
     <>
       <Card className="my-6 shadow-sm border-border/60">
@@ -480,30 +558,11 @@ export default function Tests(props) {
                     <ChevronDown className="w-4 h-4" />
                   </Button>
                   {showRunDropdown && (
-                    <div className="absolute top-[calc(100%+4px)] right-0 w-full bg-card border border-border rounded-md shadow-lg z-50 overflow-hidden py-1">
-                      <div className="px-3 py-1.5 text-xs font-semibold text-muted-foreground border-b border-border/50 mb-1">
-                        Test Duration
-                      </div>
-                      {[
-                        { val: 0.5, label: 'Quick (0.5s)' },
-                        { val: 1, label: 'Short (1s)' },
-                        { val: 5, label: 'Default (5s)' },
-                        { val: 10, label: 'Long (10s)' },
-                        { val: 30, label: 'Extra Long (30s)' },
-                      ].map(opt => (
-                        <button
-                          key={opt.val}
-                          className={`w-full text-left flex items-center justify-between px-3 py-1.5 text-sm hover:bg-muted/50 transition-colors ${testDuration === opt.val ? 'font-bold text-foreground' : 'text-muted-foreground'}`}
-                          onClick={() => {
-                            setTestDuration(opt.val)
-                            setShowRunDropdown(false)
-                          }}
-                        >
-                          {opt.label}
-                          {testDuration === opt.val && <span className="text-primary text-xs">✓</span>}
-                        </button>
-                      ))}
-                    </div>
+                    <RunDurationMenu
+                      testDuration={testDuration}
+                      setTestDuration={setTestDuration}
+                      setShowRunDropdown={setShowRunDropdown}
+                    />
                   )}
                 </div>
               }
@@ -627,4 +686,138 @@ export default function Tests(props) {
       )}
     </>
   )
+}
+
+function RunDurationMenu({ testDuration, setTestDuration, setShowRunDropdown }) {
+  return (
+    <div className="absolute top-[calc(100%+4px)] right-0 z-50 w-full min-w-40 overflow-hidden rounded-md border border-border bg-card py-1 shadow-lg">
+      <div className="mb-1 border-b border-border/50 px-3 py-1.5 text-xs font-semibold text-muted-foreground">
+        Test Duration
+      </div>
+      {[
+        { val: 0.5, label: 'Quick (0.5s)' },
+        { val: 1, label: 'Short (1s)' },
+        { val: 5, label: 'Default (5s)' },
+        { val: 10, label: 'Long (10s)' },
+        { val: 30, label: 'Extra Long (30s)' },
+      ].map(opt => (
+        <button
+          key={opt.val}
+          className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm transition-colors hover:bg-muted/50 ${testDuration === opt.val ? 'font-bold text-foreground' : 'text-muted-foreground'}`}
+          onClick={() => {
+            setTestDuration(opt.val)
+            setShowRunDropdown(false)
+          }}
+        >
+          {opt.label}
+          {testDuration === opt.val && <span className="text-xs text-primary">✓</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function CompactResults({ tests, benchStatus }) {
+  const finished = tests.filter(test => test.status === 'finished')
+  const best = finished.find(test => test.fastest && !test.tied)
+  const sorted = [...tests].sort((a, b) => {
+    const aOps = Number.isFinite(a.opsPerSec) ? a.opsPerSec : (a.opsPerSec === Infinity ? Infinity : -1)
+    const bOps = Number.isFinite(b.opsPerSec) ? b.opsPerSec : (b.opsPerSec === Infinity ? Infinity : -1)
+    return bOps - aOps
+  })
+  return (
+    <div className="space-y-3">
+      {best && (
+        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-4 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+            Fastest
+          </p>
+          <div className="mt-1 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="truncate text-2xl font-bold tracking-tight text-foreground">
+                {best.title}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                {best.samples ? `${best.samples} samples · mean ${formatLatency(best.meanLatency)}` : 'Browser result'}
+              </p>
+            </div>
+            <div className="text-left sm:text-right">
+              <div className="text-2xl font-bold tabular-nums text-emerald-700 dark:text-emerald-300">
+                {best.hz || '—'}
+              </div>
+              <div className="text-xs text-muted-foreground">ops/sec</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card shadow-sm">
+        <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+          <h2 className="text-sm font-semibold">Results</h2>
+          <span className="text-[11px] text-muted-foreground">
+            {benchStatus === 'running' ? 'running' : finished.length ? `${finished.length}/${tests.length} complete` : 'ready'}
+          </span>
+        </div>
+
+        <div className="divide-y divide-border/60">
+          {sorted.map((test, index) => (
+            <CompactResultRow key={`${index}-${test.status}-${String(test.hz ?? '')}`} test={test} index={index} />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function CompactResultRow({ test, index }) {
+  const statusLabel = compactStatusLabel(test)
+  const isFinished = test.status === 'finished'
+  const isFastest = isFinished && test.fastest && !test.tied
+  const isSlowest = isFinished && test.slowest && !test.tied
+  const rowTone = isFastest
+    ? 'bg-emerald-500/5'
+    : isSlowest
+      ? 'bg-red-500/5'
+      : 'bg-card'
+
+  return (
+    <div className={`grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-3 py-3 ${rowTone}`}>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground">
+            {index + 1}
+          </span>
+          <h3 className="truncate text-sm font-semibold text-foreground">
+            {test.title}
+          </h3>
+        </div>
+        <p className="mt-1 truncate pl-7 text-xs text-muted-foreground">
+          {statusLabel}
+        </p>
+      </div>
+
+      <div className="min-w-24 text-right">
+        <div className={`text-sm font-bold tabular-nums ${isFastest ? 'text-emerald-700 dark:text-emerald-300' : isSlowest ? 'text-red-700 dark:text-red-300' : 'text-foreground'}`}>
+          {isFinished ? test.hz || '—' : test.status === 'running' && test.opsPerSec > 0 ? `~${formatNumber(Math.round(test.opsPerSec))}` : '—'}
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          ops/sec
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function compactStatusLabel(test) {
+  if (test.status === 'running') {
+    const pct = test.total > 0 ? Math.min(100, Math.round((test.elapsed / test.total) * 100)) : 0
+    return pct > 0 ? `running · ${pct}%` : 'warming up'
+  }
+  if (test.status === 'pending') return 'pending'
+  if (test.status === 'error') return test.error || 'error'
+  if (test.status !== 'finished') return 'ready'
+  if (test.tied) return `tied · ${test.rme === 'n/a' ? 'timer floor' : `±${test.rme}%`}`
+  if (test.fastest) return `fastest · ±${test.rme}%`
+  if (test.percent === '—') return `finished · ±${test.rme}%`
+  return `${test.percent}% slower · ±${test.rme}%`
 }

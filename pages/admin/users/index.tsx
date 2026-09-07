@@ -6,7 +6,7 @@ import { DatabaseZap, Search } from 'lucide-react'
 
 import AdminShell from '../../../components/admin/AdminShell'
 import {
-  adminFetch, Avatar, Badge, EmptyState, ErrorNotice, formatNumber, Pager, Spinner, SuccessNotice, Table, Td, Th, timeAgo,
+  adminFetch, Avatar, Badge, EmptyState, formatNumber, LoadingState, Notices, Pager, Spinner, Table, Td, Th, timeAgo, Toolbar, Tr,
 } from '../../../components/admin/primitives'
 import { requireAdminSsr } from '../../../lib/admin'
 import type { UserDoc, UserListFilter } from '../../../lib/users'
@@ -93,52 +93,55 @@ export default function AdminUsers() {
     }
   }
 
+  const openUser = (githubId: string) => void router.push(`/admin/users/${githubId}`)
+
   return (
     <AdminShell
       title="Users"
       description="Everyone who has signed in with GitHub, plus authors backfilled from benchmark pages."
+      breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Users' }]}
       actions={
         <Button variant="outline" size="sm" onClick={backfill} disabled={backfilling} title="Create directory entries for every githubID found on benchmark pages">
           {backfilling ? <Spinner /> : <DatabaseZap className="h-4 w-4" />} Backfill from benchmarks
         </Button>
       }
     >
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <Notices notice={notice} error={error} onRetry={load} />
+
+      <Toolbar>
+        <form onSubmit={submitSearch} className="flex gap-2 lg:w-96">
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search login, name, email or GitHub id" aria-label="Search users" />
+          <Button type="submit" variant="outline" size="icon" aria-label="Search"><Search className="h-4 w-4" /></Button>
+        </form>
         <Tabs value={filter} onValueChange={(value) => navigate({ filter: value, page: 1 })}>
           <TabsList>
             {FILTERS.map((f) => <TabsTrigger key={f.value} value={f.value}>{f.label}</TabsTrigger>)}
           </TabsList>
         </Tabs>
-        <form onSubmit={submitSearch} className="flex gap-2 sm:w-96">
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search login, name, email or GitHub id" aria-label="Search users" />
-          <Button type="submit" variant="outline" size="icon" aria-label="Search"><Search className="h-4 w-4" /></Button>
-        </form>
-      </div>
+      </Toolbar>
 
-      {notice && <div className="mb-4"><SuccessNotice message={notice} /></div>}
-      {error && <div className="mb-4"><ErrorNotice message={error} onRetry={load} /></div>}
-
-      <div className="rounded-xl border bg-card px-4 py-2">
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
         {loading && !data ? (
-          <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Spinner /> Loading users…</div>
+          <LoadingState>Loading users…</LoadingState>
         ) : data && data.items.length === 0 ? (
           <EmptyState>
-            No users match. {data.total === 0 && filter === 'all' && !q && <>The directory fills as people sign in — or use <em>Backfill from benchmarks</em> to import historical authors.</>}
+            No users match.{' '}
+            {data.total === 0 && filter === 'all' && !q && <>The directory fills as people sign in — or use <em>Backfill from benchmarks</em> to import historical authors.</>}
           </EmptyState>
         ) : (
           <>
-            <Table>
+            <Table minWidth={760}>
               <thead>
                 <tr><Th>User</Th><Th>Email</Th><Th>Status</Th><Th className="text-right">Sign-ins</Th><Th className="text-right">Benchmarks</Th><Th>Last seen</Th></tr>
               </thead>
               <tbody>
                 {data?.items.map((user) => (
-                  <tr key={user.githubId} className="border-t border-border/60 hover:bg-muted/30">
+                  <Tr key={user.githubId} className="cursor-pointer" onClick={() => openUser(user.githubId)}>
                     <Td>
                       <div className="flex items-center gap-3">
-                        <Avatar src={user.image} alt={user.login || user.githubId} />
+                        <Avatar src={user.image} alt={user.login || user.githubId} size={32} />
                         <div className="min-w-0">
-                          <Link href={`/admin/users/${user.githubId}`} className="font-medium">{user.login || user.name || 'unknown'}</Link>
+                          <Link href={`/admin/users/${user.githubId}`} className="font-medium" onClick={(e) => e.stopPropagation()}>{user.login || user.name || 'unknown'}</Link>
                           <div className="truncate text-xs text-muted-foreground">{user.name && user.login ? `${user.name} · ` : ''}<span className="font-mono">{user.githubId}</span></div>
                         </div>
                       </div>
@@ -155,7 +158,7 @@ export default function AdminUsers() {
                     <Td className="text-right tabular-nums">{formatNumber(user.signInCount)}</Td>
                     <Td className="text-right tabular-nums">{user.pageCount != null ? formatNumber(user.pageCount) : '—'}</Td>
                     <Td className="whitespace-nowrap text-muted-foreground">{timeAgo(user.lastSeenAt)}</Td>
-                  </tr>
+                  </Tr>
                 ))}
               </tbody>
             </Table>

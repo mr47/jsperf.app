@@ -106,8 +106,12 @@ export function buildAnalysisFromProfiles(tests: any[], {
     }))
   )
 
+  // `unavailable` (V8 sandbox credentials missing/expired) is not the
+  // snippet's fault, but it still makes the analysis incomplete, so treat it
+  // like an error here: this flag gates the shared Redis cache and we must
+  // not freeze QuickJS-only results for an hour after credentials are fixed.
   const hasErrors = results.some(r =>
-    r.v8.profiles.some(p => p.state === 'errored') ||
+    r.v8.profiles.some(p => p.state === 'errored' || p.state === 'unavailable') ||
     (r.v8.opsPerSec === 0 && r.quickjs.profiles.some(p => p.state === 'errored'))
   )
 

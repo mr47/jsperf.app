@@ -2,12 +2,10 @@
 import SEO from '../components/SEO'
 import Link from 'next/link'
 import { useSession } from 'next-auth/react'
-import { GitFork } from 'lucide-react'
+import { GitFork, Minimize2 } from 'lucide-react'
 
-import { pagesCollection } from '../lib/mongodb'
 import TestRunner from '../components/TestRunner'
 import GenerateReportButton from '../components/GenerateReportButton'
-import { bumpDateIfOld } from '../utils/DateBump'
 
 import Layout from '../components/Layout'
 
@@ -18,9 +16,10 @@ import Setup from '../components/sections/Setup'
 import Teardown from '../components/sections/Teardown'
 import PrepCode from '../components/sections/PrepCode'
 import { Separator } from '@/components/ui/separator'
-import { inferBenchmarkLanguage, normalizeLanguageOptions } from '../lib/benchmark/source'
 import { benchmarkOgImagePath, benchmarkOgVersion } from '../lib/benchmarkOg'
 import { absoluteUrl, breadcrumbSchema } from '../lib/seo'
+import { loadBenchmarkPageData } from '../lib/benchmark/pageData'
+import { benchmarkPath, compactBenchmarkPath } from '../lib/benchmark/paths'
 
 export default function Slug(props) {
   const {
@@ -42,7 +41,8 @@ export default function Slug(props) {
 
   const {revisions} = props
   const { data: session } = useSession()
-  const benchmarkPath = `/${slug}${revision > 1 ? `/${revision}` : ''}`
+  const pagePath = benchmarkPath(slug, revision)
+  const compactPath = compactBenchmarkPath(slug, revision)
   const benchmarkTitle = `${title}${revision > 1 ? ` (v${revision})` : ''}`
   const benchmarkDescription = `${benchmarkTitle} - online JavaScript${language === 'typescript' ? ' and TypeScript' : ''} benchmark with ${tests.length} test${tests.length === 1 ? '' : 's'}${mirror ? ' from the jsPerf.com mirror' : ''}.`
   const benchmarkOgImage = benchmarkOgImagePath({
@@ -55,7 +55,7 @@ export default function Slug(props) {
     '@type': 'TechArticle',
     headline: benchmarkTitle,
     description: benchmarkDescription,
-    url: absoluteUrl(benchmarkPath),
+    url: absoluteUrl(pagePath),
     datePublished: published,
     author: authorName ? {
       '@type': 'Person',
@@ -73,7 +73,7 @@ export default function Slug(props) {
       <SEO 
         title={benchmarkTitle}
         description={benchmarkDescription}
-        canonical={benchmarkPath}
+        canonical={pagePath}
         ogImage={benchmarkOgImage}
         keywords={[
           title,
@@ -86,7 +86,7 @@ export default function Slug(props) {
           breadcrumbSchema([
             { name: 'Home', path: '/' },
             { name: 'Latest Benchmarks', path: '/latest' },
-            { name: benchmarkTitle, path: benchmarkPath },
+            { name: benchmarkTitle, path: pagePath },
           ]),
         ]}
       />
@@ -96,6 +96,10 @@ export default function Slug(props) {
             <h1 className="text-3xl font-bold tracking-tight">{title} <span className="text-muted-foreground text-xl font-normal ml-2">{`${revision > 1 ? `(v${revision})` : ''}`}</span></h1>
           </hgroup>
           <div className="flex flex-wrap items-center gap-2">
+            <Link href={compactPath} className="inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-muted/40 px-3 py-1.5 text-xs font-semibold text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+              <Minimize2 className="w-3.5 h-3.5 mr-1.5" />
+              Compact view
+            </Link>
             <GenerateReportButton slug={slug} revision={revision} />
             {session && (
               <Link href={`/${slug}/${revision}/fork`} className="inline-flex shrink-0 items-center justify-center rounded-md text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring border border-input bg-background shadow-sm hover:bg-muted hover:text-accent-foreground h-9 px-4 py-2 gap-2">
@@ -155,45 +159,18 @@ export const getStaticProps = async ({params}) => {
     }
   }
 
-  const pages = await pagesCollection()
+  const data = await loadBenchmarkPageData(slug, revision)
 
-  const pageData = await pages.findOne({
-    slug, revision: parseInt(revision) || 1
-  })
-
-  const revisions = await pages.find({
-    slug, visible: true
-  }, {projection: {slug: 1, revision: 1, authorName: 1, published: 1} }).sort({revision: 1}).toArray()
-
-  if (!pageData || !pageData.visible) {
+  if (!data) {
     return {
       notFound: true
     }
   }
 
-  const language = inferBenchmarkLanguage({
-    language: pageData.language,
-    tests: pageData.tests || [],
-    setup: pageData.setup,
-    teardown: pageData.teardown,
-  })
-  pageData.language = language
-  pageData.languageOptions = normalizeLanguageOptions(language, pageData.languageOptions)
-
-  // Bump dates dynamically to look alive
-  if (pageData.published) {
-    pageData.published = bumpDateIfOld(pageData.published, pageData.slug)
-  }
-  revisions.forEach(rev => {
-    if (rev.published) {
-      rev.published = bumpDateIfOld(rev.published, rev.slug)
-    }
-  })
-
   return {
     props: {
-      pageData: JSON.parse(JSON.stringify(pageData)),
-      revisions: JSON.parse(JSON.stringify(revisions))
+      pageData: JSON.parse(JSON.stringify(data.pageData)),
+      revisions: JSON.parse(JSON.stringify(data.revisions))
     },
     revalidate: 60 * 60 * 24 // 1 day in seconds
   }

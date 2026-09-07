@@ -4,7 +4,7 @@ import Footer from './Footer'
 import { useTheme } from 'next-themes'
 
 const Layout = (props) => {
-  const {children, navState} = props
+  const {children, navState, wide = false} = props
   const { resolvedTheme } = useTheme()
   
   useEffect(() => {
@@ -30,7 +30,7 @@ const Layout = (props) => {
     <>
       <div className="font-sans antialiased min-h-full flex flex-col text-foreground">
         <div className="flex-auto">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 min-h-screen relative z-0">
+          <div className={`${wide ? 'max-w-[96rem]' : 'max-w-5xl'} mx-auto px-4 sm:px-6 lg:px-8 min-h-screen relative z-0`}>
             <Header navState={navState} />
             { children }
             <Footer />

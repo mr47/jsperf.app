@@ -5,7 +5,7 @@ import { Check, ChevronDown, ChevronRight, RefreshCw, Search, Trash2, Undo2 } fr
 
 import AdminShell from '../../components/admin/AdminShell'
 import {
-  adminFetch, Badge, EmptyState, ErrorNotice, formatDateTime, formatNumber, Pager, Spinner, SuccessNotice, Table, Td, Th, timeAgo,
+  adminFetch, Badge, ConfirmDialog, EmptyState, formatDateTime, formatNumber, LoadingState, Notices, Pager, Spinner, Table, Td, Th, timeAgo, Toolbar, Tr,
 } from '../../components/admin/primitives'
 import { requireAdminSsr } from '../../lib/admin'
 import type { ErrorDoc } from '../../lib/errorLog'
@@ -16,6 +16,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 type Row = Omit<ErrorDoc, 'firstSeenAt' | 'lastSeenAt' | 'resolvedAt'> & { _id: string; firstSeenAt: string; lastSeenAt: string; resolvedAt: string | null }
 type ListResponse = { items: Row[]; total: number; page: number; pageSize: number; scopes: string[] }
 type Status = 'open' | 'resolved' | 'all'
+type Confirm = 'delete-selected' | 'purge-resolved' | null
 
 export default function AdminErrors() {
   const router = useRouter()
@@ -33,6 +34,7 @@ export default function AdminErrors() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [confirm, setConfirm] = useState<Confirm>(null)
 
   useEffect(() => { setSearch(q) }, [q])
 
@@ -45,8 +47,7 @@ export default function AdminErrors() {
       if (scope) params.set('scope', scope)
       if (source) params.set('source', source)
       if (q) params.set('q', q)
-      const result = await adminFetch<ListResponse>(`/api/admin/errors?${params}`)
-      setData(result)
+      setData(await adminFetch<ListResponse>(`/api/admin/errors?${params}`))
       setSelected(new Set())
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load errors')
@@ -84,6 +85,7 @@ export default function AdminErrors() {
       setError(err instanceof Error ? err.message : 'Action failed')
     } finally {
       setBusy(false)
+      setConfirm(null)
     }
   }
 
@@ -92,21 +94,15 @@ export default function AdminErrors() {
     return `${result.modified} group${result.modified === 1 ? '' : 's'} ${resolved ? 'resolved' : 'reopened'}.`
   })
 
-  const deleteSelected = () => {
-    if (!window.confirm(`Delete ${selected.size} error group${selected.size === 1 ? '' : 's'}? This cannot be undone.`)) return
-    void act(async () => {
-      const result = await adminFetch<{ deleted: number }>(`/api/admin/errors?ids=${Array.from(selected).join(',')}`, { method: 'DELETE' })
-      return `${result.deleted} group${result.deleted === 1 ? '' : 's'} deleted.`
-    })
-  }
+  const deleteSelected = () => act(async () => {
+    const result = await adminFetch<{ deleted: number }>(`/api/admin/errors?ids=${Array.from(selected).join(',')}`, { method: 'DELETE' })
+    return `${result.deleted} group${result.deleted === 1 ? '' : 's'} deleted.`
+  })
 
-  const purgeResolved = () => {
-    if (!window.confirm('Delete every resolved error group?')) return
-    void act(async () => {
-      const result = await adminFetch<{ deleted: number }>('/api/admin/errors?resolvedOnly=1', { method: 'DELETE' })
-      return `${result.deleted} resolved group${result.deleted === 1 ? '' : 's'} deleted.`
-    })
-  }
+  const purgeResolved = () => act(async () => {
+    const result = await adminFetch<{ deleted: number }>('/api/admin/errors?resolvedOnly=1', { method: 'DELETE' })
+    return `${result.deleted} resolved group${result.deleted === 1 ? '' : 's'} deleted.`
+  })
 
   const submitSearch = (event: FormEvent) => { event.preventDefault(); navigate({ q: search.trim() }) }
 
@@ -114,14 +110,17 @@ export default function AdminErrors() {
     <AdminShell
       title="Errors"
       description="Server and browser errors grouped by fingerprint and hour. Entries expire automatically after 30 days."
+      breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Errors' }]}
       actions={
         <>
           <Button variant="outline" size="sm" onClick={load} disabled={loading}>{loading ? <Spinner /> : <RefreshCw className="h-4 w-4" />} Refresh</Button>
-          <Button variant="outline" size="sm" onClick={purgeResolved} disabled={busy}><Trash2 className="h-4 w-4" /> Purge resolved</Button>
+          <Button variant="outline" size="sm" onClick={() => setConfirm('purge-resolved')} disabled={busy}><Trash2 className="h-4 w-4" /> Purge resolved</Button>
         </>
       }
     >
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <Notices notice={notice} error={error} onRetry={load} />
+
+      <Toolbar>
         <div className="flex flex-wrap items-center gap-2">
           <Tabs value={status} onValueChange={(value) => navigate({ status: value })}>
             <TabsList>
@@ -151,31 +150,28 @@ export default function AdminErrors() {
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search message" aria-label="Search error messages" />
           <Button type="submit" variant="outline" size="icon" aria-label="Search"><Search className="h-4 w-4" /></Button>
         </form>
-      </div>
+      </Toolbar>
 
-      {notice && <div className="mb-4"><SuccessNotice message={notice} /></div>}
-      {error && <div className="mb-4"><ErrorNotice message={error} onRetry={load} /></div>}
+      <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-5 py-2.5 text-sm">
+            <span className="font-medium">{selected.size} selected</span>
+            {status !== 'resolved' && <Button size="sm" variant="outline" disabled={busy} onClick={() => resolveSelected(true)}><Check className="h-4 w-4" /> Resolve</Button>}
+            {status !== 'open' && <Button size="sm" variant="outline" disabled={busy} onClick={() => resolveSelected(false)}><Undo2 className="h-4 w-4" /> Reopen</Button>}
+            <Button size="sm" variant="destructive" disabled={busy} onClick={() => setConfirm('delete-selected')}><Trash2 className="h-4 w-4" /> Delete</Button>
+          </div>
+        )}
 
-      {selected.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
-          <span className="font-medium">{selected.size} selected</span>
-          {status !== 'resolved' && <Button size="sm" variant="outline" disabled={busy} onClick={() => resolveSelected(true)}><Check className="h-4 w-4" /> Resolve</Button>}
-          {status !== 'open' && <Button size="sm" variant="outline" disabled={busy} onClick={() => resolveSelected(false)}><Undo2 className="h-4 w-4" /> Reopen</Button>}
-          <Button size="sm" variant="destructive" disabled={busy} onClick={deleteSelected}><Trash2 className="h-4 w-4" /> Delete</Button>
-        </div>
-      )}
-
-      <div className="rounded-xl border bg-card px-4 py-2">
         {loading && !data ? (
-          <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground"><Spinner /> Loading errors…</div>
+          <LoadingState>Loading errors…</LoadingState>
         ) : data && data.items.length === 0 ? (
           <EmptyState>{status === 'open' && !scope && !q ? 'No open errors. Nice.' : 'Nothing matches these filters.'}</EmptyState>
         ) : (
           <>
-            <Table>
+            <Table minWidth={720}>
               <thead>
                 <tr>
-                  <Th className="w-8"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all" className="h-4 w-4" /></Th>
+                  <Th className="w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} aria-label="Select all" className="h-4 w-4" /></Th>
                   <Th className="w-8" />
                   <Th>Error</Th>
                   <Th>Scope</Th>
@@ -188,9 +184,9 @@ export default function AdminErrors() {
                   const open = expanded.has(row._id)
                   return (
                     <Fragment key={row._id}>
-                      <tr className="border-t border-border/60 hover:bg-muted/30">
+                      <Tr>
                         <Td><input type="checkbox" checked={selected.has(row._id)} onChange={() => toggleSelected(row._id)} aria-label="Select error" className="h-4 w-4" /></Td>
-                        <Td>
+                        <Td className="px-0">
                           <button type="button" onClick={() => toggleExpanded(row._id)} className="text-muted-foreground hover:text-foreground" aria-expanded={open} aria-label={open ? 'Collapse' : 'Expand'}>
                             {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                           </button>
@@ -199,32 +195,30 @@ export default function AdminErrors() {
                           <button type="button" onClick={() => toggleExpanded(row._id)} className="text-left">
                             <div className="line-clamp-2 font-mono text-xs">{row.message}</div>
                           </button>
-                          <div className="mt-1 flex flex-wrap gap-1">
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
                             <Badge tone={row.source === 'client' ? 'info' : 'neutral'}>{row.source}</Badge>
                             {row.level === 'warn' && <Badge tone="warn">warn</Badge>}
                             {row.resolvedAt && <Badge tone="good">resolved {timeAgo(row.resolvedAt)}</Badge>}
-                            <span className="text-[11px] text-muted-foreground">bucket {row.bucket}</span>
+                            <span className="text-xs text-muted-foreground">bucket {row.bucket}</span>
                           </div>
                         </Td>
                         <Td><button type="button" onClick={() => navigate({ scope: row.scope })} className="font-mono text-xs hover:underline">{row.scope}</button></Td>
                         <Td className="text-right tabular-nums">{formatNumber(row.count)}</Td>
                         <Td className="whitespace-nowrap text-muted-foreground" title={formatDateTime(row.lastSeenAt)}>{timeAgo(row.lastSeenAt)}</Td>
-                      </tr>
+                      </Tr>
                       {open && (
-                        <tr className="border-t border-border/40 bg-muted/20">
-                          <Td className="p-0" />
-                          <Td className="p-0" />
-                          <td colSpan={4} className="px-4 py-3">
-                            <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+                        <tr className="border-t bg-muted/20">
+                          <td colSpan={6} className="px-5 py-4">
+                            <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
                               <div>
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Stack</div>
-                                <pre className="max-h-80 overflow-auto rounded-md border bg-background p-3 font-mono text-[11px] leading-5">{row.stack || row.message}</pre>
+                                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Stack</div>
+                                <pre className="max-h-80 overflow-auto rounded-md border bg-background p-3 font-mono text-xs leading-5">{row.stack || row.message}</pre>
                               </div>
                               <div>
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Recent samples ({row.samples?.length || 0})</div>
+                                <div className="mb-1.5 text-xs font-medium text-muted-foreground">Recent samples ({row.samples?.length || 0})</div>
                                 <div className="space-y-2">
                                   {(row.samples || []).slice().reverse().map((sample, i) => (
-                                    <pre key={i} className="overflow-auto rounded-md border bg-background p-2 font-mono text-[11px] leading-5">{JSON.stringify(sample, null, 1)}</pre>
+                                    <pre key={i} className="overflow-auto rounded-md border bg-background p-2 font-mono text-xs leading-5">{JSON.stringify(sample, null, 1)}</pre>
                                   ))}
                                 </div>
                                 <div className="mt-2 text-xs text-muted-foreground">First seen {formatDateTime(row.firstSeenAt)} · fingerprint <span className="font-mono">{row.fingerprint}</span></div>
@@ -242,6 +236,27 @@ export default function AdminErrors() {
           </>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirm === 'delete-selected'}
+        onOpenChange={(open) => setConfirm(open ? 'delete-selected' : null)}
+        title={`Delete ${selected.size} error group${selected.size === 1 ? '' : 's'}?`}
+        description="This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        busy={busy}
+        onConfirm={deleteSelected}
+      />
+      <ConfirmDialog
+        open={confirm === 'purge-resolved'}
+        onOpenChange={(open) => setConfirm(open ? 'purge-resolved' : null)}
+        title="Delete every resolved error group?"
+        description="Open groups are kept. This cannot be undone."
+        confirmLabel="Purge resolved"
+        destructive
+        busy={busy}
+        onConfirm={purgeResolved}
+      />
     </AdminShell>
   )
 }
