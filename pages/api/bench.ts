@@ -37,6 +37,22 @@ const generateSlugId = async (length = 6, attempts = 10) => {
 
 const isDuplicateKeyError = (error) => error?.code === 11000 || /E11000/.test(String(error?.message || ''))
 
+const NO_TESTS_MESSAGE = 'A benchmark needs at least one test case with code.'
+
+/**
+ * A benchmark without a runnable test case can never be executed, so the
+ * page renders empty and the runner never becomes ready. The editor filters
+ * out blank cases before submitting, so an empty list means the author never
+ * filled one in. Returns an error message, or null when the list is usable.
+ */
+const validateTests = (tests) => {
+  if (!Array.isArray(tests)) return NO_TESTS_MESSAGE
+  const runnable = tests.filter(
+    (test) => test && typeof test.code === 'string' && test.code.trim().length > 0,
+  )
+  return runnable.length > 0 ? null : NO_TESTS_MESSAGE
+}
+
 const MAX_INSERT_ATTEMPTS = 5
 
 /**
@@ -109,6 +125,12 @@ const addPage = async (req, res) => {
     const pages = await pagesCollection()
 
     const payload = JSON.parse(req.body)
+
+    const testsError = validateTests(payload.tests)
+    if (testsError) {
+      return res.status(400).json({ message: testsError, success: false })
+    }
+
     payload.language = inferBenchmarkLanguage({
       language: payload.language,
       tests: payload.tests,
@@ -217,6 +239,15 @@ const updatePage = async (req, res) => {
 
     if (!allowedToEdit) {
       throw new Error('Does not have the authority to update this page.')
+    }
+
+    // Partial updates (e.g. publishing sets only `visible`) leave the tests
+    // untouched; only validate when the caller is replacing them.
+    if (payload.tests !== undefined) {
+      const testsError = validateTests(payload.tests)
+      if (testsError) {
+        return res.status(400).json({ message: testsError, success: false })
+      }
     }
 
     const safeLanguage = inferBenchmarkLanguage({

@@ -7,7 +7,7 @@ import ScalingPredictionChart from './ScalingChart'
 import RuntimeComparison from './RuntimeComparison'
 import CompatibilityMatrix from './CompatibilityMatrix'
 import BenchmarkDoctor from './BenchmarkDoctor'
-import { Cpu, Download, ExternalLink, Microscope, RefreshCw, Database } from 'lucide-react'
+import { Cpu, Download, ExternalLink, Flame, Microscope, RefreshCw, Database } from 'lucide-react'
 import { buildBenchmarkDoctor } from '../lib/benchmark/doctor'
 import { groupJitArtifactEntries } from '../utils/jitArtifactGroups'
 
@@ -207,8 +207,14 @@ export default function DeepAnalysis({
   if (status !== 'done' || !analysis) return null
 
   const engineErrors = collectEngineErrors(analysis.results)
-  const hasErrors = analysis.hasErrors || engineErrors.some(e => e.severity === 'error')
-  const errorMessage = formatEngineErrorMessage(engineErrors)
+  const engineUnavailable = engineErrors.filter(e => e.severity === 'warning')
+  const hardEngineErrors = engineErrors.filter(e => e.severity === 'error')
+  // `analysis.hasErrors` is also raised for an unavailable V8 sandbox (so the
+  // result is not cached). Only treat it as an error when no profile explains
+  // it as a skipped engine.
+  const hasErrors = hardEngineErrors.length > 0 || (analysis.hasErrors && engineUnavailable.length === 0)
+  const errorMessage = formatEngineErrorMessage(hardEngineErrors)
+  const unavailableMessage = formatEngineUnavailableMessage(engineUnavailable)
 
   // Merge async multi-runtime results onto the per-test base results.
   // The base results don't carry MR data anymore (it's polled separately
@@ -268,6 +274,14 @@ export default function DeepAnalysis({
         </div>
       )}
 
+      {unavailableMessage && (
+        <div className="p-3 rounded-lg border border-sky-200 bg-sky-50/50 dark:border-sky-800 dark:bg-sky-950/20">
+          <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
+            {unavailableMessage}
+          </p>
+        </div>
+      )}
+
       {hasErrors && (
         <div className="p-3 rounded-lg border border-amber-200 bg-amber-50/50 dark:border-amber-800 dark:bg-amber-950/20">
           <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
@@ -315,6 +329,8 @@ export default function DeepAnalysis({
         onCaptureRequest={onJitCaptureRequest}
         captureRequested={jitCaptureRequested}
       />
+
+      <CpuProfilesSection results={enrichedResults} />
     </div>
   )
 }
@@ -344,12 +360,16 @@ function collectEngineErrors(results) {
       { key: 'quickjs', label: 'QuickJS-WASM' },
       { key: 'v8', label: 'V8 Firecracker' },
     ]) {
-      const profile = result[engine.key]?.profiles?.find(p => p.state === 'errored')
+      const profiles = result[engine.key]?.profiles || []
+      // `unavailable` means the engine was skipped (e.g. Vercel Sandbox
+      // credentials missing locally), not that the snippet failed.
+      const profile = profiles.find(p => p.state === 'errored') || profiles.find(p => p.state === 'unavailable')
       if (!profile) continue
       if (engine.key === 'quickjs' && result.v8?.opsPerSec > 0) continue
 
-      const message = profile.error || 'unknown error'
-      const dedupeKey = `${engine.key}:${message}`
+      const severity = profile.state === 'unavailable' ? 'warning' : 'error'
+      const message = profile.error || (severity === 'warning' ? 'engine unavailable' : 'unknown error')
+      const dedupeKey = `${engine.key}:${severity}:${message}`
       if (seen.has(dedupeKey)) continue
       seen.add(dedupeKey)
       errors.push({
@@ -357,11 +377,17 @@ function collectEngineErrors(results) {
         label: engine.label,
         title: result.title || `Test ${result.testIndex + 1}`,
         message,
-        severity: 'error',
+        severity,
       })
     }
   }
   return errors
+}
+
+function formatEngineUnavailableMessage(entries) {
+  if (!entries.length) return null
+  const first = entries[0]
+  return `${first.label} was skipped, showing QuickJS-only results: ${first.message}`
 }
 
 function formatEngineErrorMessage(errors) {
@@ -417,6 +443,73 @@ function collectJitArtifactEntries(results) {
     }
   }
   return entries
+}
+
+function collectCpuProfileEntries(results) {
+  if (!Array.isArray(results)) return []
+  const entries = []
+  for (const result of results) {
+    const comparison = result.runtimeComparison
+    if (!comparison?.available || !Array.isArray(comparison.runtimes)) continue
+    for (const runtimeData of comparison.runtimes) {
+      const profiles = Array.isArray(runtimeData.profiles) ? runtimeData.profiles : []
+      profiles.forEach((profile, profileIndex) => {
+        if (!profile?.cpuProfileRef && !profile?.cpuProfileError) return
+        const ref = profile.cpuProfileRef || null
+        entries.push({
+          testIndex: result.testIndex,
+          title: result.title || `Test ${Number(result.testIndex) + 1}`,
+          runtime: runtimeData.runtime,
+          runtimeLabel: runtimeData.label || runtimeData.runtime || 'Runtime',
+          profileIndex,
+          profileLabel: profile.label || ref?.profileLabel || `Profile ${profileIndex + 1}`,
+          ref,
+          error: profile.cpuProfileError || null,
+        })
+      })
+    }
+  }
+  return entries
+}
+
+function groupCpuProfileEntries(entries) {
+  const byTest = new Map()
+
+  for (const entry of entries) {
+    const key = `${Number.isInteger(entry.testIndex) ? entry.testIndex : -1}:${entry.title || ''}`
+    let group = byTest.get(key)
+    if (!group) {
+      group = {
+        key,
+        testIndex: entry.testIndex,
+        title: entry.title || `Test ${Number(entry.testIndex) + 1}`,
+        entries: [],
+        profiles: [],
+        errors: [],
+        totalSizeBytes: 0,
+        totalSamples: 0,
+        totalFocusedSamples: 0,
+        maxSizeBytes: 0,
+      }
+      byTest.set(key, group)
+    }
+
+    group.entries.push(entry)
+    if (entry.ref) {
+      group.profiles.push(entry)
+      const sizeBytes = Number(entry.ref.sizeBytes) || 0
+      group.totalSizeBytes += sizeBytes
+      group.maxSizeBytes = Math.max(group.maxSizeBytes, sizeBytes)
+      group.totalSamples += Number(entry.ref.sampleCount) || 0
+      group.totalFocusedSamples += Number(entry.ref.focusedSampleCount) || 0
+    }
+    if (entry.error) group.errors.push(entry)
+  }
+
+  return [...byTest.values()].sort((a, b) => {
+    const byIndex = (a.testIndex ?? 0) - (b.testIndex ?? 0)
+    return byIndex || a.title.localeCompare(b.title)
+  })
 }
 
 function hasNodeRuntime(results) {
@@ -484,7 +577,7 @@ function MultiRuntimeSection({ results, status, error }) {
 function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
   const entries = collectJitArtifactEntries(results)
   const artifacts = entries.filter(entry => entry.ref)
-  const errors = summarizeJitArtifactErrors(entries)
+  const errors = summarizeArtifactErrors(entries)
   const hasV8Runtime = hasNodeRuntime(results)
   const groups = groupJitArtifactEntries(entries)
 
@@ -597,7 +690,99 @@ function JitArtifactsSection({ results, onCaptureRequest, captureRequested }) {
   )
 }
 
-function summarizeJitArtifactErrors(entries) {
+function CpuProfilesSection({ results }) {
+  const entries = collectCpuProfileEntries(results)
+  const groups = groupCpuProfileEntries(entries)
+  const errors = summarizeArtifactErrors(entries)
+
+  if (entries.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-5 shadow-sm">
+      <div className="mb-3 flex items-start gap-2">
+        <Flame className="mt-0.5 h-4 w-4 flex-shrink-0 text-orange-500" />
+        <div>
+          <h3 className="text-base font-semibold text-foreground">CPU profile artifacts</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            Chrome DevTools / CPUpro compatible `.cpuprofile` captures stored as separate Deep Analysis artifacts.
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {errors.map(error => (
+          <div key={error.message} className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-600 dark:text-red-400">
+            {error.message}
+            {error.count > 1 && (
+              <span className="ml-1 text-red-500/80 dark:text-red-300/80">
+                ({error.count} profile captures affected)
+              </span>
+            )}
+          </div>
+        ))}
+
+        {groups.map(group => (
+          <div key={group.key} className="rounded-lg border border-border/50 bg-background/70">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+              <div className="min-w-0 text-xs">
+                <span className="font-semibold text-foreground">{group.title}</span>
+                <span className="ml-2 text-muted-foreground">
+                  {group.profiles.length} profile{group.profiles.length === 1 ? '' : 's'}
+                  {group.totalSamples ? ` · ${formatBig(group.totalSamples)} samples` : ''}
+                  {group.totalFocusedSamples ? ` · ${formatBig(group.totalFocusedSamples)} user-code samples` : ''}
+                  {group.maxSizeBytes ? ` · largest ${formatBytes(group.maxSizeBytes)}` : ''}
+                </span>
+              </div>
+              {group.maxSizeBytes >= 1024 * 1024 && (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  large profile
+                </span>
+              )}
+            </div>
+
+            {group.errors.length > 0 && (
+              <div className="border-b border-border/50 px-3 py-2 text-xs text-red-600 dark:text-red-400">
+                {group.errors.length} profile capture{group.errors.length === 1 ? '' : 's'} failed.
+              </div>
+            )}
+
+            <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-3">
+              {group.profiles.map(entry => (
+                <div key={`${entry.testIndex}:${entry.runtime}:${entry.profileIndex}`} className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-muted/20 px-2.5 py-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium text-foreground">{entry.runtimeLabel}</div>
+                    {entry.ref && (
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        {entry.profileLabel} · {formatBig(entry.ref.sampleCount || 0)} samples · {formatBytes(entry.ref.sizeBytes || 0)}
+                      </div>
+                    )}
+                  </div>
+                  {entry.ref && (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <Button asChild variant="outline" size="xs">
+                        <a href={`/profile/${entry.ref.id}`} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-3 w-3" />
+                          Viewer
+                        </a>
+                      </Button>
+                      <Button asChild variant="outline" size="icon-xs" aria-label={`Download ${entry.runtimeLabel} CPU profile`}>
+                        <a href={`/api/benchmark/cpu-profile/${entry.ref.id}?download=1`}>
+                          <Download className="h-3 w-3" />
+                        </a>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function summarizeArtifactErrors(entries) {
   const byMessage = new Map()
   for (const entry of entries) {
     if (!entry.error) continue

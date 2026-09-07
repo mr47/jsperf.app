@@ -260,7 +260,13 @@ export default function EditForm({pageData}) {
 
     formData.tests = testsState.map(test => ({...test}))
       .map(test => { delete test.id; return test })
-      .filter(test => !!test.code)
+      .filter(test => !!test.code?.trim())
+
+    if (formData.tests.length === 0) {
+      setSaveError('Add at least one test case with code before saving.')
+      setIsSaving(false)
+      return
+    }
 
     const isPublished = !!pageData?.visible
 

@@ -140,6 +140,35 @@ describe('POST /api/bench revision allocation', () => {
   })
 })
 
+describe('/api/bench test-case validation', () => {
+  it('rejects a new benchmark with no runnable test case', async () => {
+    for (const tests of [undefined, [], [{ title: 'blank', code: '' }], [{ title: 'ws', code: '   ' }]]) {
+      const r = res()
+      await benchHandler(req({ body: JSON.stringify({ title: 'Array', info: '<html>', tests }) }), r)
+      expect(r._status).toBe(400)
+      expect(r._json).toMatchObject({ success: false, message: expect.stringMatching(/at least one test case/i) })
+    }
+    expect(state.pages.docs).toHaveLength(0)
+  })
+
+  it('rejects replacing tests with an empty list but still allows publish-only updates', async () => {
+    await state.pages.insertOne({ slug: 'abcdef', revision: 1, uuid: 'u-1', tests: [{ title: 'a', code: '1+1' }], visible: false })
+
+    const emptied = res()
+    await benchHandler(req({ method: 'PUT', body: JSON.stringify({ slug: 'abcdef', revision: 1, uuid: 'u-1', tests: [] }) }), emptied)
+    expect(emptied._status).toBe(400)
+    expect(emptied._json.success).toBe(false)
+
+    const published = res()
+    await benchHandler(req({ method: 'PUT', body: JSON.stringify({ slug: 'abcdef', revision: 1, uuid: 'u-1', visible: true }) }), published)
+    expect(published._json).toMatchObject({ success: true })
+
+    const doc = state.pages.docs.find((d: any) => d.slug === 'abcdef')
+    expect(doc.visible).toBe(true)
+    expect(doc.tests).toHaveLength(1)
+  })
+})
+
 describe('POST /api/runs validation', () => {
   beforeEach(async () => {
     await state.pages.insertOne({ slug: 'abc', revision: 1, title: 'T', tests: [{ code: 'a' }, { code: 'b' }] })

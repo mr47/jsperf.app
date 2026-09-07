@@ -103,10 +103,12 @@ Optional integrations:
 | `NEXT_PUBLIC_GA_ID` | Google Analytics measurement ID. |
 | `BENCHMARK_WORKER_URL` | URL for the optional Deep Analysis worker. Enables Node/Deno/Bun analysis, remote complexity estimates, and donor worker-side QuickJS. |
 | `BENCHMARK_WORKER_SECRET` | Bearer token shared with the Deep Analysis worker. The worker refuses to start without it. |
-| `VERCEL_TOKEN` | Optional Vercel token for local Vercel Sandbox access and cleanup. |
-| `VERCEL_OIDC_TOKEN` | Optional OIDC token for Vercel Sandbox access and cleanup. |
-| `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. |
-| `VERCEL_PROJECT_ID` | Vercel project scope for Sandbox operations. |
+| `VERCEL_OIDC_TOKEN` | Credentials for the V8 Firecracker engine (Vercel Sandbox). Set automatically on Vercel deployments. Locally, run `npx vercel link` then `npx vercel env pull .env.local`; the token expires after 12 hours, so re-pull (or stay logged in to the Vercel CLI, which refreshes it) when Deep Analysis reports it as expired. |
+| `VERCEL_TOKEN` | Alternative to the OIDC token for external CI / non-Vercel hosting: a Vercel access token. Must be combined with `VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID`. |
+| `VERCEL_TEAM_ID` | Vercel team scope for Sandbox operations. Required with `VERCEL_TOKEN`; overrides the scope embedded in an OIDC token. |
+| `VERCEL_PROJECT_ID` | Vercel project scope for Sandbox operations. Required with `VERCEL_TOKEN`; overrides the scope embedded in an OIDC token. |
+
+When none of these resolve to usable credentials, Deep Analysis still runs: the V8 engine reports `state: "unavailable"` with the reason, the UI shows QuickJS-only results with a notice, and the result is not cached so a fixed environment takes effect on the next run. The app never falls back to the Sandbox SDK's interactive device login, which would otherwise block the dev server.
 | `ADMIN_GITHUB_IDS` | Comma-separated GitHub numeric user IDs that get admin access. Bootstraps the first admin; further admins can be promoted from the panel. |
 | `ADMIN_GITHUB_LOGINS` | Comma-separated GitHub logins that get admin access (alternative to `ADMIN_GITHUB_IDS`). |
 | `ERROR_LOG_DISABLED` | Set to `1` to skip persisting errors to MongoDB (they are still written to the console). |
