@@ -26,6 +26,7 @@ async function resolveDonor(req, sessionUser) {
       emailLookupFn: findDonorByEmail,
       sessionEmail: sessionUser?.email || null,
       sessionUserId: sessionUser?.id || null,
+      sessionLogin: sessionUser?.login || null,
     })
   } catch (err) {
     console.warn('reports: donor resolve failed', err?.message || err)

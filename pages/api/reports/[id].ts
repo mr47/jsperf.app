@@ -44,6 +44,7 @@ export default async function handler(req, res) {
         emailLookupFn: findDonorByEmail,
         sessionEmail: sessionUser?.email || null,
         sessionUserId: sessionUser?.id || null,
+        sessionLogin: sessionUser?.login || null,
       })
       if (!donor) return res.status(401).json({ error: 'Donor required' })
       const ok = await deleteReport({ id, donorName: donor.name })

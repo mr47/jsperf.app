@@ -7,13 +7,9 @@
 /** Slug of the benchmark embedded as the interactive demo on the home page. */
 export const HOME_DEMO_SLUG = 'synthetic-commerce-jit-cpu-profile'
 
-export type HomeStats = {
-  benchmarks: number
-  testCases: number
-  runs: number
-  analyses: number
-  reports: number
-}
+/** Public example artifacts linked from the home page feature previews. */
+export const HOME_EXAMPLE_JIT_PATH = '/jit/f727efdaf587c11d81a7f3ef'
+export const HOME_EXAMPLE_REPORT_PATH = '/r/rvtu7jfm'
 
 export type HomeLatestBenchmark = {
   slug: string
@@ -38,7 +34,6 @@ export type HomeDemoBenchmark = {
 }
 
 export type HomeData = {
-  stats: HomeStats
   latest: HomeLatestBenchmark[]
   demo: HomeDemoBenchmark | null
 }

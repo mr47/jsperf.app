@@ -77,6 +77,7 @@ export async function applyTieredRateLimit(req, name, limits) {
       emailLookupFn: findDonorByEmail,
       sessionEmail: sessionUser?.email || null,
       sessionUserId: sessionUser?.id || null,
+      sessionLogin: sessionUser?.login || null,
     })
   } catch (_) {
     donor = null

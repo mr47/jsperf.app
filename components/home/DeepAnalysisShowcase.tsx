@@ -7,11 +7,11 @@ import type { LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { benchmarkPath } from '../../lib/benchmark/paths'
-import { HOME_DEMO_SLUG } from '../../lib/homeShared'
+import { HOME_DEMO_SLUG, HOME_EXAMPLE_JIT_PATH, HOME_EXAMPLE_REPORT_PATH } from '../../lib/homeShared'
 
 const EXAMPLE_BENCHMARK = benchmarkPath(HOME_DEMO_SLUG)
-const EXAMPLE_JIT = '/jit/f727efdaf587c11d81a7f3ef'
-const EXAMPLE_REPORT = '/r/rvtu7jfm'
+const EXAMPLE_JIT = HOME_EXAMPLE_JIT_PATH
+const EXAMPLE_REPORT = HOME_EXAMPLE_REPORT_PATH
 
 type Feature = {
   value: string

@@ -185,6 +185,23 @@ describe('admin moderation flows', () => {
     expect((await state.users.findOne({ githubId: '99' })).donorGrant).toBeNull()
   })
 
+  it('treats admins as donors by default (env allowlist and promoted role)', async () => {
+    // Env allowlist, matched by id and by login.
+    expect(await getDonorFromRequest(req(), { sessionUserId: '1', sessionEmail: 'admin@example.com', sessionLogin: 'admin' }))
+      .toMatchObject({ via: 'admin', source: 'admin', tierName: 'Admin', name: 'admin' })
+    process.env.ADMIN_GITHUB_IDS = ''
+    process.env.ADMIN_GITHUB_LOGINS = 'Admin'
+    expect(await getDonorFromRequest(req(), { sessionUserId: '1', sessionLogin: 'admin' })).toMatchObject({ via: 'admin' })
+    process.env.ADMIN_GITHUB_LOGINS = ''
+
+    // Role promoted in the directory.
+    await state.users.updateOne({ githubId: '99' }, { $set: { role: 'admin' } })
+    expect(await getDonorFromRequest(req(), { sessionUserId: '99', sessionLogin: 'spammer' })).toMatchObject({ via: 'admin', name: 'spammer' })
+
+    // Non-admins are unaffected.
+    expect(await getDonorFromRequest(req(), { sessionUserId: '5', sessionLogin: 'someone' })).toBeNull()
+  })
+
   it('validates grant duration and requires a directory entry', async () => {
     const tooLong = res()
     await premiumHandler(req({ method: 'POST', query: { id: '99' }, body: { days: 99999 } }), tooLong)

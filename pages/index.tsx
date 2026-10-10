@@ -19,7 +19,7 @@ type Props = HomeData
 // Animated 3D ASCII backdrop; sits behind the whole page like it always has.
 const HeroBackground = dynamic(() => import('../components/HeroBackground'), { ssr: false })
 
-export default function Home({ stats, latest, demo }: Props) {
+export default function Home({ latest, demo }: Props) {
   return (
     <>
       <SEO
@@ -39,7 +39,7 @@ export default function Home({ stats, latest, demo }: Props) {
       <Layout wide>
         <HeroBackground />
         <Hero />
-        <LiveDemo demo={demo} stats={stats} />
+        <LiveDemo demo={demo} />
         <HowItWorks />
         <DeepAnalysisShowcase />
         <LatestBenchmarks items={latest} />
@@ -51,7 +51,6 @@ export default function Home({ stats, latest, demo }: Props) {
 }
 
 const EMPTY: HomeData = {
-  stats: { benchmarks: 0, testCases: 0, runs: 0, analyses: 0, reports: 0 },
   latest: [],
   demo: null,
 }

@@ -1,36 +1,11 @@
-import { analysesCollection, pagesCollection, reportsCollection, runsCollection } from './mongodb'
+import { pagesCollection } from './mongodb'
 import { loadBenchmarkPageData } from './benchmark/pageData'
 import { bumpDateIfOld } from '../utils/DateBump'
-import { HOME_DEMO_SLUG, type HomeData, type HomeDemoBenchmark, type HomeLatestBenchmark, type HomeStats } from './homeShared'
+import { HOME_DEMO_SLUG, type HomeData, type HomeDemoBenchmark, type HomeLatestBenchmark } from './homeShared'
 
 export * from './homeShared'
 
 const asString = (value: unknown, fallback = ''): string => (typeof value === 'string' ? value : fallback)
-
-async function loadStats(): Promise<HomeStats> {
-  const [pages, runs, analyses, reports] = await Promise.all([
-    pagesCollection(), runsCollection(), analysesCollection(), reportsCollection(),
-  ])
-
-  const [pageAgg, runsCount, analysesCount, reportsCount] = await Promise.all([
-    pages.aggregate([
-      { $match: { visible: true } },
-      { $group: { _id: null, benchmarks: { $sum: 1 }, testCases: { $sum: { $size: { $ifNull: ['$tests', []] } } } } },
-    ]).toArray(),
-    runs.estimatedDocumentCount(),
-    analyses.estimatedDocumentCount(),
-    reports.estimatedDocumentCount(),
-  ])
-
-  const first = pageAgg[0] as { benchmarks?: number; testCases?: number } | undefined
-  return {
-    benchmarks: first?.benchmarks ?? 0,
-    testCases: first?.testCases ?? 0,
-    runs: runsCount,
-    analyses: analysesCount,
-    reports: reportsCount,
-  }
-}
 
 /**
  * Latest public benchmarks, one entry per slug (newest revision), most
@@ -84,6 +59,6 @@ async function loadDemo(): Promise<HomeDemoBenchmark | null> {
 }
 
 export async function loadHomeData(): Promise<HomeData> {
-  const [stats, latest, demo] = await Promise.all([loadStats(), loadLatest(6), loadDemo()])
-  return { stats, latest, demo }
+  const [latest, demo] = await Promise.all([loadLatest(6), loadDemo()])
+  return { latest, demo }
 }

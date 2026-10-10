@@ -15,6 +15,7 @@
 import crypto from 'crypto'
 import { redis } from './redis'
 import { findDonorGrant } from './users'
+import { isAdminUser } from './admin'
 
 export const DONOR_COOKIE_NAME = 'jsperf_donor'
 export const DONOR_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30 // 30 days
@@ -166,17 +167,45 @@ export async function invalidateDonorEmailCache(email) {
 }
 
 /**
+ * Synthetic donor session for admins. Returns null for non-admins.
+ * The name is stable (GitHub login, falling back to id) so per-donor
+ * rate-limit buckets and report ownership stay consistent.
+ */
+async function getAdminDonorSession({ id, login, email }) {
+  try {
+    if (!(await isAdminUser({ id: id || null, login: login || null }))) return null
+  } catch (_) {
+    return null
+  }
+  const now = new Date()
+  return {
+    name: login || (id ? `github:${id}` : 'admin'),
+    source: 'admin',
+    amount: 0,
+    currency: 'UAH',
+    tierName: 'Admin',
+    email: email || null,
+    via: 'admin',
+    promoCode: null,
+    githubId: id || null,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + DONOR_SESSION_TTL_SECONDS * 1000).toISOString(),
+  }
+}
+
+/**
  * Resolve the donor for an incoming API request:
  *   1. Explicit donor cookie (verified via /api/donor/verify), OR
  *   2. Admin-granted boost for the signed-in GitHub id / email
  *      (see lib/users.ts — Redis-only lookup), OR
- *   3. NextAuth session email matched against Donatello.
+ *   3. Admin status of the signed-in user (admins are always donors), OR
+ *   4. NextAuth session email matched against Donatello.
  *
  * `emailLookupFn` is injected to avoid a static import cycle between
  * `lib/donorAuth.js` and `lib/donatello.js`. Callers (rate limiter,
  * `/api/donor/me`) pass `findDonorByEmail` from `lib/donatello.js`.
  */
-export async function getDonorFromRequest(req, { emailLookupFn, sessionEmail, sessionUserId } = {}) {
+export async function getDonorFromRequest(req, { emailLookupFn, sessionEmail, sessionUserId, sessionLogin } = {}) {
   const token = readDonorTokenFromReq(req)
   if (token) {
     const session = await getDonorSession(token)
@@ -186,6 +215,16 @@ export async function getDonorFromRequest(req, { emailLookupFn, sessionEmail, se
   if (sessionUserId || sessionEmail) {
     const grant = await findDonorGrant({ githubId: sessionUserId, email: sessionEmail })
     if (grant) return grant
+  }
+
+  // Admins are donors by default — no grant or donation needed.
+  if (sessionUserId || sessionLogin) {
+    const adminSession = await getAdminDonorSession({
+      id: sessionUserId,
+      login: sessionLogin,
+      email: sessionEmail,
+    })
+    if (adminSession) return adminSession
   }
 
   if (sessionEmail) {

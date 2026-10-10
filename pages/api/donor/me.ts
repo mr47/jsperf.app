@@ -37,6 +37,7 @@ export default async function handler(req, res) {
       emailLookupFn: findDonorByEmail,
       sessionEmail: sessionUser?.email || null,
       sessionUserId: sessionUser?.id || null,
+      sessionLogin: sessionUser?.login || null,
     })
     return res.status(200).json({ donor: donor || null })
   } catch (error) {
