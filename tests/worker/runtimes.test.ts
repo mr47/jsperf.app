@@ -2,8 +2,9 @@
 /**
  * Sanity tests for the worker's runtime script builders.
  *
- * We can't easily run the generated scripts in CI (they require Docker +
- * the runtime binaries), but we *can* verify each builder produces:
+ * Deno and Bun scripts need their runtime binaries, so for those we only
+ * verify each builder produces (the Node script is also executed with the
+ * test runner's own node binary):
  *   - Syntactically valid JavaScript
  *   - The shared benchmark loop body
  *   - Runtime-specific helpers (memoryUsage, GC trigger, etc.)
@@ -11,6 +12,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import vm from 'node:vm'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { buildNodeScript } from '../../worker/runtimes/node.js'
 import { buildDenoScript } from '../../worker/runtimes/deno.js'
@@ -43,10 +48,24 @@ describe('runtime script builders', () => {
       expect(src).toContain('computeBenchmarkStats(')
     })
 
-    it('inlines setup and teardown when provided', () => {
+    it('embeds setup and teardown when provided', () => {
       const src = build(baseInput)
       expect(src).toContain('const k = 1;')
       expect(src).toContain('/* cleanup */')
+    })
+
+    it.each([
+      ['a syntax error', 'const arr = [1, 2, 3'],
+      ['module syntax', "import fs from 'fs'"],
+      ['a declaration that shadows a harness name', 'let runBenchmark = 1; let emitResult = 2;'],
+    ])('stays parseable when setup contains %s', (_label, setup) => {
+      const src = build({ ...baseInput, setup })
+      expect(() => new vm.Script(src)).not.toThrow()
+    })
+
+    it('stays parseable when teardown contains a syntax error', () => {
+      const src = build({ ...baseInput, teardown: 'x = {' })
+      expect(() => new vm.Script(src)).not.toThrow()
     })
 
     it('omits the teardown block cleanly when not provided', () => {
@@ -96,6 +115,74 @@ describe('runtime script builders', () => {
     expect(src).toContain("'Profiler.start'")
     expect(src).toContain("'Profiler.stop'")
     expect(src).toContain('cpuProfileMeta')
+  })
+
+  describe('node script execution', () => {
+    function runNodeScript(input) {
+      const dir = mkdtempSync(join(tmpdir(), 'jsperf-runtime-test-'))
+      try {
+        const file = join(dir, 'bench.js')
+        writeFileSync(file, buildNodeScript({ timeMs: 20, ...input }))
+        const child = spawnSync(process.execPath, ['--expose-gc', file], { encoding: 'utf8' })
+        const lines = child.stdout.trim().split('\n').filter(Boolean)
+        return {
+          status: child.status,
+          stderr: child.stderr,
+          result: lines.length > 0 ? JSON.parse(lines[lines.length - 1]) : null,
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    }
+
+    it('reports a setup syntax error as a structured result', () => {
+      const run = runNodeScript({ setup: 'const arr = [1, 2, 3', code: 'arr.length' })
+      expect(run.status).toBe(1)
+      expect(run.stderr).toBe('')
+      expect(run.result).toMatchObject({ state: 'errored', opsPerSec: 0 })
+      expect(run.result.error).toMatch(/^Setup code failed to parse: /)
+    })
+
+    it('reports module syntax in setup as a structured result', () => {
+      const run = runNodeScript({ setup: "import fs from 'fs'", code: '1 + 1' })
+      expect(run.result).toMatchObject({ state: 'errored' })
+      expect(run.result.error).toContain('Setup code failed to parse')
+    })
+
+    it('lets setup declare names the harness also uses', () => {
+      const run = runNodeScript({ setup: 'let runBenchmark = 1; let emitResult = 2;', code: 'runBenchmark + emitResult' })
+      expect(run.status).toBe(0)
+      expect(run.result).toMatchObject({ state: 'completed' })
+    })
+
+    it('shares setup scope with the test and teardown, including await', () => {
+      const run = runNodeScript({
+        setup: 'const items = await Promise.resolve([1, 2, 3]);',
+        code: 'return items.length',
+        teardown: 'await null; console.error("teardown:" + items.length)',
+      })
+      expect(run.result).toMatchObject({ state: 'completed' })
+      expect(run.stderr).toContain('teardown:3')
+    })
+
+    it('treats a broken teardown as non-fatal', () => {
+      const run = runNodeScript({ setup: '', code: '1 + 1', teardown: 'x = {' })
+      expect(run.status).toBe(0)
+      expect(run.result).toMatchObject({ state: 'completed' })
+    })
+
+    it('reports a setup that returns early instead of exiting silently', () => {
+      const run = runNodeScript({ setup: 'return', code: '1 + 1' })
+      expect(run.result).toMatchObject({
+        state: 'errored',
+        error: 'Setup code returned before the benchmark could start',
+      })
+    })
+
+    it('still reports runtime errors thrown by setup', () => {
+      const run = runNodeScript({ setup: 'throw new Error("boom in setup")', code: '1 + 1' })
+      expect(run.result).toMatchObject({ state: 'errored', error: 'boom in setup' })
+    })
   })
 
   it('deno script uses Deno.memoryUsage and Deno.stdout.writeSync', () => {

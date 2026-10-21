@@ -33,13 +33,63 @@ export function benchmarkFunctionParts({ code, isAsync }) {
   }
 }
 
-export function evalBenchmarkFunctionSource(parts) {
+/**
+ * Runs setup, builds the benchmark function and prepares teardown entirely
+ * through direct eval inside the async main().
+ *
+ * User setup/teardown must never be spliced into the generated script as
+ * raw source: a syntax error there (or a declaration that collides with a
+ * harness name such as runBenchmark) would stop the whole script from
+ * parsing, so the runtime would die with a bare stack trace before
+ * __emitError could report anything. Compiling them at runtime turns those
+ * failures into a regular structured error result.
+ *
+ * Setup, the benchmark function and teardown share one function scope so
+ * setup's locals stay visible to the test and teardown. Declares
+ * __benchSource, __benchFn and __runTeardown in the caller's scope.
+ */
+export function evalUserCodeSource({ setup, teardown, parts }) {
+  const setupScope = [
+    '(async function jsperfUserSetup() {',
+    setup || '',
+    ';return { __jsperfUserScope: true, benchFn: eval(__benchSource), teardown: __teardownSource ? (async () => { try { await eval(__teardownSource); } catch (__teardownErr) {} }) : null };',
+    '})',
+  ].join('\n')
+  const teardownScope = teardown ? `(async () => {\n${teardown}\n})()` : ''
+
   return `
 const __benchCode = ${JSON.stringify(parts.testBody)};
 const __benchPrefix = ${JSON.stringify(parts.prefix)};
 const __benchSource = '(' + __benchPrefix + 'function jsperfUserBenchmark() {\\n' + __benchCode + '\\n})\\n//# sourceURL=jsperf-user-code.js';
-const __benchFn = eval(__benchSource);
+const __teardownSource = ${JSON.stringify(teardownScope)};
+let __enterUserScope;
+try {
+  __enterUserScope = eval(${JSON.stringify(setupScope)});
+} catch (__setupErr) {
+  if (__setupErr instanceof SyntaxError) {
+    __setupErr.message = 'Setup code failed to parse: ' + __setupErr.message;
+  }
+  throw __setupErr;
+}
+const __userScope = await __enterUserScope();
+if (!__userScope || __userScope.__jsperfUserScope !== true) {
+  throw new Error('Setup code returned before the benchmark could start');
+}
+const __benchFn = __userScope.benchFn;
+const __runTeardown = __userScope.teardown;
 `
+}
+
+/**
+ * Native TypeScript scripts can't go through eval (it only accepts
+ * JavaScript), so they keep setup and the test function inline; their
+ * sources were already validated by the TypeScript compiler upstream.
+ */
+export function userCodeSource({ setup, teardown, fnParts, nativeTypeScript }) {
+  if (nativeTypeScript) {
+    return `${setup ? setup : ''}\n${inlineBenchmarkFunctionSource(fnParts)}`
+  }
+  return evalUserCodeSource({ setup, teardown, parts: fnParts })
 }
 
 export function inlineBenchmarkFunctionSource(parts) {
@@ -124,7 +174,10 @@ async function runBenchmark() {
 
 /**
  * Wraps user-supplied teardown code (string) in a try/catch so a broken
- * teardown does not fail the entire run. Returns a JS source snippet.
+ * teardown does not fail the entire run. Returns a JS source snippet. Only
+ * used by the native TypeScript scripts, whose sources were already
+ * validated by the TypeScript compiler; JavaScript scripts go through
+ * evalUserCodeSource().
  */
 export function teardownSource(teardown) {
   if (!teardown) return ''
