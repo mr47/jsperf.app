@@ -209,8 +209,20 @@ async function removeSandbox(sandbox: SandboxHandle | undefined, credentials: Sa
 /**
  * Build the Node.js benchmark script that runs inside the sandbox.
  * Outputs a single JSON line to stdout with results.
+ *
+ * Setup, the test function and teardown are compiled at runtime by the
+ * AsyncFunction constructor rather than spliced into the script:
+ *   - a syntax error in user code (or a declaration colliding with a harness
+ *     name) cannot stop the harness itself from parsing, so it is reported
+ *     as a structured error instead of a bare Node stack trace;
+ *   - Function-constructor code is sloppy mode even though the harness is
+ *     'use strict', matching the browser engine (new Function) and QuickJS,
+ *     so classic snippets such as `delete b` or `with` keep working.
+ * Setup sits in its own block so its declarations may shadow the scope's
+ * parameters; `require` is passed through because it is module-scoped in
+ * CommonJS.
  */
-function buildBenchmarkScript(
+export function buildBenchmarkScript(
   code: string,
   { setup, teardown, timeMs, isAsync }: { setup?: string; teardown?: string; timeMs: number; isAsync: boolean },
 ): string {
@@ -220,6 +232,13 @@ function buildBenchmarkScript(
   const testBody = isLegacyAsync
     ? `return new Promise(function(__resolve) { var deferred = { resolve: __resolve };\n${code}\n})`
     : code
+  const userScopeBody = [
+    '{',
+    setup || '',
+    ';return { __jsperfUserScope: true, benchFn: eval(__jsperfBenchSource), teardown: __jsperfTeardownSource ? (() => eval(__jsperfTeardownSource)) : null };',
+    '}',
+  ].join('\n')
+  const teardownScope = teardown ? `(async () => {\n${teardown}\n})()` : ''
 
   return `
 'use strict';
@@ -232,15 +251,33 @@ const IS_ASYNC = ${shouldAwait ? 'true' : 'false'};
 
 ${benchmarkStatsSource()}
 
-async function main() {
-  // Setup
-  ${setup ? setup : ''}
+function __prefixSyntaxError(err, label) {
+  if (err instanceof SyntaxError) err.message = label + ' code failed to parse: ' + err.message;
+  return err;
+}
 
-  // Compile test function — eval preserves access to setup's local scope,
-  // unlike new Function() which only sees global scope
+async function main() {
   const __benchCode = ${JSON.stringify(testBody)};
   const __benchPrefix = ${shouldAwait && !isLegacyAsync ? JSON.stringify('async ') : JSON.stringify('')};
-  const __benchFn = eval('(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})');
+  const __AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+  // Setup runs here; the test function is eval'd inside the same scope so
+  // it can see setup's locals.
+  let __enterUserScope;
+  try {
+    __enterUserScope = new __AsyncFunction('__jsperfBenchSource', '__jsperfTeardownSource', 'require', ${JSON.stringify(userScopeBody)});
+  } catch (err) {
+    throw __prefixSyntaxError(err, 'Setup');
+  }
+  const __userScope = await __enterUserScope(
+    '(' + __benchPrefix + 'function() {\\n' + __benchCode + '\\n})',
+    ${JSON.stringify(teardownScope)},
+    require,
+  );
+  if (!__userScope || __userScope.__jsperfUserScope !== true) {
+    throw new Error('Setup code returned before the benchmark could start');
+  }
+  const __benchFn = __userScope.benchFn;
 
   // Force GC before measurement if available
   if (typeof gc === 'function') gc();
@@ -275,8 +312,15 @@ async function main() {
 
   const totalMs = performance.now() - startMs;
 
-  // Teardown
-  ${teardown ? teardown : ''}
+  if (__userScope.teardown) {
+    let __teardownRun;
+    try {
+      __teardownRun = __userScope.teardown();
+    } catch (err) {
+      throw __prefixSyntaxError(err, 'Teardown');
+    }
+    await __teardownRun;
+  }
 
   // Collect heap stats
   if (typeof gc === 'function') gc();
