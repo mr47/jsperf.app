@@ -253,7 +253,7 @@ export async function runInContainer({
       ? { ...parsedStdout.result, error: `Runtime crashed: ${crashMessage}` }
       : parsedStdout.result
     const perfCounters = usePerf ? parsePerfStderr(stderrTail) : null
-    const runtimeStderrTail = appendTail('', stderrTail, STDERR_TAIL_BYTES)
+    const runtimeStderrTail = appendTail('', stripAnsi(stderrTail), STDERR_TAIL_BYTES)
     const runtimeStdoutTail = appendTail('', stdoutTail, FAILURE_STDOUT_TAIL_BYTES)
     const strippedJitStdout = captureJit ? stripJsonResultLines(jitStdout) : ''
     const jitArtifact = captureJit
@@ -320,7 +320,7 @@ export async function runInContainer({
         stdoutTailBytes: Buffer.byteLength(runtimeStdoutTail),
         stdoutTail: runtimeStdoutTail || null,
         stderrHead: parsedStdout.resultLineIndex === -1
-          ? appendHead('', stderrHead, STDERR_TAIL_BYTES).value || null
+          ? appendHead('', stripAnsi(stderrHead), STDERR_TAIL_BYTES).value || null
           : undefined,
         stderrTail: runtimeStderrTail || null,
       })
@@ -515,6 +515,12 @@ function createStdoutResultTracker() {
 
 const RUNTIME_CRASH_LINE_RE = /^(?:Uncaught\s+)?(?:(?:[A-Z][\w$]*)?Error|FATAL ERROR|error)(?:\s*\[[^\]]*\])?:\s*\S/
 const RUNTIME_CRASH_MESSAGE_MAX_CHARS = 300
+// Deno colours its error output even when stderr is a pipe and NO_COLOR is set.
+const ANSI_ESCAPE_RE = /\x1B\[[0-?]*[ -/]*[@-~]/g
+
+function stripAnsi(text) {
+  return text ? text.replace(ANSI_ESCAPE_RE, '') : text
+}
 
 /**
  * Pull the error line (e.g. "SyntaxError: Unexpected token 'const'") out of
@@ -523,7 +529,7 @@ const RUNTIME_CRASH_MESSAGE_MAX_CHARS = 300
  */
 function runtimeCrashMessage(stderr) {
   if (!stderr) return null
-  for (const line of stderr.split(/\r?\n/)) {
+  for (const line of stripAnsi(stderr).split(/\r?\n/)) {
     const trimmed = line.trim()
     if (RUNTIME_CRASH_LINE_RE.test(trimmed)) {
       return trimmed.slice(0, RUNTIME_CRASH_MESSAGE_MAX_CHARS)

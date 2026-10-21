@@ -280,4 +280,13 @@ describe('worker docker output handling', () => {
     expect(__testing.runtimeCrashMessage('    at Module._compile (node:internal/modules/cjs/loader:1903:20)\n')).toBeNull()
     expect(__testing.runtimeCrashMessage('')).toBeNull()
   })
+
+  it('extracts the error line from colourised Deno crash output', () => {
+    const denoCrash = '\x1B[0m\x1B[1m\x1B[31merror\x1B[0m: Uncaught SyntaxError: Delete of an unqualified identifier in strict mode.\n' +
+      '  delete b\n' +
+      '\x1B[0m\x1B[31m         ^\x1B[0m\n' +
+      '    at \x1B[0m\x1B[1m\x1B[3m<anonymous>\x1B[0m (\x1B[0m\x1B[2m\x1B[38;5;245mfile:///\x1B[0m\x1B[0m\x1B[36mwork/bench.js\x1B[0m:\x1B[0m\x1B[33m196\x1B[0m:\x1B[0m\x1B[33m10\x1B[0m)\n'
+    expect(__testing.runtimeCrashMessage(denoCrash))
+      .toBe('error: Uncaught SyntaxError: Delete of an unqualified identifier in strict mode.')
+  })
 })
