@@ -257,4 +257,27 @@ describe('worker docker output handling', () => {
     tracker.push(`${'more noise\n'.repeat(50_000)}`)
     expect(tracker.finish().result).toMatchObject({ state: 'completed', opsPerSec: 42 })
   })
+
+  it('extracts the error line from a runtime crash that never emitted a result', () => {
+    const nodeCrash = [
+      '/work/bench.js:170',
+      'const __benchCode = "arr.map(x => x * 2)";',
+      '^^^^^',
+      '',
+      "SyntaxError: Unexpected token 'const'",
+      '    at wrapSafe (node:internal/modules/cjs/loader:1861:18)',
+      '    at Module._compile (node:internal/modules/cjs/loader:1903:20)',
+      '',
+      'Node.js v24.22.0',
+    ].join('\n')
+    expect(__testing.runtimeCrashMessage(nodeCrash)).toBe("SyntaxError: Unexpected token 'const'")
+    expect(__testing.runtimeCrashMessage('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n'))
+      .toBe('FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory')
+    expect(__testing.runtimeCrashMessage("error: Uncaught (in promise) ReferenceError: x is not defined\n    at file:///work/bench.js:1:1"))
+      .toBe('error: Uncaught (in promise) ReferenceError: x is not defined')
+    expect(__testing.runtimeCrashMessage("Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/work/x.js'"))
+      .toBe("Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/work/x.js'")
+    expect(__testing.runtimeCrashMessage('    at Module._compile (node:internal/modules/cjs/loader:1903:20)\n')).toBeNull()
+    expect(__testing.runtimeCrashMessage('')).toBeNull()
+  })
 })

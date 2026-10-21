@@ -51,6 +51,9 @@ const JIT_CAPTURE_MAX_BYTES = 4 * 1024 * 1024
 // result JSON line is tracked incrementally as it streams past).
 const STDOUT_PARSE_TAIL_BYTES = 256 * 1024
 const STDERR_CAPTURE_TAIL_BYTES = 64 * 1024
+// Crash reports put the error message before the stack, so the head is what
+// explains a run that died without emitting a result.
+const STDERR_CAPTURE_HEAD_BYTES = 4 * 1024
 const STDERR_TAIL_BYTES = 500
 const FAILURE_STDOUT_TAIL_BYTES = 2000
 
@@ -155,6 +158,7 @@ export async function runInContainer({
   let stdoutTail = ''
   let jitStdout = ''
   let stderrTail = ''
+  let stderrHead = ''
   let jitStderr = ''
   let jitTruncated = false
   let timedOut = false
@@ -224,6 +228,7 @@ export async function runInContainer({
     child.stderr.on('data', d => {
       const text = d.toString()
       stderrTail = appendTail(stderrTail, text, STDERR_CAPTURE_TAIL_BYTES)
+      stderrHead = appendHead(stderrHead, text, STDERR_CAPTURE_HEAD_BYTES).value
       if (captureJit) {
         const next = appendHead(jitStderr, text, JIT_CAPTURE_MAX_BYTES)
         jitStderr = next.value
@@ -241,7 +246,12 @@ export async function runInContainer({
 
     const durationMs = Date.now() - start
     const parsedStdout = stdoutResultTracker.finish()
-    const result = parsedStdout.result
+    const crashMessage = parsedStdout.resultLineIndex === -1 && !timedOut
+      ? runtimeCrashMessage(stderrHead)
+      : null
+    const result = crashMessage
+      ? { ...parsedStdout.result, error: `Runtime crashed: ${crashMessage}` }
+      : parsedStdout.result
     const perfCounters = usePerf ? parsePerfStderr(stderrTail) : null
     const runtimeStderrTail = appendTail('', stderrTail, STDERR_TAIL_BYTES)
     const runtimeStdoutTail = appendTail('', stdoutTail, FAILURE_STDOUT_TAIL_BYTES)
@@ -309,6 +319,9 @@ export async function runInContainer({
         parsedResultLineIndex: parsedStdout.resultLineIndex,
         stdoutTailBytes: Buffer.byteLength(runtimeStdoutTail),
         stdoutTail: runtimeStdoutTail || null,
+        stderrHead: parsedStdout.resultLineIndex === -1
+          ? appendHead('', stderrHead, STDERR_TAIL_BYTES).value || null
+          : undefined,
         stderrTail: runtimeStderrTail || null,
       })
     }
@@ -500,6 +513,25 @@ function createStdoutResultTracker() {
   }
 }
 
+const RUNTIME_CRASH_LINE_RE = /^(?:Uncaught\s+)?(?:(?:[A-Z][\w$]*)?Error|FATAL ERROR|error)(?:\s*\[[^\]]*\])?:\s*\S/
+const RUNTIME_CRASH_MESSAGE_MAX_CHARS = 300
+
+/**
+ * Pull the error line (e.g. "SyntaxError: Unexpected token 'const'") out of
+ * a runtime's crash output. Node, Deno and Bun all print it before the stack
+ * trace, which is why this reads the stderr head rather than its tail.
+ */
+function runtimeCrashMessage(stderr) {
+  if (!stderr) return null
+  for (const line of stderr.split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (RUNTIME_CRASH_LINE_RE.test(trimmed)) {
+      return trimmed.slice(0, RUNTIME_CRASH_MESSAGE_MAX_CHARS)
+    }
+  }
+  return null
+}
+
 function parseJsonLine(line) {
   const matches = findBenchmarkJsonResults(line.trim())
   const match = matches[matches.length - 1]
@@ -647,6 +679,7 @@ export const __testing = {
   parseStdoutResult,
   parsePerfStderr,
   createStdoutResultTracker,
+  runtimeCrashMessage,
   stripJsonResultLines,
   buildJitArtifact,
   hasOptimizedCodeBlock,
