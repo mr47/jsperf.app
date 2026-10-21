@@ -34,8 +34,8 @@ export function benchmarkFunctionParts({ code, isAsync }) {
 }
 
 /**
- * Runs setup, builds the benchmark function and prepares teardown entirely
- * through direct eval inside the async main().
+ * Runs setup, builds the benchmark function and prepares teardown inside a
+ * function compiled at runtime by the AsyncFunction constructor.
  *
  * User setup/teardown must never be spliced into the generated script as
  * raw source: a syntax error there (or a declaration that collides with a
@@ -44,16 +44,24 @@ export function benchmarkFunctionParts({ code, isAsync }) {
  * __emitError could report anything. Compiling them at runtime turns those
  * failures into a regular structured error result.
  *
- * Setup, the benchmark function and teardown share one function scope so
- * setup's locals stay visible to the test and teardown. Declares
+ * Function-constructor code is sloppy mode regardless of the caller, which
+ * matches the browser engine (new Function) and QuickJS. That matters for
+ * Deno, whose ES module scripts are always strict, and for Node's
+ * 'use strict' harness: classic snippets such as `delete b` or `with` would
+ * otherwise be SyntaxErrors only on the Docker runtimes.
+ *
+ * Setup, the benchmark function and teardown share one scope so setup's
+ * locals stay visible to the test and teardown. Setup sits in its own block
+ * so its declarations may shadow the scope's parameters. `require` is passed
+ * through because it is module-scoped (not global) in CommonJS. Declares
  * __benchSource, __benchFn and __runTeardown in the caller's scope.
  */
 export function evalUserCodeSource({ setup, teardown, parts }) {
-  const setupScope = [
-    '(async function jsperfUserSetup() {',
+  const setupBody = [
+    '{',
     setup || '',
-    ';return { __jsperfUserScope: true, benchFn: eval(__benchSource), teardown: __teardownSource ? (async () => { try { await eval(__teardownSource); } catch (__teardownErr) {} }) : null };',
-    '})',
+    ';return { __jsperfUserScope: true, benchFn: eval(__jsperfBenchSource), teardown: __jsperfTeardownSource ? (async () => { try { await eval(__jsperfTeardownSource); } catch (__teardownErr) {} }) : null };',
+    '}',
   ].join('\n')
   const teardownScope = teardown ? `(async () => {\n${teardown}\n})()` : ''
 
@@ -62,16 +70,21 @@ const __benchCode = ${JSON.stringify(parts.testBody)};
 const __benchPrefix = ${JSON.stringify(parts.prefix)};
 const __benchSource = '(' + __benchPrefix + 'function jsperfUserBenchmark() {\\n' + __benchCode + '\\n})\\n//# sourceURL=jsperf-user-code.js';
 const __teardownSource = ${JSON.stringify(teardownScope)};
+const __AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 let __enterUserScope;
 try {
-  __enterUserScope = eval(${JSON.stringify(setupScope)});
+  __enterUserScope = new __AsyncFunction('__jsperfBenchSource', '__jsperfTeardownSource', 'require', ${JSON.stringify(setupBody)});
 } catch (__setupErr) {
   if (__setupErr instanceof SyntaxError) {
     __setupErr.message = 'Setup code failed to parse: ' + __setupErr.message;
   }
   throw __setupErr;
 }
-const __userScope = await __enterUserScope();
+const __userScope = await __enterUserScope(
+  __benchSource,
+  __teardownSource,
+  typeof require === 'function' ? require : undefined,
+);
 if (!__userScope || __userScope.__jsperfUserScope !== true) {
   throw new Error('Setup code returned before the benchmark could start');
 }

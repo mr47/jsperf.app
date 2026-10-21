@@ -171,6 +171,24 @@ describe('runtime script builders', () => {
       expect(run.result).toMatchObject({ state: 'completed' })
     })
 
+    it.each([
+      ['delete of an identifier in teardown', { setup: 'var b = { x: 1 };', code: 'b.x + 1', teardown: 'delete b; console.error("teardown ran")' }],
+      ['delete of an identifier in setup', { setup: 'a = 1; delete a;', code: '1 + 1' }],
+      ['a with statement in the test', { setup: 'var o = { v: 2 };', code: 'with (o) { v * 2 }' }],
+      ['sloppy this in setup', { setup: 'if (this !== globalThis) throw new Error("strict");', code: '1 + 1' }],
+    ])('runs user code in sloppy mode like the browser engine: %s', (_label, input) => {
+      const run = runNodeScript(input)
+      expect(run.result).toMatchObject({ state: 'completed' })
+      if (input.teardown) expect(run.stderr).toContain('teardown ran')
+    })
+
+    it('exposes the CommonJS require to setup and lets setup shadow it', () => {
+      expect(runNodeScript({ setup: "const crypto = require('crypto');", code: 'crypto.randomBytes(4)' }).result)
+        .toMatchObject({ state: 'completed' })
+      expect(runNodeScript({ setup: 'const require = 5;', code: 'return require + 1' }).result)
+        .toMatchObject({ state: 'completed' })
+    })
+
     it('reports a setup that returns early instead of exiting silently', () => {
       const run = runNodeScript({ setup: 'return', code: '1 + 1' })
       expect(run.result).toMatchObject({
