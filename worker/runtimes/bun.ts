@@ -13,8 +13,7 @@ import {
   teardownSource,
   errorTrapSource,
   benchmarkFunctionParts,
-  evalBenchmarkFunctionSource,
-  inlineBenchmarkFunctionSource,
+  userCodeSource,
 } from './common.js'
 
 export function buildBunScript({ code, setup, teardown, timeMs, isAsync, nativeTypeScript = false }) {
@@ -74,15 +73,13 @@ async function main() {
     // bun:jsc not available; fall back to process.memoryUsage only
   }
 
-  ${setup ? setup : ''}
-
-  ${nativeTypeScript ? inlineBenchmarkFunctionSource(fnParts) : evalBenchmarkFunctionSource(fnParts)}
+  ${userCodeSource({ setup, teardown, fnParts, nativeTypeScript })}
 
   ${benchmarkLoopSource()}
 
   await runBenchmark();
 
-  ${teardownSource(teardown)}
+  ${nativeTypeScript ? teardownSource(teardown) : 'if (__runTeardown) await __runTeardown();'}
 }
 
 main().catch(err => {

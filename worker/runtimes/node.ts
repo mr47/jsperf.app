@@ -3,7 +3,8 @@
  * Node.js benchmark script builder.
  *
  * Produces a complete standalone Node.js script that:
- *   1. Runs user setup code
+ *   1. Compiles and runs user setup code via eval, so a broken setup is
+ *      reported as a JSON error instead of a script-level SyntaxError
  *   2. Compiles the test snippet via eval (to preserve setup's local scope)
  *   3. Runs the shared benchmark loop
  *   4. Emits a single JSON line to stdout with results + V8 heap stats
@@ -13,10 +14,9 @@
 
 import {
   benchmarkLoopSource,
-  teardownSource,
   errorTrapSource,
   benchmarkFunctionParts,
-  evalBenchmarkFunctionSource,
+  evalUserCodeSource,
 } from './common.js'
 
 export function buildNodeScript({ code, setup, teardown, timeMs, isAsync, profiling }) {
@@ -178,15 +178,13 @@ ${errorTrapSource()}
 async function main() {
   await startCpuProfile();
 
-  ${setup ? setup : ''}
-
-  ${evalBenchmarkFunctionSource(fnParts)}
+  ${evalUserCodeSource({ setup, teardown, parts: fnParts })}
 
   ${benchmarkLoopSource()}
 
   await runBenchmark();
 
-  ${teardownSource(teardown)}
+  if (__runTeardown) await __runTeardown();
 
   if (ENABLE_CPU_PROFILE && __benchmarkResult) {
     emitResult(await finalizeBenchmarkResult(__benchmarkResult, __benchSource));

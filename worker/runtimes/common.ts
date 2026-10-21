@@ -33,13 +33,76 @@ export function benchmarkFunctionParts({ code, isAsync }) {
   }
 }
 
-export function evalBenchmarkFunctionSource(parts) {
+/**
+ * Runs setup, builds the benchmark function and prepares teardown inside a
+ * function compiled at runtime by the AsyncFunction constructor.
+ *
+ * User setup/teardown must never be spliced into the generated script as
+ * raw source: a syntax error there (or a declaration that collides with a
+ * harness name such as runBenchmark) would stop the whole script from
+ * parsing, so the runtime would die with a bare stack trace before
+ * __emitError could report anything. Compiling them at runtime turns those
+ * failures into a regular structured error result.
+ *
+ * Function-constructor code is sloppy mode regardless of the caller, which
+ * matches the browser engine (new Function) and QuickJS. That matters for
+ * Deno, whose ES module scripts are always strict, and for Node's
+ * 'use strict' harness: classic snippets such as `delete b` or `with` would
+ * otherwise be SyntaxErrors only on the Docker runtimes.
+ *
+ * Setup, the benchmark function and teardown share one scope so setup's
+ * locals stay visible to the test and teardown. Setup sits in its own block
+ * so its declarations may shadow the scope's parameters. `require` is passed
+ * through because it is module-scoped (not global) in CommonJS. Declares
+ * __benchSource, __benchFn and __runTeardown in the caller's scope.
+ */
+export function evalUserCodeSource({ setup, teardown, parts }) {
+  const setupBody = [
+    '{',
+    setup || '',
+    ';return { __jsperfUserScope: true, benchFn: eval(__jsperfBenchSource), teardown: __jsperfTeardownSource ? (async () => { try { await eval(__jsperfTeardownSource); } catch (__teardownErr) {} }) : null };',
+    '}',
+  ].join('\n')
+  const teardownScope = teardown ? `(async () => {\n${teardown}\n})()` : ''
+
   return `
 const __benchCode = ${JSON.stringify(parts.testBody)};
 const __benchPrefix = ${JSON.stringify(parts.prefix)};
 const __benchSource = '(' + __benchPrefix + 'function jsperfUserBenchmark() {\\n' + __benchCode + '\\n})\\n//# sourceURL=jsperf-user-code.js';
-const __benchFn = eval(__benchSource);
+const __teardownSource = ${JSON.stringify(teardownScope)};
+const __AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+let __enterUserScope;
+try {
+  __enterUserScope = new __AsyncFunction('__jsperfBenchSource', '__jsperfTeardownSource', 'require', ${JSON.stringify(setupBody)});
+} catch (__setupErr) {
+  if (__setupErr instanceof SyntaxError) {
+    __setupErr.message = 'Setup code failed to parse: ' + __setupErr.message;
+  }
+  throw __setupErr;
+}
+const __userScope = await __enterUserScope(
+  __benchSource,
+  __teardownSource,
+  typeof require === 'function' ? require : undefined,
+);
+if (!__userScope || __userScope.__jsperfUserScope !== true) {
+  throw new Error('Setup code returned before the benchmark could start');
+}
+const __benchFn = __userScope.benchFn;
+const __runTeardown = __userScope.teardown;
 `
+}
+
+/**
+ * Native TypeScript scripts can't go through eval (it only accepts
+ * JavaScript), so they keep setup and the test function inline; their
+ * sources were already validated by the TypeScript compiler upstream.
+ */
+export function userCodeSource({ setup, teardown, fnParts, nativeTypeScript }) {
+  if (nativeTypeScript) {
+    return `${setup ? setup : ''}\n${inlineBenchmarkFunctionSource(fnParts)}`
+  }
+  return evalUserCodeSource({ setup, teardown, parts: fnParts })
 }
 
 export function inlineBenchmarkFunctionSource(parts) {
@@ -124,7 +187,10 @@ async function runBenchmark() {
 
 /**
  * Wraps user-supplied teardown code (string) in a try/catch so a broken
- * teardown does not fail the entire run. Returns a JS source snippet.
+ * teardown does not fail the entire run. Returns a JS source snippet. Only
+ * used by the native TypeScript scripts, whose sources were already
+ * validated by the TypeScript compiler; JavaScript scripts go through
+ * evalUserCodeSource().
  */
 export function teardownSource(teardown) {
   if (!teardown) return ''

@@ -13,8 +13,7 @@ import {
   teardownSource,
   errorTrapSource,
   benchmarkFunctionParts,
-  evalBenchmarkFunctionSource,
-  inlineBenchmarkFunctionSource,
+  userCodeSource,
 } from './common.js'
 
 export function buildDenoScript({ code, setup, teardown, timeMs, isAsync, nativeTypeScript = false }) {
@@ -53,15 +52,13 @@ function collectMemory() {
 ${errorTrapSource()}
 
 async function main() {
-  ${setup ? setup : ''}
-
-  ${nativeTypeScript ? inlineBenchmarkFunctionSource(fnParts) : evalBenchmarkFunctionSource(fnParts)}
+  ${userCodeSource({ setup, teardown, fnParts, nativeTypeScript })}
 
   ${benchmarkLoopSource()}
 
   await runBenchmark();
 
-  ${teardownSource(teardown)}
+  ${nativeTypeScript ? teardownSource(teardown) : 'if (__runTeardown) await __runTeardown();'}
 }
 
 main().catch(err => {
