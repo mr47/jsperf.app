@@ -64,7 +64,77 @@ vi.mock('@vercel/sandbox', () => ({
   },
 }))
 
-import { runInV8Sandbox } from '../../lib/engines/v8sandbox'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { buildBenchmarkScript, runInV8Sandbox } from '../../lib/engines/v8sandbox'
+
+function runSandboxScript(code, { setup = '', teardown = '', isAsync = false } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'jsperf-v8sandbox-test-'))
+  try {
+    const file = join(dir, 'bench.js')
+    writeFileSync(file, buildBenchmarkScript(code, { setup, teardown, timeMs: 20, isAsync }))
+    const child = spawnSync(process.execPath, ['--expose-gc', file], { encoding: 'utf8' })
+    const lines = child.stdout.trim().split('\n').filter(Boolean)
+    return {
+      status: child.status,
+      stderr: child.stderr,
+      result: lines.length > 0 ? JSON.parse(lines[lines.length - 1]) : null,
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('buildBenchmarkScript (executed with the local node binary)', () => {
+  it('runs a sloppy-mode teardown such as `delete b`', () => {
+    const run = runSandboxScript('b.x + 1', {
+      setup: 'var b = { x: 1 };',
+      teardown: 'delete b; console.error("teardown ran")',
+    })
+    expect(run.stderr).not.toContain('SyntaxError')
+    expect(run.result).toMatchObject({ state: 'completed' })
+    expect(run.stderr).toContain('teardown ran')
+  })
+
+  it.each([
+    ['delete in setup', 'a = 1; delete a;', '1 + 1'],
+    ['with in the test', 'var o = { v: 2 };', 'with (o) { v * 2 }'],
+    ['harness-name declarations in setup', 'let main = 1; let samples = 2; let v8 = 3;', 'main + samples + v8'],
+    ['require in setup', "const crypto = require('crypto');", 'crypto.randomBytes(4)'],
+  ])('runs %s', (_label, setup, code) => {
+    expect(runSandboxScript(code, { setup }).result).toMatchObject({ state: 'completed' })
+  })
+
+  it('shares setup scope with the test and teardown, including await', () => {
+    const run = runSandboxScript('return items.length', {
+      setup: 'const items = await Promise.resolve([1, 2, 3]);',
+      teardown: 'await null; console.error("teardown:" + items.length)',
+    })
+    expect(run.result).toMatchObject({ state: 'completed' })
+    expect(run.stderr).toContain('teardown:3')
+  })
+
+  it('reports setup and teardown syntax errors as structured results', () => {
+    const setupRun = runSandboxScript('1 + 1', { setup: 'const arr = [1, 2, 3' })
+    expect(setupRun.status).toBe(1)
+    expect(setupRun.stderr).toBe('')
+    expect(setupRun.result.state).toBe('errored')
+    expect(setupRun.result.error).toMatch(/^Setup code failed to parse: /)
+
+    const teardownRun = runSandboxScript('1 + 1', { teardown: 'x = {' })
+    expect(teardownRun.result.state).toBe('errored')
+    expect(teardownRun.result.error).toMatch(/^Teardown code failed to parse: /)
+  })
+
+  it('reports a setup that returns early', () => {
+    expect(runSandboxScript('1 + 1', { setup: 'return' }).result).toMatchObject({
+      state: 'errored',
+      error: 'Setup code returned before the benchmark could start',
+    })
+  })
+})
 
 const ACCESS_TOKEN_ENV = {
   VERCEL_TOKEN: 'vercel_pat_test',
