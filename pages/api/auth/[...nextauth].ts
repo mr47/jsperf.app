@@ -40,6 +40,9 @@ export default NextAuth({
     GitHubProvider({
       clientId: process.env.GITHUB_ID,
       clientSecret: process.env.GITHUB_SECRET,
+      // GitHub sends `iss` on the OAuth callback (RFC 9207); openid-client
+      // rejects the callback unless the issuer is configured to match.
+      issuer: 'https://github.com/login/oauth',
       authorization: 'https://github.com/login/oauth/authorize?scope=read:user%20user:email',
     })
   ],
